@@ -176,7 +176,7 @@ html[data-theme="dark"] #apolloView {
 .apollo-music-coming-card,
 .apollo-task-add,
 .apollo-task-section,
-.apollo-settings-section,
+.apollo-settings-panel,
 .studio5-stage,
 .studio5-project-card,
 .apollo-week-shell,
@@ -344,7 +344,7 @@ button:active {
     .apollo-now-playing,
     .apollo-task-add,
     .apollo-task-section,
-    .apollo-settings-section,
+    .apollo-settings-panel,
     .studio5-stage,
     .apollo-week-shell {
         border-radius: 22px !important;
@@ -430,7 +430,7 @@ body::before {
 }
 
 .sidebar {
-    margin: 14px 0 14px 14px !important;
+    margin: 14px !important;
     height: calc(100% - 28px) !important;
     border-radius: 22px !important;
     box-shadow:
@@ -451,7 +451,7 @@ body::before {
 }
 
 .main {
-    padding: 14px 14px 14px 10px !important;
+    padding: 14px 14px 14px 0 !important;
 }
 
 .home,
@@ -493,7 +493,7 @@ body::before {
 .apollo-music-coming-card,
 .apollo-task-add,
 .apollo-task-section,
-.apollo-settings-section,
+.apollo-settings-panel,
 .studio5-stage,
 .studio5-project-card,
 .apollo-week-shell,
@@ -594,7 +594,7 @@ body::before {
     .apollo-now-playing,
     .apollo-task-add,
     .apollo-task-section,
-    .apollo-settings-section,
+    .apollo-settings-panel,
     .studio5-stage,
     .apollo-week-shell {
         border-radius: 20px !important;
@@ -680,7 +680,7 @@ html[data-theme="dark"] .debrief-box,
 html[data-theme="dark"] .apollo-now-playing,
 html[data-theme="dark"] .apollo-task-add,
 html[data-theme="dark"] .apollo-task-section,
-html[data-theme="dark"] .apollo-settings-section,
+html[data-theme="dark"] .apollo-settings-panel,
 html[data-theme="dark"] .studio5-stage,
 html[data-theme="dark"] .apollo-week-shell {
     border-color: rgba(255,255,255,.075) !important;
@@ -709,7 +709,7 @@ html[data-theme="dark"] .nav-button.active {
     html[data-theme="dark"] .apollo-music-coming-card,
     html[data-theme="dark"] .apollo-task-add,
     html[data-theme="dark"] .apollo-task-section,
-    html[data-theme="dark"] .apollo-settings-section,
+    html[data-theme="dark"] .apollo-settings-panel,
     html[data-theme="dark"] .studio5-stage,
     html[data-theme="dark"] .studio5-project-card,
     html[data-theme="dark"] .apollo-week-shell {
@@ -765,7 +765,7 @@ html[data-theme="dark"] .nav-button.active {
     .sidebar:hover {
         width: 54px !important;
         height: calc(100% - 12px) !important;
-        margin: 6px 0 6px 6px !important;
+        margin: 6px !important;
         padding: 7px 6px !important;
         align-items: center !important;
         border-radius: 18px !important;

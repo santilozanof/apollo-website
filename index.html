@@ -22115,7 +22115,7 @@ html.apollo-jarvis-mode .jv10-core-ring.inner::after {
  */
 
 body:has(#apolloView.active) #studioView,
-body:has(#homeView.active) #studioView,
+body:has(.home:not(.hidden)) #studioView,
 body:has(#musicView.active) #studioView,
 body:has(#calendarView.active) #studioView,
 body:has(#tasksView.active) #studioView,
@@ -22130,21 +22130,21 @@ body:has(#settingsView.active) #studioView {
 /* Studio UI that may live outside #studioView */
 
 body:has(#apolloView.active) .studio5-transport,
-body:has(#homeView.active) .studio5-transport,
+body:has(.home:not(.hidden)) .studio5-transport,
 body:has(#musicView.active) .studio5-transport,
 body:has(#calendarView.active) .studio5-transport,
 body:has(#tasksView.active) .studio5-transport,
 body:has(#settingsView.active) .studio5-transport,
 
 body:has(#apolloView.active) .studio5-modal-backdrop,
-body:has(#homeView.active) .studio5-modal-backdrop,
+body:has(.home:not(.hidden)) .studio5-modal-backdrop,
 body:has(#musicView.active) .studio5-modal-backdrop,
 body:has(#calendarView.active) .studio5-modal-backdrop,
 body:has(#tasksView.active) .studio5-modal-backdrop,
 body:has(#settingsView.active) .studio5-modal-backdrop,
 
 body:has(#apolloView.active) .studio5-menu,
-body:has(#homeView.active) .studio5-menu,
+body:has(.home:not(.hidden)) .studio5-menu,
 body:has(#musicView.active) .studio5-menu,
 body:has(#calendarView.active) .studio5-menu,
 body:has(#tasksView.active) .studio5-menu,
@@ -22169,7 +22169,6 @@ body:has(#settingsView.active) .studio5-menu {
 
 
     const otherViewIds = [
-        "homeView",
         "apolloView",
         "musicView",
         "calendarView",
@@ -22187,6 +22186,12 @@ body:has(#settingsView.active) .studio5-menu {
                     )
             )
             .filter(Boolean);
+
+
+    const homeView =
+        document.querySelector(
+            ".home"
+        );
 
 
     function closeStudioUI() {
@@ -22227,7 +22232,13 @@ body:has(#settingsView.active) .studio5-menu {
     function enforceIsolation() {
 
         const anotherViewIsActive =
-            otherViews.some(
+            (
+                homeView
+                && !homeView.classList.contains(
+                    "hidden"
+                )
+            )
+            || otherViews.some(
                 view =>
                     view.classList.contains(
                         "active"
@@ -22278,6 +22289,21 @@ body:has(#settingsView.active) .studio5-menu {
 
         }
     );
+
+
+    if (homeView) {
+
+        observer.observe(
+            homeView,
+            {
+                attributes: true,
+                attributeFilter: [
+                    "class"
+                ]
+            }
+        );
+
+    }
 
 
     enforceIsolation();
@@ -77247,5 +77273,5 @@ html.apollo-jarvis-mode
 <link
     id="apollo-premium-v1-css"
     rel="stylesheet"
-    href="/apollo_premium_v1.css?v=20260902-3"
+    href="/apollo_premium_v1.css?v=20260902-4"
 >
