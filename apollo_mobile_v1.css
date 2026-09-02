@@ -1,0 +1,2841 @@
+/* =========================================================
+   APOLLO MOBILE V1
+   Phone-only interface layer.
+   Desktop remains untouched.
+   ========================================================= */
+
+:root {
+    --apollo-mobile-nav-h: 64px;
+    --apollo-mobile-safe-top: env(safe-area-inset-top, 0px);
+    --apollo-mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+
+/* =========================================================
+   PHONE
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    html,
+    body {
+        width: 100%;
+        min-width: 0;
+        min-height: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+
+        -webkit-tap-highlight-color: transparent;
+        -webkit-text-size-adjust: 100%;
+    }
+
+
+    body {
+        min-height: 100dvh;
+    }
+
+
+    button,
+    a,
+    input,
+    textarea,
+    select {
+        touch-action: manipulation;
+    }
+
+
+    .app {
+        width: 100%;
+        height: 100dvh;
+        min-height: 100dvh;
+    }
+
+
+    /* =====================================================
+       BOTTOM NAV
+       ===================================================== */
+
+    .sidebar {
+        position: fixed !important;
+
+        z-index: 1000 !important;
+
+        left: 0 !important;
+        right: 0 !important;
+        top: auto !important;
+        bottom: 0 !important;
+
+        width: 100% !important;
+
+        height:
+            calc(
+                var(--apollo-mobile-nav-h)
+                + var(--apollo-mobile-safe-bottom)
+            ) !important;
+
+        box-sizing: border-box !important;
+
+        padding:
+            6px
+            8px
+            calc(
+                6px
+                + var(--apollo-mobile-safe-bottom)
+            )
+            !important;
+
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: center !important;
+
+        gap: 0 !important;
+
+        border: 0 !important;
+        border-top:
+            1px solid
+            rgba(255,255,255,.075)
+            !important;
+
+        background:
+            rgba(8,8,9,.88)
+            !important;
+
+        box-shadow:
+            0 -10px 34px
+            rgba(0,0,0,.18);
+
+        backdrop-filter:
+            blur(28px)
+            saturate(150%);
+
+        -webkit-backdrop-filter:
+            blur(28px)
+            saturate(150%);
+
+        transition:
+            transform 220ms
+            cubic-bezier(.22,1,.36,1)
+            !important;
+    }
+
+
+    html[data-theme="light"]
+    .sidebar {
+        background:
+            rgba(248,248,249,.88)
+            !important;
+
+        border-top-color:
+            rgba(0,0,0,.08)
+            !important;
+
+        box-shadow:
+            0 -10px 32px
+            rgba(0,0,0,.055);
+    }
+
+
+    .sidebar:hover {
+        width: 100% !important;
+        align-items: center !important;
+    }
+
+
+    .sidebar .brand {
+        display: none !important;
+    }
+
+
+    .sidebar .nav {
+        width: auto !important;
+        flex: 0 0 auto !important;
+
+        margin: 0 !important;
+
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: center !important;
+
+        gap: 0 !important;
+    }
+
+
+    .sidebar .sidebar-bottom {
+        width: auto !important;
+        flex: 0 0 auto !important;
+
+        margin: 0 !important;
+
+        display: flex !important;
+        align-items: center !important;
+    }
+
+
+    .sidebar .nav-button {
+        width:
+            min(
+                64px,
+                calc(
+                    (100vw - 16px)
+                    / 7
+                )
+            )
+            !important;
+
+        min-width: 0 !important;
+        height: 52px !important;
+
+        flex: 0 0
+            min(
+                64px,
+                calc(
+                    (100vw - 16px)
+                    / 7
+                )
+            )
+            !important;
+
+        padding: 5px 2px 4px !important;
+
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+
+        gap: 3px !important;
+
+        border: 0 !important;
+        border-radius: 13px !important;
+
+        background: transparent !important;
+
+        color:
+            rgba(255,255,255,.43)
+            !important;
+
+        transform: none !important;
+
+        transition:
+            background 160ms ease,
+            color 160ms ease,
+            transform 120ms ease
+            !important;
+    }
+
+
+    html[data-theme="light"]
+    .sidebar .nav-button {
+        color:
+            rgba(0,0,0,.43)
+            !important;
+    }
+
+
+    .sidebar .nav-button.active {
+        color: var(--text) !important;
+
+        background:
+            rgba(255,255,255,.075)
+            !important;
+    }
+
+
+    html[data-theme="light"]
+    .sidebar .nav-button.active {
+        background:
+            rgba(0,0,0,.06)
+            !important;
+    }
+
+
+    .sidebar .nav-button:active {
+        transform:
+            scale(.90)
+            !important;
+    }
+
+
+    .sidebar .nav-icon {
+        width: 21px !important;
+        height: 21px !important;
+
+        flex: 0 0 21px !important;
+
+        display: grid !important;
+        place-items: center !important;
+
+        margin: 0 !important;
+
+        font-size: 17px !important;
+        line-height: 1 !important;
+    }
+
+
+    .sidebar .nav-icon svg {
+        width: 19px !important;
+        height: 19px !important;
+    }
+
+
+    .sidebar .nav-label {
+        position: static !important;
+
+        display: block !important;
+
+        max-width: 100% !important;
+
+        margin: 0 !important;
+
+        overflow: hidden !important;
+
+        opacity: 1 !important;
+
+        color: inherit !important;
+
+        font-size: 8.5px !important;
+        font-weight: 550 !important;
+
+        line-height: 1 !important;
+
+        letter-spacing: -.01em !important;
+        text-transform: none !important;
+
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+
+        transform: none !important;
+    }
+
+
+    .sidebar .nav-label::before,
+    .sidebar .nav-label::after {
+        content: none !important;
+        display: none !important;
+    }
+
+
+    /* =====================================================
+       APP CONTENT
+       ===================================================== */
+
+    .main {
+        width: 100% !important;
+
+        height: 100dvh !important;
+
+        padding: 0 0
+            calc(
+                var(--apollo-mobile-nav-h)
+                + var(--apollo-mobile-safe-bottom)
+            )
+            !important;
+
+        box-sizing: border-box !important;
+
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+
+        -webkit-overflow-scrolling: touch;
+    }
+
+
+    /* =====================================================
+       HOME
+       ===================================================== */
+
+    .home {
+        width: 100% !important;
+        max-width: none !important;
+
+        min-height: 100% !important;
+
+        margin: 0 !important;
+
+        padding:
+            calc(
+                var(--apollo-mobile-safe-top)
+                + 30px
+            )
+            18px
+            34px
+            !important;
+
+        box-sizing: border-box !important;
+    }
+
+
+    .home .eyebrow {
+        margin-bottom: 13px !important;
+
+        font-size: 9px !important;
+    }
+
+
+    .home .greeting {
+        max-width: 94% !important;
+
+        font-size:
+            clamp(
+                36px,
+                10vw,
+                44px
+            )
+            !important;
+
+        line-height: .98 !important;
+
+        letter-spacing: -.045em !important;
+    }
+
+
+    .home .subheading {
+        max-width: 92% !important;
+
+        margin-top: 13px !important;
+
+        font-size: 14px !important;
+        line-height: 1.45 !important;
+    }
+
+
+    .home .ask {
+        margin-top: 30px !important;
+    }
+
+
+    .home .ask-box {
+        min-height: 58px !important;
+
+        border-radius: 19px !important;
+    }
+
+
+    .home .ask-input {
+        min-height: 58px !important;
+
+        padding:
+            16px 60px
+            15px 18px
+            !important;
+
+        font-size: 16px !important;
+    }
+
+
+    .home .ask-send {
+        right: 10px !important;
+        bottom: 10px !important;
+
+        width: 38px !important;
+        height: 38px !important;
+
+        border-radius: 12px !important;
+    }
+
+
+    .home .dashboard {
+        grid-template-columns:
+            minmax(0,1fr)
+            !important;
+
+        gap: 11px !important;
+
+        margin-top: 30px !important;
+
+        padding-bottom: 0 !important;
+    }
+
+
+    .home .card {
+        min-height: 118px !important;
+
+        padding: 18px !important;
+
+        border-radius: 18px !important;
+    }
+
+
+    .home .card-content {
+        margin-top: 23px !important;
+
+        justify-content:
+            flex-end !important;
+    }
+
+
+    .home .card-main {
+        font-size: 17px !important;
+    }
+
+
+    .home .card-secondary {
+        font-size: 12px !important;
+    }
+
+
+    .home .debrief {
+        margin-top: 30px !important;
+    }
+
+
+    .home .debrief-box {
+        padding: 20px !important;
+
+        border-radius: 18px !important;
+    }
+
+
+    .home .debrief-title {
+        font-size: 15px !important;
+    }
+
+
+    .home .debrief-text {
+        font-size: 13px !important;
+        line-height: 1.58 !important;
+    }
+
+
+    .home .footer {
+        display: none !important;
+    }
+
+
+    /* =====================================================
+       APOLLO CHAT
+       ===================================================== */
+
+    #apolloView {
+        position: fixed !important;
+
+        z-index: 100 !important;
+
+        inset: 0 !important;
+
+        width: 100% !important;
+        height: 100dvh !important;
+
+        padding: 0 !important;
+
+        box-sizing: border-box !important;
+
+        background: var(--bg) !important;
+    }
+
+
+    #apolloView.active {
+        display: flex !important;
+
+        opacity: 1 !important;
+
+        transform: none !important;
+
+        pointer-events: auto !important;
+    }
+
+
+    #apolloView:not(.active) {
+        pointer-events: none !important;
+    }
+
+
+    #apolloView #jarvisChatRail,
+    #apolloView .jarvis-chat-rail,
+    #apolloView .apollo-chat-rail {
+        display: none !important;
+    }
+
+
+    #apolloView::before,
+    #apolloView::after {
+        pointer-events: none !important;
+    }
+
+
+    #apolloView .apollo-chat-header {
+        position: absolute !important;
+
+        z-index: 12 !important;
+
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+
+        min-height:
+            calc(
+                var(--apollo-mobile-safe-top)
+                + 54px
+            )
+            !important;
+
+        padding:
+            calc(
+                var(--apollo-mobile-safe-top)
+                + 10px
+            )
+            16px
+            8px
+            !important;
+
+        box-sizing: border-box !important;
+
+        background:
+            linear-gradient(
+                to bottom,
+                var(--bg) 58%,
+                transparent
+            )
+            !important;
+    }
+
+
+    #apolloView .apollo-chat-actions {
+        width: 100% !important;
+
+        display: flex !important;
+        justify-content: flex-end !important;
+
+        gap: 7px !important;
+    }
+
+
+    #apolloView .apollo-chat-action {
+        min-height: 36px !important;
+
+        padding: 0 13px !important;
+
+        border-radius: 999px !important;
+
+        font-size: 11px !important;
+    }
+
+
+    #apolloView .apollo-messages {
+        width: 100% !important;
+        max-width: none !important;
+
+        flex: 1 1 auto !important;
+
+        padding:
+            calc(
+                var(--apollo-mobile-safe-top)
+                + 70px
+            )
+            17px
+            calc(
+                var(--apollo-mobile-nav-h)
+                + var(--apollo-mobile-safe-bottom)
+                + 112px
+            )
+            !important;
+
+        box-sizing: border-box !important;
+
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+
+        scroll-padding-bottom: 150px !important;
+
+        -webkit-overflow-scrolling: touch;
+    }
+
+
+    #apolloView .apollo-message {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+
+    #apolloView
+    .apollo-message.assistant
+    .apollo-message-body {
+        max-width: 96% !important;
+
+        font-size: 15px !important;
+        line-height: 1.62 !important;
+    }
+
+
+    #apolloView
+    .apollo-message.user
+    .apollo-message-body {
+        max-width: 88% !important;
+
+        font-size: 15px !important;
+        line-height: 1.5 !important;
+    }
+
+
+    #apolloView .apollo-welcome {
+        min-height:
+            calc(
+                100dvh
+                - 230px
+            )
+            !important;
+
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+
+    #apolloView .apollo-welcome-inner {
+        width: 100% !important;
+        max-width: 330px !important;
+    }
+
+
+    #apolloView .apollo-welcome-mark {
+        transform:
+            scale(.92)
+            !important;
+    }
+
+
+    #apolloView .apollo-welcome-title {
+        font-size: 28px !important;
+    }
+
+
+    #apolloView .apollo-welcome-subtitle {
+        margin-top: 7px !important;
+
+        font-size: 13px !important;
+    }
+
+
+    #apolloView.active
+    .apollo-composer-wrap {
+        position: fixed !important;
+
+        z-index: 900 !important;
+
+        left: 12px !important;
+        right: 12px !important;
+
+        bottom:
+            calc(
+                var(--apollo-mobile-nav-h)
+                + var(--apollo-mobile-safe-bottom)
+                + 10px
+            )
+            !important;
+
+        width: auto !important;
+        max-width: none !important;
+
+        margin: 0 !important;
+
+        padding: 0 !important;
+    }
+
+
+    #apolloView .apollo-composer {
+        width: 100% !important;
+
+        min-height: 56px !important;
+
+        padding: 0 10px !important;
+
+        border-radius: 21px !important;
+
+        background:
+            rgba(20,20,21,.91)
+            !important;
+
+        box-shadow:
+            0 12px 38px
+            rgba(0,0,0,.25)
+            !important;
+
+        backdrop-filter:
+            blur(24px)
+            saturate(140%);
+
+        -webkit-backdrop-filter:
+            blur(24px)
+            saturate(140%);
+    }
+
+
+    html[data-theme="light"]
+    #apolloView .apollo-composer {
+        background:
+            rgba(249,249,250,.94)
+            !important;
+
+        box-shadow:
+            0 12px 34px
+            rgba(0,0,0,.10)
+            !important;
+    }
+
+
+    #apolloView .apollo-input {
+        min-height: 56px !important;
+
+        padding:
+            16px 92px
+            14px 8px
+            !important;
+
+        font-size: 16px !important;
+        line-height: 1.45 !important;
+    }
+
+
+    #apolloView .apollo-tools {
+        right: 9px !important;
+    }
+
+
+    /* =====================================================
+       OTHER PAGES
+       ===================================================== */
+
+    #musicView.active,
+    #calendarView.active,
+    #tasksView.active,
+    #settingsView.active {
+        width: 100% !important;
+        max-width: none !important;
+
+        height: 100% !important;
+
+        padding:
+            calc(
+                var(--apollo-mobile-safe-top)
+                + 28px
+            )
+            18px
+            32px
+            !important;
+
+        box-sizing: border-box !important;
+
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+
+        -webkit-overflow-scrolling: touch;
+    }
+
+
+    #musicView button,
+    #calendarView button,
+    #tasksView button,
+    #settingsView button {
+        min-height: 40px;
+    }
+
+
+    /* =====================================================
+       STUDIO — ABSOLUTELY ITS OWN PAGE
+       ===================================================== */
+
+    #studioView:not(.active) {
+        display: none !important;
+
+        width: 0 !important;
+        height: 0 !important;
+
+        padding: 0 !important;
+        margin: 0 !important;
+
+        overflow: hidden !important;
+
+        opacity: 0 !important;
+        visibility: hidden !important;
+
+        pointer-events: none !important;
+    }
+
+
+    #studioView.active {
+        display: block !important;
+
+        width: 100% !important;
+        max-width: none !important;
+
+        height: 100% !important;
+
+        padding:
+            calc(
+                var(--apollo-mobile-safe-top)
+                + 26px
+            )
+            16px
+            150px
+            !important;
+
+        box-sizing: border-box !important;
+
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+
+        opacity: 1 !important;
+        visibility: visible !important;
+
+        pointer-events: auto !important;
+
+        -webkit-overflow-scrolling: touch;
+    }
+
+
+    #studioView .studio5-shell {
+        width: 100% !important;
+        max-width: none !important;
+    }
+
+
+    #studioView .studio5-topbar {
+        width: 100% !important;
+
+        margin-bottom: 28px !important;
+
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: flex-start !important;
+
+        gap: 18px !important;
+    }
+
+
+    #studioView .studio5-brandcopy h1 {
+        font-size: 36px !important;
+        line-height: 1 !important;
+    }
+
+
+    #studioView .studio5-brandcopy p {
+        max-width: 330px !important;
+
+        margin-top: 9px !important;
+
+        font-size: 13px !important;
+        line-height: 1.45 !important;
+    }
+
+
+    #studioView .studio5-top-actions {
+        width: 100% !important;
+
+        display: flex !important;
+        align-items: center !important;
+
+        gap: 8px !important;
+    }
+
+
+    #studioView .studio5-top-actions > * {
+        min-height: 38px !important;
+    }
+
+
+    #studioView .studio5-project-grid {
+        grid-template-columns:
+            minmax(0,1fr)
+            !important;
+
+        gap: 14px !important;
+    }
+
+
+    #studioView .studio5-hero {
+        grid-template-columns:
+            92px
+            minmax(0,1fr)
+            !important;
+
+        gap: 16px !important;
+
+        align-items: center !important;
+    }
+
+
+    #studioView .studio5-hero-art {
+        width: 92px !important;
+        height: 92px !important;
+
+        border-radius: 16px !important;
+    }
+
+
+    #studioView .studio5-hero-copy h2 {
+        font-size:
+            clamp(
+                29px,
+                9vw,
+                38px
+            )
+            !important;
+
+        line-height: .98 !important;
+    }
+
+
+    #studioView .studio5-hero-copy p {
+        margin-top: 7px !important;
+
+        font-size: 12px !important;
+
+        display:
+            -webkit-box !important;
+
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+
+        overflow: hidden !important;
+    }
+
+
+    #studioView .studio5-hero-meta {
+        font-size: 9px !important;
+
+        flex-wrap: wrap !important;
+    }
+
+
+    #studioView .studio5-hero-actions {
+        margin-top: 12px !important;
+
+        display: flex !important;
+
+        gap: 7px !important;
+    }
+
+
+    #studioView .studio5-tabs {
+        width: 100% !important;
+
+        margin-top: 22px !important;
+
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+
+        scrollbar-width: none;
+
+        -webkit-overflow-scrolling: touch;
+    }
+
+
+    #studioView
+    .studio5-tabs::-webkit-scrollbar {
+        display: none !important;
+    }
+
+
+    #studioView .studio5-tabs button {
+        flex: 0 0 auto !important;
+
+        min-height: 36px !important;
+
+        padding: 0 12px !important;
+
+        font-size: 11px !important;
+    }
+
+
+    #studioView .studio5-page-head {
+        align-items: center !important;
+
+        gap: 12px !important;
+    }
+
+
+    #studioView .studio5-page-head h3 {
+        font-size: 19px !important;
+    }
+
+
+    #studioView .studio5-track-cards {
+        gap: 10px !important;
+    }
+
+
+    #studioView .studio5-track-card {
+        border-radius: 17px !important;
+    }
+
+
+    #studioView .studio5-track-card-head {
+        grid-template-columns:
+            22px
+            36px
+            minmax(0,1fr)
+            auto
+            !important;
+
+        min-height: 58px !important;
+
+        padding: 12px !important;
+
+        gap: 9px !important;
+    }
+
+
+    #studioView
+    .studio5-track-card-number {
+        font-size: 9px !important;
+    }
+
+
+    #studioView
+    .studio5-track-card-main strong {
+        font-size: 13px !important;
+    }
+
+
+    #studioView
+    .studio5-track-card-main span {
+        font-size: 10.5px !important;
+    }
+
+
+    #studioView
+    .studio5-track-add-version {
+        font-size: 10px !important;
+    }
+
+
+    #studioView .studio5-version-row {
+        grid-template-columns:
+            34px
+            minmax(0,1fr)
+            28px
+            !important;
+    }
+
+
+    #studioView .studio5-version-date {
+        display: none !important;
+    }
+
+
+    #studioView .studio5-media-grid,
+    #studioView .studio5-notes-grid {
+        grid-template-columns:
+            minmax(0,1fr)
+            !important;
+    }
+
+
+    /* Studio player */
+
+    #studioView .studio5-transport {
+        position: fixed !important;
+
+        z-index: 850 !important;
+
+        left: 10px !important;
+        right: 10px !important;
+
+        bottom:
+            calc(
+                var(--apollo-mobile-nav-h)
+                + var(--apollo-mobile-safe-bottom)
+                + 9px
+            )
+            !important;
+
+        width: auto !important;
+
+        grid-template-columns:
+            42px
+            minmax(0,1fr)
+            38px
+            22px
+            !important;
+
+        padding: 9px 10px !important;
+
+        border-radius: 18px !important;
+
+        background:
+            rgba(17,17,18,.93)
+            !important;
+
+        box-shadow:
+            0 14px 40px
+            rgba(0,0,0,.28)
+            !important;
+
+        backdrop-filter:
+            blur(24px)
+            saturate(140%);
+
+        -webkit-backdrop-filter:
+            blur(24px)
+            saturate(140%);
+    }
+
+
+    html[data-theme="light"]
+    #studioView .studio5-transport {
+        background:
+            rgba(249,249,250,.95)
+            !important;
+
+        box-shadow:
+            0 12px 32px
+            rgba(0,0,0,.12)
+            !important;
+    }
+
+
+    #studioView
+    .studio5-transport-progress {
+        grid-column: 1 / -1 !important;
+    }
+
+
+    /* =====================================================
+       STUDIO MODALS → iPHONE SHEETS
+       ===================================================== */
+
+    .studio5-modal-backdrop {
+        align-items: flex-end !important;
+
+        padding: 0 !important;
+    }
+
+
+    .studio5-modal-card {
+        width: 100% !important;
+        max-width: none !important;
+
+        max-height: 88dvh !important;
+
+        margin: 0 !important;
+
+        padding:
+            22px
+            18px
+            calc(
+                18px
+                + var(--apollo-mobile-safe-bottom)
+            )
+            !important;
+
+        border-radius:
+            24px 24px 0 0
+            !important;
+
+        overflow-y: auto !important;
+
+        box-sizing: border-box !important;
+    }
+
+
+    .studio5-modal-head h3 {
+        font-size: 21px !important;
+    }
+
+
+    .studio5-modal-head p {
+        font-size: 13px !important;
+    }
+
+
+    .studio5-field > span {
+        font-size: 10px !important;
+    }
+
+
+    .studio5-field input,
+    .studio5-field textarea,
+    .studio5-field select {
+        min-height: 48px !important;
+
+        font-size: 16px !important;
+
+        border-radius: 14px !important;
+    }
+
+
+    .studio5-modal-foot {
+        gap: 8px !important;
+    }
+
+
+    .studio5-modal-foot button {
+        min-height: 46px !important;
+    }
+
+
+    /* =====================================================
+       KEYBOARD OPEN
+       ===================================================== */
+
+    body.apollo-mobile-keyboard-open
+    .sidebar {
+        transform:
+            translateY(120%)
+            !important;
+
+        pointer-events: none !important;
+    }
+
+
+    body.apollo-mobile-keyboard-open
+    #apolloView.active
+    .apollo-composer-wrap {
+        bottom: 10px !important;
+    }
+
+
+    /* =====================================================
+       NO DESKTOP HOVER BEHAVIOR ON PHONE
+       ===================================================== */
+
+    .card:hover,
+    .nav-button:hover,
+    .ask-box:hover {
+        transform: none !important;
+    }
+
+}
+
+
+/* =========================================================
+   SHORT / LANDSCAPE PHONE
+   ========================================================= */
+
+@media (
+    max-width: 760px
+)
+and (
+    max-height: 520px
+) {
+
+    .sidebar .nav-label {
+        display: none !important;
+    }
+
+
+    .sidebar .nav-button {
+        height: 46px !important;
+    }
+
+
+    :root {
+        --apollo-mobile-nav-h:
+            56px;
+    }
+
+
+    #apolloView .apollo-welcome {
+        min-height: 250px !important;
+    }
+
+}
+
+/* =========================================================
+   APOLLO MOBILE V1.1 — CHAT POLISH
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    /* -----------------------------------------------------
+       Header
+       ----------------------------------------------------- */
+
+    #apolloView .apollo-chat-header {
+        position: fixed !important;
+
+        z-index: 920 !important;
+
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+
+        height:
+            calc(
+                env(safe-area-inset-top, 0px)
+                + 56px
+            )
+            !important;
+
+        min-height: 0 !important;
+
+        padding:
+            calc(
+                env(safe-area-inset-top, 0px)
+                + 10px
+            )
+            14px
+            8px
+            !important;
+
+        display: flex !important;
+        align-items: flex-end !important;
+        justify-content: flex-end !important;
+
+        box-sizing: border-box !important;
+
+        background:
+            linear-gradient(
+                to bottom,
+                var(--bg) 70%,
+                transparent
+            )
+            !important;
+
+        pointer-events: none !important;
+    }
+
+
+    #apolloView .apollo-chat-actions {
+        width: auto !important;
+
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+
+        gap: 6px !important;
+
+        margin: 0 !important;
+
+        pointer-events: auto !important;
+    }
+
+
+    #apolloView .apollo-chat-action {
+        min-height: 34px !important;
+
+        padding: 0 12px !important;
+
+        border-radius: 999px !important;
+
+        font-size: 10.5px !important;
+        font-weight: 550 !important;
+    }
+
+
+    /* -----------------------------------------------------
+       Welcome
+       ----------------------------------------------------- */
+
+    #apolloView
+    #apolloMessages:has(.apollo-message)
+    .apollo-welcome {
+        display: none !important;
+    }
+
+
+    #apolloView
+    #apolloMessages:not(:has(.apollo-message))
+    .apollo-welcome {
+        min-height:
+            calc(
+                100dvh
+                - 250px
+            )
+            !important;
+
+        padding-bottom: 40px !important;
+    }
+
+
+    #apolloView .apollo-welcome-inner {
+        width: min(330px, 88vw) !important;
+
+        margin: 0 auto !important;
+
+        text-align: center !important;
+    }
+
+
+    #apolloView .apollo-welcome-title {
+        margin-top: 20px !important;
+
+        font-size: 29px !important;
+        line-height: 1.08 !important;
+
+        letter-spacing: -.035em !important;
+    }
+
+
+    #apolloView .apollo-welcome-subtitle {
+        margin-top: 8px !important;
+
+        font-size: 13px !important;
+    }
+
+
+    /* -----------------------------------------------------
+       Conversation
+       ----------------------------------------------------- */
+
+    #apolloView .apollo-messages {
+        padding:
+            calc(
+                env(safe-area-inset-top, 0px)
+                + 66px
+            )
+            17px
+            calc(
+                var(--apollo-mobile-nav-h)
+                + env(safe-area-inset-bottom, 0px)
+                + 155px
+            )
+            !important;
+
+        scroll-padding-top: 74px !important;
+        scroll-padding-bottom: 190px !important;
+    }
+
+
+    #apolloView
+    #apolloMessages:has(.apollo-message)
+    .apollo-message:first-of-type {
+        margin-top: 10px !important;
+    }
+
+
+    #apolloView .apollo-message {
+        margin-bottom: 18px !important;
+    }
+
+
+    #apolloView .apollo-message:last-child {
+        margin-bottom: 28px !important;
+    }
+
+
+    #apolloView
+    .apollo-message.assistant
+    .apollo-message-body {
+        max-width: 92% !important;
+    }
+
+
+    #apolloView
+    .apollo-message.user
+    .apollo-message-body {
+        max-width: 88% !important;
+    }
+
+
+    /* -----------------------------------------------------
+       Composer
+       ----------------------------------------------------- */
+
+    #apolloView.active
+    .apollo-composer-wrap {
+        left: 12px !important;
+        right: 12px !important;
+
+        bottom:
+            calc(
+                var(--apollo-mobile-nav-h)
+                + env(safe-area-inset-bottom, 0px)
+                + 10px
+            )
+            !important;
+    }
+
+
+    #apolloView .apollo-composer {
+        min-height: 58px !important;
+
+        border-radius: 20px !important;
+    }
+
+
+    #apolloView .apollo-input {
+        min-height: 58px !important;
+
+        font-size: 16px !important;
+    }
+
+
+    /* Keyboard open */
+
+    body.apollo-mobile-keyboard-open
+    #apolloView .apollo-chat-header {
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }
+
+
+    body.apollo-mobile-keyboard-open
+    #apolloView.active
+    .apollo-composer-wrap {
+        bottom: 8px !important;
+    }
+
+}
+
+
+/* =========================================================
+   APOLLO MOBILE V1.2
+   REAL CHAT HEADER + HISTORY SHEET
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    /* =====================================================
+       CHAT TOP BAR
+       ===================================================== */
+
+    html.apollo-jarvis-mode
+    #apolloView
+    .apollo-chat-header {
+        position: fixed !important;
+
+        z-index: 1200 !important;
+
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+
+        width: 100% !important;
+        height:
+            calc(
+                env(safe-area-inset-top, 0px)
+                + 58px
+            )
+            !important;
+
+        min-height: 0 !important;
+
+        margin: 0 !important;
+
+        padding:
+            calc(
+                env(safe-area-inset-top, 0px)
+                + 10px
+            )
+            14px
+            8px
+            !important;
+
+        display: flex !important;
+        align-items: flex-end !important;
+        justify-content: space-between !important;
+
+        box-sizing: border-box !important;
+
+        background:
+            linear-gradient(
+                to bottom,
+                var(--bg) 72%,
+                transparent
+            )
+            !important;
+
+        pointer-events: auto !important;
+    }
+
+
+    html.apollo-jarvis-mode
+    #apolloView
+    .apollo-chat-header::before {
+        content: "Apollo";
+
+        display: block;
+
+        padding-bottom: 8px;
+
+        color: var(--text);
+
+        font-family:
+            Inter,
+            -apple-system,
+            BlinkMacSystemFont,
+            "SF Pro Text",
+            sans-serif;
+
+        font-size: 15px;
+        font-weight: 600;
+
+        letter-spacing: -.02em;
+        line-height: 1;
+    }
+
+
+    /*
+     * Kill the old Jarvis top:-40px rule.
+     */
+
+    html.apollo-jarvis-mode
+    #apolloView
+    .apollo-chat-actions {
+        position: static !important;
+
+        top: auto !important;
+        right: auto !important;
+        bottom: auto !important;
+        left: auto !important;
+
+        width: auto !important;
+
+        margin: 0 !important;
+        padding: 0 !important;
+
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+
+        gap: 6px !important;
+
+        transform: none !important;
+
+        opacity: 1 !important;
+        visibility: visible !important;
+
+        pointer-events: auto !important;
+    }
+
+
+    html.apollo-jarvis-mode
+    #apolloView
+    .apollo-chat-action {
+        position: relative !important;
+
+        z-index: 1 !important;
+
+        width: auto !important;
+        height: 34px !important;
+        min-height: 34px !important;
+
+        padding: 0 12px !important;
+
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+
+        border:
+            1px solid
+            color-mix(
+                in srgb,
+                var(--text) 10%,
+                transparent
+            )
+            !important;
+
+        border-radius: 999px !important;
+
+        background:
+            color-mix(
+                in srgb,
+                var(--text) 5%,
+                transparent
+            )
+            !important;
+
+        color: var(--muted) !important;
+
+        font-family:
+            Inter,
+            -apple-system,
+            BlinkMacSystemFont,
+            "SF Pro Text",
+            sans-serif
+            !important;
+
+        font-size: 11px !important;
+        font-weight: 550 !important;
+
+        letter-spacing: -.01em !important;
+        line-height: 1 !important;
+
+        text-transform: none !important;
+        white-space: nowrap !important;
+
+        cursor: pointer !important;
+
+        touch-action: manipulation !important;
+
+        pointer-events: auto !important;
+
+        transform: none !important;
+    }
+
+
+    html.apollo-jarvis-mode
+    #apolloView
+    .apollo-chat-action:active {
+        transform: scale(.94) !important;
+
+        background:
+            color-mix(
+                in srgb,
+                var(--text) 10%,
+                transparent
+            )
+            !important;
+    }
+
+
+    /* Messages clear the real header */
+
+    #apolloView .apollo-messages {
+        padding-top:
+            calc(
+                env(safe-area-inset-top, 0px)
+                + 72px
+            )
+            !important;
+    }
+
+
+    /* =====================================================
+       HISTORY — TRUE TOP-LEVEL MOBILE SHEET
+       ===================================================== */
+
+    body > #apolloHistoryStrip.apollo-history-panel {
+        position: fixed !important;
+
+        z-index: 30000 !important;
+
+        inset: 0 !important;
+
+        width: 100vw !important;
+        height: 100dvh !important;
+
+        margin: 0 !important;
+
+        padding: 0 !important;
+
+        display: flex !important;
+        align-items: flex-end !important;
+        justify-content: center !important;
+
+        background:
+            rgba(0,0,0,.42)
+            !important;
+
+        opacity: 0 !important;
+        visibility: hidden !important;
+
+        pointer-events: none !important;
+
+        backdrop-filter: blur(7px);
+        -webkit-backdrop-filter: blur(7px);
+
+        transition:
+            opacity 200ms ease,
+            visibility 200ms ease
+            !important;
+    }
+
+
+    body > #apolloHistoryStrip.apollo-history-panel.open {
+        opacity: 1 !important;
+        visibility: visible !important;
+
+        pointer-events: auto !important;
+    }
+
+
+    body >
+    #apolloHistoryStrip
+    .apollo-history-panel-inner {
+        width: 100% !important;
+        max-width: none !important;
+
+        height: auto !important;
+
+        max-height: 82dvh !important;
+
+        margin: 0 !important;
+
+        padding:
+            18px
+            16px
+            calc(
+                18px
+                + env(safe-area-inset-bottom, 0px)
+            )
+            !important;
+
+        box-sizing: border-box !important;
+
+        border:
+            1px solid
+            var(--border)
+            !important;
+
+        border-bottom: 0 !important;
+
+        border-radius:
+            25px
+            25px
+            0
+            0
+            !important;
+
+        background:
+            color-mix(
+                in srgb,
+                var(--bg) 96%,
+                transparent
+            )
+            !important;
+
+        box-shadow:
+            0 -16px 60px
+            rgba(0,0,0,.32)
+            !important;
+
+        overflow: hidden !important;
+
+        opacity: 1 !important;
+
+        transform:
+            translateY(28px)
+            !important;
+
+        transition:
+            transform
+            300ms
+            cubic-bezier(.22,1,.36,1)
+            !important;
+    }
+
+
+    body >
+    #apolloHistoryStrip.open
+    .apollo-history-panel-inner {
+        transform:
+            translateY(0)
+            !important;
+    }
+
+
+    body >
+    #apolloHistoryStrip
+    .apollo-history-panel-header {
+        flex: 0 0 auto !important;
+
+        margin-bottom: 16px !important;
+    }
+
+
+    body >
+    #apolloHistoryStrip
+    .apollo-history-panel-title {
+        font-size: 25px !important;
+    }
+
+
+    body >
+    #apolloHistoryStrip
+    .apollo-history-panel-close {
+        width: 38px !important;
+        height: 38px !important;
+
+        border-radius: 12px !important;
+
+        font-size: 24px !important;
+    }
+
+
+    body >
+    #apolloHistoryStrip
+    .apollo-history-search {
+        flex:
+            0 0 46px
+            !important;
+
+        height: 46px !important;
+
+        margin-bottom: 12px !important;
+
+        border-radius: 14px !important;
+    }
+
+
+    body >
+    #apolloHistoryStrip
+    .apollo-history-search input {
+        font-size: 16px !important;
+    }
+
+
+    body >
+    #apolloHistoryStrip
+    .apollo-history-track {
+        min-height: 0 !important;
+
+        flex: 1 1 auto !important;
+
+        overflow-y: auto !important;
+
+        -webkit-overflow-scrolling: touch;
+    }
+
+
+    body >
+    #apolloHistoryStrip
+    .apollo-history-new,
+    body >
+    #apolloHistoryStrip
+    .apollo-history-card {
+        min-height: 54px !important;
+
+        border-radius: 14px !important;
+    }
+
+
+    body >
+    #apolloHistoryStrip
+    .apollo-history-card-title {
+        font-size: 13px !important;
+    }
+
+
+    body >
+    #apolloHistoryStrip
+    .apollo-history-card-date {
+        font-size: 10px !important;
+    }
+
+
+    /*
+     * History is above everything, including the nav.
+     */
+
+    body.apollo-mobile-history-open
+    .sidebar {
+        pointer-events: none !important;
+    }
+
+}
+
+
+/* =========================================================
+   APOLLO MOBILE V1.3
+   NATIVE TOP BAR + TRUE EDGE-TO-EDGE
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    html,
+    body,
+    .app,
+    .main,
+    #apolloView {
+        background: var(--bg) !important;
+    }
+
+
+    /*
+     * The BLACK background itself extends all the way
+     * behind the status bar / Dynamic Island.
+     *
+     * Interactive UI still begins inside the safe area.
+     */
+
+    #apolloView {
+        inset: 0 !important;
+        min-height: 100dvh !important;
+    }
+
+
+    /* =====================================================
+       KILL OLD MOBILE CHAT HEADER
+       ===================================================== */
+
+    html.apollo-jarvis-mode
+    #apolloView
+    .apollo-chat-header {
+        display: none !important;
+    }
+
+
+    /* =====================================================
+       NEW MOBILE HEADER
+       ===================================================== */
+
+    #apolloMobileChatHeader {
+        position: fixed;
+
+        z-index: 2500;
+
+        top: 0;
+        left: 0;
+        right: 0;
+
+        height:
+            calc(
+                env(safe-area-inset-top, 0px)
+                + 52px
+            );
+
+        padding:
+            env(safe-area-inset-top, 0px)
+            14px
+            0;
+
+        box-sizing: border-box;
+
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+
+        pointer-events: none;
+
+        background:
+            linear-gradient(
+                to bottom,
+                var(--bg) 0%,
+                color-mix(
+                    in srgb,
+                    var(--bg) 94%,
+                    transparent
+                ) 70%,
+                transparent 100%
+            );
+    }
+
+
+    #apolloMobileChatHeader[hidden] {
+        display: none !important;
+    }
+
+
+    .apollo-mobile-chat-brand {
+        height: 44px;
+
+        display: flex;
+        align-items: center;
+
+        gap: 9px;
+
+        pointer-events: auto;
+    }
+
+
+    .apollo-mobile-chat-mark {
+        width: 22px;
+        height: 22px;
+
+        display: grid;
+        place-items: center;
+
+        color: var(--text);
+    }
+
+
+    .apollo-mobile-chat-mark svg {
+        width: 22px;
+        height: 22px;
+
+        display: block;
+    }
+
+
+    .apollo-mobile-chat-brand-name {
+        font-size: 15px;
+        font-weight: 600;
+
+        line-height: 1;
+
+        letter-spacing: -.025em;
+
+        color: var(--text);
+    }
+
+
+    .apollo-mobile-chat-header-actions {
+        height: 44px;
+
+        display: flex;
+        align-items: center;
+
+        gap: 7px;
+
+        pointer-events: auto;
+    }
+
+
+    .apollo-mobile-chat-header-button {
+        width: 38px;
+        height: 38px;
+
+        flex: 0 0 38px;
+
+        padding: 0;
+
+        display: grid;
+        place-items: center;
+
+        border:
+            1px solid
+            color-mix(
+                in srgb,
+                var(--text) 9%,
+                transparent
+            );
+
+        border-radius: 50%;
+
+        background:
+            color-mix(
+                in srgb,
+                var(--text) 5%,
+                transparent
+            );
+
+        color: var(--muted);
+
+        cursor: pointer;
+
+        -webkit-tap-highlight-color:
+            transparent;
+
+        transition:
+            background 140ms ease,
+            color 140ms ease,
+            transform 120ms ease;
+    }
+
+
+    .apollo-mobile-chat-header-button svg {
+        width: 17px;
+        height: 17px;
+
+        display: block;
+    }
+
+
+    .apollo-mobile-chat-header-button:active {
+        transform: scale(.90);
+
+        background:
+            color-mix(
+                in srgb,
+                var(--text) 11%,
+                transparent
+            );
+
+        color: var(--text);
+    }
+
+
+    /*
+     * Messages begin below the new header.
+     */
+
+    #apolloView .apollo-messages {
+        padding-top:
+            calc(
+                env(safe-area-inset-top, 0px)
+                + 64px
+            )
+            !important;
+    }
+
+
+    /*
+     * Empty Apollo:
+     * use the whole physical display instead of pushing
+     * the welcome down because of a fake desktop header.
+     */
+
+    #apolloView
+    #apolloMessages:not(:has(.apollo-message))
+    .apollo-welcome {
+        min-height:
+            calc(
+                100dvh
+                - env(safe-area-inset-top, 0px)
+                - var(--apollo-mobile-nav-h)
+                - env(safe-area-inset-bottom, 0px)
+                - 150px
+            )
+            !important;
+
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+
+
+    /*
+     * Keep header visible when chatting, but don't let it
+     * consume normal document flow.
+     */
+
+    #apolloView.active
+    ~ #apolloMobileChatHeader,
+    body:has(#apolloView.active)
+    #apolloMobileChatHeader {
+        display: flex;
+    }
+
+
+    /*
+     * Keyboard:
+     * keep the brand/header out of the way while typing.
+     */
+
+    body.apollo-mobile-keyboard-open
+    #apolloMobileChatHeader {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+}
+
+@media (min-width: 761px) {
+
+    #apolloMobileChatHeader {
+        display: none !important;
+    }
+
+}
+
+/* =========================================================
+   APOLLO MOBILE V1.4
+   AUTHORITATIVE CHAT HEADER STATE
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    /*
+     * These are the OLD desktop controls.
+     * Hide them regardless of where older scripts move them.
+     */
+
+    #apolloHeaderNewChat,
+    #apolloHeaderHistory,
+    #apolloView .apollo-chat-actions {
+        display: none !important;
+
+        opacity: 0 !important;
+        visibility: hidden !important;
+
+        pointer-events: none !important;
+    }
+
+
+    /*
+     * There is now exactly ONE mobile chat header.
+     */
+
+    #apolloMobileChatHeader {
+        display: none !important;
+    }
+
+
+    #apolloMobileChatHeader.is-visible:not([hidden]) {
+        display: flex !important;
+    }
+
+
+    /*
+     * Keep it safely above every chat effect.
+     */
+
+    #apolloMobileChatHeader {
+        z-index: 5000 !important;
+    }
+
+
+    /*
+     * More native spacing around Dynamic Island area.
+     */
+
+    .apollo-mobile-chat-brand,
+    .apollo-mobile-chat-header-actions {
+        margin-top: 2px;
+    }
+
+}
+
+
+/* =========================================================
+   APOLLO MOBILE V1.5
+   CLEAN EDGE-TO-EDGE TOP
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    /* One uninterrupted canvas behind Dynamic Island */
+
+    html,
+    body,
+    .app,
+    .main,
+    #apolloView {
+        background: var(--bg) !important;
+    }
+
+    html,
+    body {
+        min-height: 100dvh !important;
+    }
+
+    #apolloView {
+        top: 0 !important;
+        inset: 0 !important;
+
+        min-height: 100dvh !important;
+
+        padding-top: 0 !important;
+
+        border-top: 0 !important;
+        box-shadow: none !important;
+    }
+
+
+    /* Kill every old desktop/Jarvis glass layer at the top */
+
+    #apolloView::before,
+    #apolloView::after {
+        content: none !important;
+
+        display: none !important;
+
+        background: none !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+
+        mask-image: none !important;
+        -webkit-mask-image: none !important;
+    }
+
+
+    /*
+     * Native mobile header:
+     * transparent so there is no visible horizontal edge.
+     */
+
+    #apolloMobileChatHeader,
+    #apolloMobileChatHeader.is-visible:not([hidden]) {
+        top: 0 !important;
+
+        height:
+            calc(
+                env(safe-area-inset-top, 0px)
+                + 54px
+            )
+            !important;
+
+        padding:
+            env(safe-area-inset-top, 0px)
+            14px
+            0
+            !important;
+
+        border: 0 !important;
+
+        background: transparent !important;
+
+        box-shadow: none !important;
+
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+    }
+
+
+    /*
+     * Do NOT hide the header when the keyboard opens.
+     * That was causing the two different-looking states.
+     */
+
+    body.apollo-mobile-keyboard-open
+    #apolloMobileChatHeader {
+        opacity: 1 !important;
+        visibility: visible !important;
+
+        pointer-events: auto !important;
+    }
+
+
+    /*
+     * Content starts below the controls,
+     * but the background itself starts at pixel zero.
+     */
+
+    #apolloView .apollo-messages {
+        padding-top:
+            calc(
+                env(safe-area-inset-top, 0px)
+                + 62px
+            )
+            !important;
+    }
+
+
+    /*
+     * Remove any top edge accidentally inherited
+     * by the messages container.
+     */
+
+    #apolloView .apollo-messages {
+        border-top: 0 !important;
+
+        box-shadow: none !important;
+
+        background: transparent !important;
+    }
+
+}
+
+/* =========================================================
+   APOLLO MOBILE V1.6
+   iOS SAFE AREA + KEYBOARD + HEADER FIX
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    /* -----------------------------------------------------
+       ONE continuous background from physical top to bottom
+       ----------------------------------------------------- */
+
+    html,
+    body,
+    .app,
+    .main,
+    #apolloView,
+    #apolloMobileChatHeader {
+        background-color: var(--bg) !important;
+    }
+
+    html,
+    body {
+        width: 100% !important;
+        min-height: 100dvh !important;
+
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    body {
+        position: fixed !important;
+        inset: 0 !important;
+
+        overflow: hidden !important;
+    }
+
+
+    /* -----------------------------------------------------
+       APOLLO HEADER — NEVER randomly disappear
+       ----------------------------------------------------- */
+
+    body:has(#apolloView.active)
+    #apolloMobileChatHeader {
+        display: flex !important;
+
+        opacity: 1 !important;
+        visibility: visible !important;
+
+        pointer-events: auto !important;
+    }
+
+    body:has(#apolloView.active)
+    #apolloMobileChatHeader[hidden] {
+        display: flex !important;
+    }
+
+    #apolloMobileChatHeader {
+        z-index: 10000 !important;
+
+        top: 0 !important;
+
+        height:
+            calc(
+                env(safe-area-inset-top, 0px)
+                + 54px
+            ) !important;
+
+        padding:
+            env(safe-area-inset-top, 0px)
+            14px
+            0
+            !important;
+
+        border: 0 !important;
+
+        background:
+            var(--bg)
+            !important;
+
+        box-shadow: none !important;
+
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+    }
+
+
+    /*
+     * Keyboard open must NOT hide the header.
+     */
+
+    body.apollo-mobile-keyboard-open
+    #apolloMobileChatHeader {
+        display: flex !important;
+
+        opacity: 1 !important;
+        visibility: visible !important;
+
+        transform: none !important;
+
+        pointer-events: auto !important;
+    }
+
+
+    /* -----------------------------------------------------
+       REMOVE OLD CHAT TOP EFFECTS COMPLETELY
+       ----------------------------------------------------- */
+
+    #apolloView::before,
+    #apolloView::after {
+        content: none !important;
+
+        display: none !important;
+    }
+
+
+    #apolloView {
+        position: fixed !important;
+
+        inset: 0 !important;
+
+        width: 100vw !important;
+        height: 100dvh !important;
+
+        margin: 0 !important;
+        padding: 0 !important;
+
+        background:
+            var(--bg)
+            !important;
+    }
+
+
+    #apolloView .apollo-messages {
+        background:
+            transparent
+            !important;
+
+        padding-top:
+            calc(
+                env(safe-area-inset-top, 0px)
+                + 64px
+            )
+            !important;
+    }
+
+
+    /* -----------------------------------------------------
+       KEYBOARD OPEN
+       ----------------------------------------------------- */
+
+    body.apollo-mobile-keyboard-open
+    .sidebar {
+        opacity: 0 !important;
+
+        transform:
+            translateY(
+                calc(
+                    100%
+                    + 40px
+                )
+            )
+            !important;
+
+        pointer-events: none !important;
+    }
+
+
+    body.apollo-mobile-keyboard-open
+    #apolloView.active
+    .apollo-composer-wrap {
+        bottom: 8px !important;
+    }
+
+
+    /*
+     * Because the nav disappears, messages/composer no longer
+     * reserve the nav's height while typing.
+     */
+
+    body.apollo-mobile-keyboard-open
+    #apolloView .apollo-messages {
+        padding-bottom:
+            110px
+            !important;
+    }
+
+}
+
+
+/* =========================================================
+   APOLLO MOBILE V1.7
+   TAB BAR HIDES ONLY WHILE ACTUALLY TYPING
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    /*
+     * Ignore all older keyboard guesses.
+     *
+     * Unless OUR explicit typing state is active,
+     * the main Apollo tab bar must remain visible.
+     */
+
+    body:not(.apollo-mobile-typing)
+    .sidebar {
+        display: flex !important;
+
+        opacity: 1 !important;
+        visibility: visible !important;
+
+        transform: none !important;
+
+        pointer-events: auto !important;
+    }
+
+
+    /*
+     * Only real typing hides it.
+     */
+
+    body.apollo-mobile-typing
+    .sidebar {
+        opacity: 0 !important;
+        visibility: hidden !important;
+
+        transform:
+            translateY(
+                calc(
+                    100%
+                    + 30px
+                )
+            )
+            !important;
+
+        pointer-events: none !important;
+    }
+
+
+    /*
+     * Composer location when keyboard is CLOSED.
+     */
+
+    body:not(.apollo-mobile-typing)
+    #apolloView.active
+    .apollo-composer-wrap {
+        bottom:
+            calc(
+                var(--apollo-mobile-nav-h)
+                + env(safe-area-inset-bottom, 0px)
+                + 10px
+            )
+            !important;
+    }
+
+
+    /*
+     * Composer location while typing.
+     */
+
+    body.apollo-mobile-typing
+    #apolloView.active
+    .apollo-composer-wrap {
+        bottom: 8px !important;
+    }
+
+
+    /*
+     * Apollo's top controls do NOT depend on keyboard state.
+     */
+
+    body:has(#apolloView.active)
+    #apolloMobileChatHeader {
+        display: flex !important;
+
+        opacity: 1 !important;
+        visibility: visible !important;
+
+        transform: none !important;
+
+        pointer-events: auto !important;
+    }
+
+}
+
+
+/* =========================================================
+   APOLLO MOBILE — KEYBOARD BEHAVIOR ONLY
+   Composer visuals intentionally untouched.
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    /* Tab bar visible by default — including inside Apollo */
+
+    body:not(.apollo-mobile-keyboard-visible)
+    .sidebar,
+
+    body.apollo-mobile-keyboard-open:not(.apollo-mobile-keyboard-visible)
+    .sidebar,
+
+    body.apollo-mobile-typing:not(.apollo-mobile-keyboard-visible)
+    .sidebar {
+        display: flex !important;
+
+        opacity: 1 !important;
+        visibility: visible !important;
+
+        transform: none !important;
+
+        pointer-events: auto !important;
+    }
+
+
+    /* Hide ONLY when the physical iOS keyboard is onscreen */
+
+    body.apollo-mobile-keyboard-visible
+    .sidebar {
+        opacity: 0 !important;
+        visibility: hidden !important;
+
+        transform: translateY(120%) !important;
+
+        pointer-events: none !important;
+    }
+
+
+    body.apollo-mobile-keyboard-visible
+    #apolloView.active
+    .apollo-composer-wrap {
+        bottom: 8px !important;
+    }
+
+
+    /* Empty Apollo screen does not scroll/bounce */
+
+    #apolloView {
+        overflow: hidden !important;
+    }
+
+
+    #apolloMessages:not(:has(.apollo-message)) {
+        overflow: hidden !important;
+
+        overscroll-behavior: none !important;
+    }
+
+
+    /* Conversation restores normal scrolling */
+
+    #apolloMessages:has(.apollo-message) {
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+
+        overscroll-behavior-y: contain !important;
+
+        -webkit-overflow-scrolling: touch;
+    }
+
+}
+

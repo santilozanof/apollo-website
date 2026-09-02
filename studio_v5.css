@@ -1,0 +1,1408 @@
+/* APOLLO STUDIO V5 — premium creative workspace */
+
+#studioView {
+    display: none !important;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+    padding: 44px 54px 90px !important;
+    background: var(--bg);
+    scrollbar-width: none;
+}
+#studioView::-webkit-scrollbar { display: none; }
+#studioView.active { display: block !important; }
+#studioView:not(.active) { display: none !important; }
+#studioView.is-busy { cursor: progress; }
+#studioView.is-busy .studio5-stage { opacity: .62; pointer-events: none; }
+
+.studio5-shell { width: min(1180px, 100%); margin: 0 auto; }
+.studio5-topbar { display:flex; align-items:flex-end; justify-content:space-between; gap:28px; margin-bottom:42px; }
+.studio5-brandcopy { min-width:0; }
+.studio5-eyebrow,.studio5-section-kicker { color:var(--dim); font-size:8px; font-weight:650; letter-spacing:.16em; text-transform:uppercase; }
+.studio5-brandcopy h1 { margin:8px 0 0; color:var(--text); font-size:40px; line-height:.98; letter-spacing:-.048em; font-weight:620; }
+.studio5-brandcopy p { margin:12px 0 0; max-width:610px; color:var(--muted); font-size:11px; line-height:1.55; }
+.studio5-top-actions,.studio5-page-actions,.studio5-empty-actions,.studio5-hero-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
+.studio5-primary,.studio5-ghost,.studio5-danger,.studio5-icon-action,.studio5-text-action,.studio5-row-more,.studio5-back,.studio5-track-play,.studio5-version-play,.studio5-project-play,.studio5-transport-toggle,.studio5-transport-close,.studio5-note-mini,.studio5-empty-line,.studio5-empty-world,.studio5-track-card-main {
+    appearance:none; border:0; font:inherit; color:inherit; cursor:pointer;
+}
+.studio5-primary { min-height:36px; padding:0 14px; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; gap:7px; background:var(--text); color:var(--bg); font-size:10px; font-weight:620; box-shadow:0 7px 18px rgba(0,0,0,.08); transition:transform .18s ease,opacity .18s ease; }
+.studio5-primary:hover { transform:translateY(-1px); }
+.studio5-primary:active { transform:scale(.975); }
+.studio5-primary svg,.studio5-ghost svg,.studio5-text-action svg { width:13px; height:13px; }
+.studio5-primary-small { min-height:33px; padding:0 12px; }
+.studio5-ghost { min-height:34px; padding:0 12px; border-radius:999px; display:inline-flex; align-items:center; gap:7px; background:color-mix(in srgb,currentColor 5%,transparent); color:var(--text); font-size:9px; transition:background .16s ease,transform .16s ease; }
+.studio5-ghost:hover { background:color-mix(in srgb,currentColor 9%,transparent); transform:translateY(-1px); }
+.studio5-danger { min-height:34px; padding:0 13px; border-radius:999px; background:#d95656; color:white; font-size:10px; font-weight:600; }
+.studio5-icon-action,.studio5-row-more { display:flex; align-items:center; justify-content:center; border-radius:50%; background:transparent; color:var(--muted); transition:background .15s ease,color .15s ease; }
+.studio5-icon-action { width:34px; height:34px; }
+.studio5-row-more { width:30px; height:30px; }
+.studio5-icon-action:hover,.studio5-row-more:hover { color:var(--text); background:color-mix(in srgb,currentColor 6%,transparent); }
+.studio5-icon-action svg,.studio5-row-more svg { width:15px; height:15px; }
+.studio5-text-action { padding:0; display:inline-flex; align-items:center; gap:5px; background:transparent; color:var(--muted); font-size:8.5px; transition:color .15s ease; }
+.studio5-text-action:hover { color:var(--text); }
+
+.studio5-stage { transition:opacity .2s ease; }
+.studio5-enter { animation:studio5Enter .34s cubic-bezier(.22,1,.36,1) both; }
+@keyframes studio5Enter { from { opacity:0; transform:translateY(7px); } to { opacity:1; transform:none; } }
+
+.studio5-library-head,.studio5-page-head,.studio5-panel-head { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; }
+.studio5-library-head { margin-bottom:18px; }
+.studio5-library-head h2,.studio5-page-head h3,.studio5-panel-head h3 { margin:6px 0 0; color:var(--text); font-weight:600; letter-spacing:-.03em; }
+.studio5-library-head h2 { font-size:20px; }
+.studio5-page-head { margin-bottom:20px; }
+.studio5-page-head h3 { font-size:18px; }
+.studio5-panel-head h3 { font-size:13px; }
+.studio5-library-count { color:var(--muted); font-size:9px; }
+
+.studio5-project-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:22px 18px; }
+.studio5-project-card { min-width:0; cursor:pointer; animation:studio5Card .42s cubic-bezier(.22,1,.36,1) both; animation-delay:calc(var(--i) * 35ms); }
+@keyframes studio5Card { from { opacity:0; transform:translateY(8px) scale(.99); } to { opacity:1; transform:none; } }
+.studio5-project-art { position:relative; aspect-ratio:1/1; overflow:hidden; border-radius:18px; background:color-mix(in srgb,currentColor 5%,transparent); box-shadow:0 14px 35px rgba(0,0,0,.08); transition:transform .28s cubic-bezier(.22,1,.36,1),box-shadow .28s ease; }
+.studio5-project-card:hover .studio5-project-art { transform:translateY(-3px); box-shadow:0 20px 44px rgba(0,0,0,.13); }
+.studio5-project-art>img,.studio5-art-fallback { width:100%; height:100%; object-fit:cover; display:flex; align-items:center; justify-content:center; }
+.studio5-art-fallback { color:var(--dim); background:linear-gradient(145deg,color-mix(in srgb,currentColor 6%,transparent),color-mix(in srgb,currentColor 2%,transparent)); }
+.studio5-art-fallback svg { width:28px; height:28px; }
+.studio5-project-shade { position:absolute; inset:auto 0 0; height:36%; background:linear-gradient(transparent,rgba(0,0,0,.22)); opacity:0; transition:opacity .22s ease; pointer-events:none; }
+.studio5-project-card:hover .studio5-project-shade { opacity:1; }
+.studio5-project-play { position:absolute; right:12px; bottom:12px; width:39px; height:39px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:rgba(255,255,255,.94); color:#111; box-shadow:0 8px 24px rgba(0,0,0,.20); opacity:0; transform:translateY(6px) scale(.96); transition:opacity .2s ease,transform .2s ease; z-index:2; }
+.studio5-project-play svg { width:14px; height:14px; }
+.studio5-project-card:hover .studio5-project-play,.studio5-project-play:focus-visible { opacity:1; transform:none; }
+.studio5-project-body { padding:11px 2px 0; }
+.studio5-project-title { color:var(--text); font-size:12px; font-weight:590; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.studio5-project-meta { margin-top:4px; color:var(--muted); font-size:8.5px; }
+.studio5-project-foot { margin-top:8px; display:flex; justify-content:space-between; gap:10px; color:var(--dim); font-size:7.5px; }
+
+.studio5-back { margin:0 0 20px; padding:0; display:inline-flex; align-items:center; gap:5px; background:transparent; color:var(--muted); font-size:8.5px; }
+.studio5-back svg { width:13px; height:13px; }
+.studio5-back:hover { color:var(--text); }
+.studio5-hero { display:grid; grid-template-columns:184px minmax(0,1fr); gap:28px; align-items:end; margin-bottom:28px; }
+.studio5-hero-art { width:184px; height:184px; border-radius:20px; overflow:hidden; background:color-mix(in srgb,currentColor 5%,transparent); box-shadow:0 18px 42px rgba(0,0,0,.12); }
+.studio5-hero-art>img,.studio5-hero-art>.studio5-art-fallback { width:100%; height:100%; object-fit:cover; }
+.studio5-hero-meta { display:flex; align-items:center; gap:7px; color:var(--dim); font-size:7.5px; letter-spacing:.1em; text-transform:uppercase; }
+.studio5-hero-meta i { width:2px; height:2px; border-radius:50%; background:currentColor; opacity:.55; }
+.studio5-hero-copy h2 { margin:9px 0 8px; max-width:800px; color:var(--text); font-size:clamp(36px,5vw,56px); line-height:.96; letter-spacing:-.055em; font-weight:620; }
+.studio5-hero-copy p { margin:0; max-width:680px; color:var(--muted); font-size:10.5px; line-height:1.55; }
+.studio5-hero-actions { margin-top:16px; }
+.studio5-play-primary svg { width:13px; height:13px; }
+
+.studio5-tabs { display:flex; align-items:center; gap:2px; margin-bottom:24px; padding-bottom:12px; border-bottom:1px solid color-mix(in srgb,currentColor 7%,transparent); }
+.studio5-tabs button { appearance:none; border:0; background:transparent; color:var(--muted); font:inherit; font-size:9px; padding:7px 10px; border-radius:999px; cursor:pointer; transition:background .16s ease,color .16s ease; }
+.studio5-tabs button span { margin-left:5px; opacity:.45; font-size:7px; }
+.studio5-tabs button:hover { color:var(--text); }
+.studio5-tabs button.active { color:var(--text); background:color-mix(in srgb,currentColor 6%,transparent); }
+.studio5-tab-content { animation:studio5Tab .28s cubic-bezier(.22,1,.36,1) both; }
+@keyframes studio5Tab { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
+
+.studio5-overview-grid { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(260px,.75fr); gap:16px; }
+.studio5-panel { border:1px solid color-mix(in srgb,currentColor 6%,transparent); border-radius:18px; background:color-mix(in srgb,currentColor 2.4%,transparent); padding:17px; }
+.studio5-panel-tracks { grid-row:span 2; }
+.studio5-tracklist { margin-top:12px; }
+.studio5-track-row { min-height:56px; display:grid; grid-template-columns:26px 34px minmax(0,1fr) minmax(90px,auto) 30px; gap:10px; align-items:center; border-top:1px solid color-mix(in srgb,currentColor 5%,transparent); }
+.studio5-track-row:first-child { border-top:0; }
+.studio5-track-index { color:var(--dim); font-size:7.5px; font-variant-numeric:tabular-nums; }
+.studio5-track-play,.studio5-version-play { width:31px; height:31px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:color-mix(in srgb,currentColor 7%,transparent); color:var(--text); }
+.studio5-track-play:hover,.studio5-version-play:hover { background:color-mix(in srgb,currentColor 11%,transparent); }
+.studio5-track-play svg,.studio5-version-play svg { width:12px; height:12px; }
+.studio5-track-play:disabled { opacity:.25; cursor:default; }
+.studio5-track-copy { min-width:0; }
+.studio5-track-title { color:var(--text); font-size:10px; font-weight:590; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.studio5-track-meta { margin-top:3px; color:var(--muted); font-size:7.5px; }
+.studio5-track-version { max-width:170px; color:var(--muted); font-size:8px; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+.studio5-note-stack { margin-top:12px; display:grid; gap:7px; }
+.studio5-note-mini { width:100%; padding:10px 11px; border-radius:12px; text-align:left; background:color-mix(in srgb,currentColor 3.5%,transparent); }
+.studio5-note-mini:hover { background:color-mix(in srgb,currentColor 5.5%,transparent); }
+.studio5-note-mini .studio5-note-kind { display:block; color:var(--dim); font-size:6.5px; letter-spacing:.11em; text-transform:uppercase; }
+.studio5-note-mini strong { display:block; margin-top:5px; color:var(--text); font-size:9px; font-weight:580; }
+.studio5-note-mini>span:last-child { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:5px; color:var(--muted); font-size:8px; line-height:1.45; }
+.studio5-world-strip { margin-top:12px; display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+.studio5-media-thumb { min-width:0; aspect-ratio:1/1; border-radius:11px; overflow:hidden; background:color-mix(in srgb,currentColor 4%,transparent); color:var(--muted); text-decoration:none; position:relative; display:flex; align-items:center; justify-content:center; }
+.studio5-media-thumb img { width:100%; height:100%; object-fit:cover; }
+.studio5-media-thumb>div svg { width:20px; height:20px; }
+.studio5-media-thumb>span { position:absolute; left:7px; right:7px; bottom:6px; color:white; font-size:6.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 1px 4px rgba(0,0,0,.55); }
+.studio5-empty-world { width:100%; min-height:110px; margin-top:12px; border:1px dashed color-mix(in srgb,currentColor 10%,transparent); border-radius:13px; display:flex; align-items:center; gap:12px; padding:14px; text-align:left; background:transparent; color:var(--muted); }
+.studio5-empty-world:hover { border-color:color-mix(in srgb,currentColor 17%,transparent); color:var(--text); }
+.studio5-empty-world>span svg { width:22px; height:22px; }
+.studio5-empty-world strong { display:block; color:var(--text); font-size:9px; font-weight:580; }
+.studio5-empty-world small { display:block; margin-top:4px; color:var(--muted); font-size:7.5px; line-height:1.4; }
+
+.studio5-track-cards { display:grid; gap:10px; }
+.studio5-track-card { border:1px solid color-mix(in srgb,currentColor 6%,transparent); border-radius:16px; overflow:hidden; background:color-mix(in srgb,currentColor 2.2%,transparent); }
+.studio5-track-card-head { min-height:66px; display:grid; grid-template-columns:28px 38px minmax(0,1fr) minmax(110px,auto) 30px; gap:11px; align-items:center; padding:0 14px; }
+.studio5-track-card-number { color:var(--dim); font-size:8px; }
+.studio5-track-play-large { width:35px; height:35px; }
+.studio5-track-card-main { min-width:0; padding:0; background:transparent; text-align:left; }
+.studio5-track-card-main strong { display:block; color:var(--text); font-size:10.5px; font-weight:590; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.studio5-track-card-main span { display:block; margin-top:4px; color:var(--muted); font-size:7.5px; }
+.studio5-track-card-primary { color:var(--muted); font-size:8px; text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.studio5-track-card-body { display:grid; grid-template-rows:0fr; opacity:0; transition:grid-template-rows .26s cubic-bezier(.22,1,.36,1),opacity .18s ease; }
+.studio5-track-card-body>* { overflow:hidden; }
+.studio5-track-card.is-expanded .studio5-track-card-body { grid-template-rows:1fr; opacity:1; }
+.studio5-version-head { margin:0 14px; padding:12px 0 8px 76px; border-top:1px solid color-mix(in srgb,currentColor 5%,transparent); display:flex; align-items:center; justify-content:space-between; color:var(--muted); font-size:7.5px; }
+.studio5-version-list { padding:0 14px 12px 76px; }
+.studio5-version-row { min-height:48px; display:grid; grid-template-columns:32px minmax(0,1fr) 82px 30px; gap:10px; align-items:center; border-top:1px solid color-mix(in srgb,currentColor 4%,transparent); }
+.studio5-version-row:first-child { border-top:0; }
+.studio5-version-copy { min-width:0; }
+.studio5-version-title { color:var(--text); font-size:9px; font-weight:560; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.studio5-primary-dot { display:inline-block; width:5px; height:5px; margin-left:6px; border-radius:50%; background:currentColor; opacity:.42; vertical-align:1px; }
+.studio5-version-meta { margin-top:3px; color:var(--muted); font-size:7px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.studio5-version-date { color:var(--dim); font-size:7px; text-align:right; }
+
+.studio5-notes-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; }
+.studio5-note-card { min-height:150px; padding:15px; border-radius:15px; background:color-mix(in srgb,currentColor 3.6%,transparent); border:1px solid color-mix(in srgb,currentColor 5%,transparent); animation:studio5Card .35s ease both; animation-delay:calc(var(--i) * 25ms); }
+.studio5-note-card-top { display:flex; justify-content:space-between; align-items:center; }
+.studio5-note-card-top>span { color:var(--dim); font-size:6.5px; letter-spacing:.12em; text-transform:uppercase; }
+.studio5-note-card h4 { margin:8px 0 0; color:var(--text); font-size:10px; font-weight:590; }
+.studio5-note-card p { margin:9px 0 0; color:var(--muted); font-size:8.5px; line-height:1.55; white-space:pre-wrap; }
+.studio5-note-date { margin-top:18px; color:var(--dim); font-size:6.5px; }
+
+.studio5-media-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:13px; }
+.studio5-media-card { overflow:hidden; border-radius:15px; background:color-mix(in srgb,currentColor 3.2%,transparent); border:1px solid color-mix(in srgb,currentColor 5%,transparent); animation:studio5Card .35s ease both; animation-delay:calc(var(--i) * 25ms); }
+.studio5-media-card>a { display:block; color:inherit; text-decoration:none; }
+.studio5-media-visual { aspect-ratio:16/11; overflow:hidden; display:flex; align-items:center; justify-content:center; background:color-mix(in srgb,currentColor 4%,transparent); }
+.studio5-media-visual img { width:100%; height:100%; object-fit:cover; transition:transform .3s ease; }
+.studio5-media-card:hover .studio5-media-visual img { transform:scale(1.025); }
+.studio5-media-glyph { flex-direction:column; gap:8px; color:var(--muted); }
+.studio5-media-glyph svg { width:25px; height:25px; }
+.studio5-media-glyph span { font-size:6.5px; letter-spacing:.1em; }
+.studio5-media-body { min-height:50px; padding:10px 10px 10px 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.studio5-media-body>div { min-width:0; }
+.studio5-media-body strong { display:block; color:var(--text); font-size:9px; font-weight:570; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.studio5-media-body span { display:block; margin-top:3px; color:var(--muted); font-size:6.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+.studio5-empty { min-height:250px; border:1px dashed color-mix(in srgb,currentColor 10%,transparent); border-radius:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:28px; color:var(--muted); }
+.studio5-empty-large { min-height:330px; }
+.studio5-empty-icon { width:42px; height:42px; border-radius:13px; display:flex; align-items:center; justify-content:center; margin-bottom:12px; background:color-mix(in srgb,currentColor 4%,transparent); }
+.studio5-empty-icon svg { width:20px; height:20px; }
+.studio5-empty h3 { margin:0; color:var(--text); font-size:13px; font-weight:590; }
+.studio5-empty p { max-width:430px; margin:8px 0 16px; color:var(--muted); font-size:8.5px; line-height:1.5; }
+.studio5-empty-line { width:100%; min-height:52px; display:flex; align-items:center; gap:8px; padding:0 10px; border-radius:11px; background:transparent; color:var(--muted); font-size:8.5px; text-align:left; }
+.studio5-empty-line:hover { background:color-mix(in srgb,currentColor 4%,transparent); color:var(--text); }
+.studio5-empty-line svg { width:13px; height:13px; }
+
+.studio5-transport { margin-top:26px; display:none; grid-template-columns:42px minmax(120px,180px) 36px minmax(180px,1fr) 24px; gap:12px; align-items:center; padding:9px 11px 9px 9px; border-radius:16px; border:1px solid color-mix(in srgb,currentColor 7%,transparent); background:color-mix(in srgb,var(--bg) 96%,currentColor 4%); box-shadow:0 10px 30px rgba(0,0,0,.06); }
+.studio5-transport.visible { display:grid; animation:studio5Transport .25s cubic-bezier(.22,1,.36,1) both; }
+@keyframes studio5Transport { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+.studio5-transport-art { width:42px; height:42px; border-radius:10px; overflow:hidden; display:flex; align-items:center; justify-content:center; background:color-mix(in srgb,currentColor 5%,transparent); color:var(--muted); }
+.studio5-transport-art img { width:100%; height:100%; object-fit:cover; }
+.studio5-transport-art svg { width:18px; height:18px; }
+.studio5-transport-copy { min-width:0; }
+.studio5-transport-title { color:var(--text); font-size:9.5px; font-weight:590; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.studio5-transport-sub { margin-top:3px; color:var(--muted); font-size:7.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.studio5-transport-toggle { width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:var(--text); color:var(--bg); }
+.studio5-transport-toggle svg { width:12px; height:12px; }
+.studio5-transport-progress { min-width:0; display:flex; align-items:center; gap:10px; }
+.studio5-transport-progress input { --progress:0%; appearance:none; width:100%; height:14px; background:transparent; cursor:pointer; }
+.studio5-transport-progress input::-webkit-slider-runnable-track { height:2px; border-radius:999px; background:linear-gradient(to right,currentColor 0,currentColor var(--progress),color-mix(in srgb,currentColor 14%,transparent) var(--progress),color-mix(in srgb,currentColor 14%,transparent) 100%); }
+.studio5-transport-progress input::-webkit-slider-thumb { appearance:none; width:8px; height:8px; margin-top:-3px; border-radius:50%; background:currentColor; opacity:0; transition:opacity .15s ease; }
+.studio5-transport-progress:hover input::-webkit-slider-thumb { opacity:1; }
+.studio5-transport-progress>div { min-width:64px; text-align:right; color:var(--muted); font-size:7.5px; font-variant-numeric:tabular-nums; }
+.studio5-transport-close { width:24px; height:24px; border-radius:50%; background:transparent; color:var(--muted); font-size:15px; line-height:1; }
+.studio5-transport-close:hover { background:color-mix(in srgb,currentColor 6%,transparent); color:var(--text); }
+.studio5-transport audio { display:none; }
+
+.studio5-modal-backdrop { position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; padding:24px; background:rgba(0,0,0,.34); backdrop-filter:blur(14px); animation:studio5Fade .18s ease both; }
+@keyframes studio5Fade { from{opacity:0} to{opacity:1} }
+.studio5-modal-card { width:min(500px,100%); max-height:min(760px,88vh); overflow-y:auto; padding:22px; border-radius:20px; background:var(--bg); border:1px solid color-mix(in srgb,currentColor 8%,transparent); box-shadow:0 30px 90px rgba(0,0,0,.24); animation:studio5Modal .26s cubic-bezier(.22,1,.36,1) both; }
+@keyframes studio5Modal { from{opacity:0;transform:translateY(10px) scale(.985)} to{opacity:1;transform:none} }
+.studio5-modal-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:17px; }
+.studio5-modal-head h3 { margin:0; color:var(--text); font-size:17px; letter-spacing:-.03em; font-weight:610; }
+.studio5-modal-head p { margin:6px 0 0; max-width:390px; color:var(--muted); font-size:8.5px; line-height:1.45; }
+.studio5-modal-head button { appearance:none; border:0; width:28px; height:28px; border-radius:50%; background:color-mix(in srgb,currentColor 5%,transparent); color:var(--muted); font-size:16px; cursor:pointer; }
+.studio5-field { display:block; margin-top:12px; }
+.studio5-field>span { display:block; margin-bottom:6px; color:var(--muted); font-size:7px; letter-spacing:.1em; text-transform:uppercase; }
+.studio5-field input,.studio5-field textarea,.studio5-field select { width:100%; box-sizing:border-box; border:1px solid color-mix(in srgb,currentColor 9%,transparent); border-radius:11px; background:color-mix(in srgb,currentColor 2.5%,transparent); color:var(--text); font:inherit; font-size:9.5px; outline:0; transition:border-color .15s ease,background .15s ease; }
+.studio5-field input,.studio5-field select { height:38px; padding:0 11px; }
+.studio5-field textarea { min-height:100px; padding:10px 11px; resize:vertical; line-height:1.5; }
+.studio5-field input:focus,.studio5-field textarea:focus,.studio5-field select:focus { border-color:color-mix(in srgb,currentColor 21%,transparent); background:color-mix(in srgb,currentColor 3.5%,transparent); }
+.studio5-modal-foot { margin-top:20px; display:flex; justify-content:flex-end; gap:8px; }
+
+.studio5-menu { position:fixed; z-index:100001; width:180px; padding:6px; border-radius:12px; border:1px solid color-mix(in srgb,currentColor 8%,transparent); background:color-mix(in srgb,var(--bg) 97%,transparent); backdrop-filter:blur(18px); box-shadow:0 18px 50px rgba(0,0,0,.18); animation:studio5Menu .15s ease both; }
+@keyframes studio5Menu { from{opacity:0;transform:translateY(-3px) scale(.985)} to{opacity:1;transform:none} }
+.studio5-menu button { appearance:none; width:100%; height:31px; padding:0 9px; border:0; border-radius:8px; background:transparent; color:var(--text); font:inherit; font-size:8.5px; text-align:left; cursor:pointer; }
+.studio5-menu button:hover { background:color-mix(in srgb,currentColor 6%,transparent); }
+.studio5-menu button.danger { color:#d85c5c; }
+.studio5-menu-separator { height:1px; margin:5px 4px; background:color-mix(in srgb,currentColor 7%,transparent); }
+
+.studio5-toast { position:fixed; left:50%; bottom:26px; z-index:100002; transform:translate(-50%,8px); opacity:0; padding:9px 13px; border-radius:999px; background:var(--text); color:var(--bg); font-size:8.5px; font-weight:560; box-shadow:0 12px 34px rgba(0,0,0,.16); transition:opacity .18s ease,transform .18s ease; }
+.studio5-toast.visible { opacity:1; transform:translate(-50%,0); }
+.studio5-toast.is-error { background:#c64f4f; color:white; }
+
+#studioView.is-dragging::after { content:"Drop into Project World"; position:fixed; inset:18px; z-index:99990; display:flex; align-items:center; justify-content:center; border:1px dashed rgba(255,255,255,.28); border-radius:22px; background:rgba(0,0,0,.58); backdrop-filter:blur(18px); color:white; font-size:12px; letter-spacing:.02em; pointer-events:none; }
+
+html[data-theme="light"] .studio5-project-play { background:#111; color:#fff; }
+html[data-theme="light"] .studio5-panel,html[data-theme="light"] .studio5-track-card,html[data-theme="light"] .studio5-note-card,html[data-theme="light"] .studio5-media-card { background:rgba(0,0,0,.018); }
+html[data-theme="light"] .studio5-transport { background:rgba(255,255,255,.96); box-shadow:0 10px 30px rgba(0,0,0,.06); }
+html[data-theme="light"] .studio5-modal-card { background:#fff; }
+
+@media (max-width:900px) {
+    #studioView { padding:36px 30px 80px !important; }
+    .studio5-overview-grid { grid-template-columns:1fr; }
+    .studio5-panel-tracks { grid-row:auto; }
+    .studio5-world-strip { grid-template-columns:repeat(6,minmax(70px,1fr)); overflow-x:auto; }
+    .studio5-track-version,.studio5-track-card-primary { display:none; }
+    .studio5-track-row { grid-template-columns:24px 34px minmax(0,1fr) 30px; }
+    .studio5-track-card-head { grid-template-columns:26px 36px minmax(0,1fr) 30px; }
+}
+@media (max-width:680px) {
+    #studioView { padding:28px 18px 70px !important; }
+    .studio5-topbar { align-items:flex-start; flex-direction:column; margin-bottom:32px; }
+    .studio5-top-actions { width:100%; }
+    .studio5-project-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 12px; }
+    .studio5-hero { grid-template-columns:96px minmax(0,1fr); gap:16px; align-items:center; }
+    .studio5-hero-art { width:96px; height:96px; border-radius:15px; }
+    .studio5-hero-copy h2 { font-size:30px; }
+    .studio5-hero-meta span:nth-of-type(3),.studio5-hero-meta i:nth-of-type(2) { display:none; }
+    .studio5-tabs { overflow-x:auto; }
+    .studio5-version-head,.studio5-version-list { padding-left:14px; }
+    .studio5-version-row { grid-template-columns:32px minmax(0,1fr) 30px; }
+    .studio5-version-date { display:none; }
+    .studio5-transport { grid-template-columns:38px minmax(0,1fr) 34px 24px; }
+    .studio5-transport-progress { grid-column:1/-1; }
+    .studio5-media-grid,.studio5-notes-grid { grid-template-columns:1fr; }
+}
+
+html[data-reduce-motion="true"] .studio5-enter,
+html[data-reduce-motion="true"] .studio5-project-card,
+html[data-reduce-motion="true"] .studio5-tab-content,
+html[data-reduce-motion="true"] .studio5-modal-backdrop,
+html[data-reduce-motion="true"] .studio5-modal-card,
+html[data-reduce-motion="true"] .studio5-menu,
+html[data-reduce-motion="true"] .studio5-transport {
+    animation:none !important;
+    transition:none !important;
+}
+
+@media (prefers-reduced-motion:reduce) {
+    .studio5-enter,.studio5-project-card,.studio5-tab-content,.studio5-modal-backdrop,.studio5-modal-card,.studio5-menu,.studio5-transport { animation:none !important; transition:none !important; }
+}
+
+
+/* =========================================================
+   STUDIO V5 — TYPOGRAPHY SCALE V2
+   Real-screen readability pass
+   ========================================================= */
+
+.studio5-eyebrow,
+.studio5-section-kicker {
+    font-size: 9.5px;
+}
+
+.studio5-brandcopy h1 {
+    font-size: 42px;
+}
+
+.studio5-brandcopy p {
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+
+/* Buttons / actions */
+
+.studio5-primary {
+    min-height: 38px;
+    padding: 0 16px;
+    font-size: 11.5px;
+}
+
+.studio5-ghost {
+    min-height: 36px;
+    padding: 0 14px;
+    font-size: 10.5px;
+}
+
+.studio5-danger {
+    font-size: 11px;
+}
+
+.studio5-text-action {
+    font-size: 10px;
+}
+
+
+/* Library */
+
+.studio5-library-head h2 {
+    font-size: 23px;
+}
+
+.studio5-page-head h3 {
+    font-size: 20px;
+}
+
+.studio5-panel-head h3 {
+    font-size: 15px;
+}
+
+.studio5-library-count {
+    font-size: 10.5px;
+}
+
+.studio5-project-title {
+    font-size: 14px;
+}
+
+.studio5-project-meta {
+    margin-top: 5px;
+    font-size: 10px;
+}
+
+.studio5-project-foot {
+    font-size: 9px;
+}
+
+
+/* Project hero */
+
+.studio5-back {
+    font-size: 10px;
+}
+
+.studio5-hero-meta {
+    font-size: 9px;
+}
+
+.studio5-hero-copy p {
+    font-size: 12.5px;
+    line-height: 1.55;
+}
+
+
+/* Tabs */
+
+.studio5-tabs button {
+    font-size: 10.5px;
+    padding: 8px 11px;
+}
+
+.studio5-tabs button span {
+    font-size: 8.5px;
+}
+
+
+/* Overview tracklist */
+
+.studio5-track-index {
+    font-size: 9px;
+}
+
+.studio5-track-title {
+    font-size: 12px;
+}
+
+.studio5-track-meta {
+    margin-top: 4px;
+    font-size: 9.5px;
+}
+
+.studio5-track-version {
+    font-size: 9.5px;
+}
+
+
+/* Overview notes */
+
+.studio5-note-mini .studio5-note-kind {
+    font-size: 8px;
+}
+
+.studio5-note-mini strong {
+    margin-top: 6px;
+    font-size: 11px;
+}
+
+.studio5-note-mini > span:last-child {
+    margin-top: 6px;
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+
+/* World preview */
+
+.studio5-media-thumb > span {
+    font-size: 8px;
+}
+
+.studio5-empty-world strong {
+    font-size: 11px;
+}
+
+.studio5-empty-world small {
+    margin-top: 5px;
+    font-size: 9.5px;
+    line-height: 1.45;
+}
+
+
+/* Tracks page */
+
+.studio5-track-card-number {
+    font-size: 9.5px;
+}
+
+.studio5-track-card-main strong {
+    font-size: 12.5px;
+}
+
+.studio5-track-card-main span {
+    margin-top: 5px;
+    font-size: 9.5px;
+}
+
+.studio5-track-card-primary {
+    font-size: 9.5px;
+}
+
+.studio5-version-head {
+    font-size: 9px;
+}
+
+.studio5-version-title {
+    font-size: 11px;
+}
+
+.studio5-version-meta {
+    margin-top: 4px;
+    font-size: 9px;
+}
+
+.studio5-version-date {
+    font-size: 8.5px;
+}
+
+
+/* Notes page */
+
+.studio5-note-card-top > span {
+    font-size: 8px;
+}
+
+.studio5-note-card h4 {
+    margin-top: 9px;
+    font-size: 12px;
+}
+
+.studio5-note-card p {
+    margin-top: 10px;
+    font-size: 10.5px;
+    line-height: 1.6;
+}
+
+.studio5-note-date {
+    font-size: 8px;
+}
+
+
+/* Media / World */
+
+.studio5-media-glyph span {
+    font-size: 8px;
+}
+
+.studio5-media-body strong {
+    font-size: 11px;
+}
+
+.studio5-media-body span {
+    margin-top: 4px;
+    font-size: 8.5px;
+}
+
+
+/* Empty states */
+
+.studio5-empty h3 {
+    font-size: 15px;
+}
+
+.studio5-empty p {
+    font-size: 10.5px;
+    line-height: 1.55;
+}
+
+.studio5-empty-line {
+    font-size: 10px;
+}
+
+
+/* Player */
+
+.studio5-transport-title {
+    font-size: 11px;
+}
+
+.studio5-transport-sub {
+    font-size: 9px;
+}
+
+.studio5-transport-progress > div {
+    font-size: 9px;
+}
+
+
+/* Forms / menus */
+
+.studio5-modal-head h3 {
+    font-size: 19px;
+}
+
+.studio5-modal-head p {
+    font-size: 10.5px;
+}
+
+.studio5-field > span {
+    font-size: 8.5px;
+}
+
+.studio5-field input,
+.studio5-field textarea,
+.studio5-field select {
+    font-size: 11px;
+}
+
+.studio5-menu button {
+    height: 34px;
+    font-size: 10px;
+}
+
+.studio5-toast {
+    font-size: 10px;
+}
+
+
+/* Slightly more breathing room */
+
+.studio5-panel {
+    line-height: 1.45;
+}
+
+
+/* =========================================================
+   STUDIO V5 — APOLLO TYPOGRAPHY PARITY V3
+   Match the scale of the rest of the website.
+   ========================================================= */
+
+/* ---------- GLOBAL ---------- */
+
+#studioView {
+    font-size: 13px !important;
+}
+
+.studio5-eyebrow,
+.studio5-section-kicker,
+.studio5-hero-meta {
+    font-size: 10.5px !important;
+    line-height: 1.35 !important;
+}
+
+.studio5-brandcopy h1 {
+    font-size: 42px !important;
+    line-height: 1.05 !important;
+}
+
+.studio5-brandcopy p {
+    font-size: 13.5px !important;
+    line-height: 1.55 !important;
+}
+
+
+/* ---------- TOP ACTIONS ---------- */
+
+.studio5-primary {
+    min-height: 40px !important;
+    padding: 0 17px !important;
+    font-size: 12.5px !important;
+}
+
+.studio5-ghost {
+    min-height: 38px !important;
+    padding: 0 15px !important;
+    font-size: 12px !important;
+}
+
+.studio5-text-action {
+    font-size: 11.5px !important;
+}
+
+.studio5-danger {
+    font-size: 11.5px !important;
+}
+
+
+/* ---------- PROJECT HERO ---------- */
+
+.studio5-back {
+    font-size: 11.5px !important;
+}
+
+.studio5-hero-copy p {
+    font-size: 13.5px !important;
+    line-height: 1.55 !important;
+}
+
+.studio5-hero-actions button {
+    font-size: 12px !important;
+}
+
+
+/* ---------- TABS ---------- */
+
+.studio5-tabs button {
+    padding: 9px 13px !important;
+
+    font-size: 12px !important;
+    line-height: 1 !important;
+}
+
+.studio5-tabs button span {
+    margin-left: 4px !important;
+    font-size: 10.5px !important;
+}
+
+
+/* ---------- PANEL HEADINGS ---------- */
+
+.studio5-panel-head h3 {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+}
+
+.studio5-panel-head button {
+    font-size: 11.5px !important;
+}
+
+.studio5-section-kicker {
+    margin-bottom: 7px !important;
+}
+
+
+/* ---------- OVERVIEW TRACKLIST ---------- */
+
+.studio5-track-index {
+    font-size: 10.5px !important;
+}
+
+.studio5-track-title {
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+}
+
+.studio5-track-meta {
+    margin-top: 5px !important;
+
+    font-size: 11.5px !important;
+    line-height: 1.4 !important;
+}
+
+.studio5-track-version {
+    font-size: 11px !important;
+}
+
+.studio5-track-row {
+    min-height: 64px !important;
+}
+
+
+/* ---------- NOTES PREVIEW ---------- */
+
+.studio5-note-mini {
+    padding: 16px !important;
+}
+
+.studio5-note-mini .studio5-note-kind {
+    font-size: 9.5px !important;
+}
+
+.studio5-note-mini strong {
+    margin-top: 7px !important;
+
+    font-size: 12.5px !important;
+    line-height: 1.3 !important;
+}
+
+.studio5-note-mini > span:last-child {
+    margin-top: 7px !important;
+
+    font-size: 11.5px !important;
+    line-height: 1.5 !important;
+}
+
+
+/* ---------- WORLD ---------- */
+
+.studio5-empty-world {
+    padding: 22px !important;
+}
+
+.studio5-empty-world strong {
+    font-size: 12.5px !important;
+}
+
+.studio5-empty-world small {
+    margin-top: 6px !important;
+
+    font-size: 11px !important;
+    line-height: 1.5 !important;
+}
+
+.studio5-media-thumb > span {
+    font-size: 10px !important;
+}
+
+
+/* ---------- TRACKS PAGE ---------- */
+
+.studio5-track-card-number {
+    font-size: 11px !important;
+}
+
+.studio5-track-card-main strong {
+    font-size: 14px !important;
+}
+
+.studio5-track-card-main span {
+    margin-top: 5px !important;
+
+    font-size: 11.5px !important;
+}
+
+.studio5-track-card-primary {
+    font-size: 11px !important;
+}
+
+.studio5-version-head {
+    font-size: 10.5px !important;
+}
+
+.studio5-version-title {
+    font-size: 12.5px !important;
+}
+
+.studio5-version-meta {
+    margin-top: 5px !important;
+
+    font-size: 11px !important;
+}
+
+.studio5-version-date {
+    font-size: 10.5px !important;
+}
+
+
+/* ---------- NOTES PAGE ---------- */
+
+.studio5-note-card {
+    padding: 20px !important;
+}
+
+.studio5-note-card-top > span {
+    font-size: 10px !important;
+}
+
+.studio5-note-card h4 {
+    margin-top: 10px !important;
+
+    font-size: 14px !important;
+}
+
+.studio5-note-card p {
+    margin-top: 10px !important;
+
+    font-size: 12.5px !important;
+    line-height: 1.6 !important;
+}
+
+.studio5-note-date {
+    font-size: 10.5px !important;
+}
+
+
+/* ---------- WORLD / MEDIA PAGE ---------- */
+
+.studio5-media-glyph span {
+    font-size: 10px !important;
+}
+
+.studio5-media-body strong {
+    font-size: 13px !important;
+}
+
+.studio5-media-body span {
+    margin-top: 5px !important;
+
+    font-size: 11px !important;
+}
+
+
+/* ---------- EMPTY STATES ---------- */
+
+.studio5-empty h3 {
+    font-size: 16px !important;
+}
+
+.studio5-empty p {
+    font-size: 12px !important;
+    line-height: 1.55 !important;
+}
+
+.studio5-empty-line {
+    font-size: 11.5px !important;
+}
+
+
+/* ---------- PLAYER ---------- */
+
+.studio5-transport-title {
+    font-size: 12.5px !important;
+}
+
+.studio5-transport-sub {
+    font-size: 11px !important;
+}
+
+.studio5-transport-progress > div {
+    font-size: 10.5px !important;
+}
+
+
+/* ---------- MODALS ---------- */
+
+.studio5-modal-head h3 {
+    font-size: 20px !important;
+}
+
+.studio5-modal-head p {
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+}
+
+.studio5-field > span {
+    font-size: 10.5px !important;
+}
+
+.studio5-field input,
+.studio5-field textarea,
+.studio5-field select {
+    font-size: 13px !important;
+}
+
+.studio5-menu button {
+    height: 38px !important;
+    font-size: 12px !important;
+}
+
+.studio5-toast {
+    font-size: 12px !important;
+}
+
+
+/* ---------- MORE BREATHING ROOM ---------- */
+
+.studio5-panel {
+    line-height: 1.5 !important;
+}
+
+.studio5-panel-head {
+    margin-bottom: 16px !important;
+}
+
+
+/* =========================================================
+   STUDIO V5 — PLAYBACK ICON SCALE
+   ========================================================= */
+
+.studio5-play-primary svg {
+    width: 18px !important;
+    height: 18px !important;
+}
+
+.studio5-transport-toggle svg {
+    width: 17px !important;
+    height: 17px !important;
+}
+
+.studio5-project-play svg {
+    width: 16px !important;
+    height: 16px !important;
+}
+
+.studio5-track-play svg,
+.studio5-version-play svg {
+    width: 15px !important;
+    height: 15px !important;
+}
+
+
+/* =========================================================
+   STUDIO V5 — CLEAN VERSION HISTORY
+   ========================================================= */
+
+.studio5-track-add-version,
+.studio5-version-toggle {
+    min-height: 32px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    gap: 6px;
+
+    padding: 0 10px;
+
+    border: 0;
+    border-radius: 999px;
+
+    background: transparent;
+    color: var(--muted);
+
+    font: inherit;
+    font-size: 11px;
+
+    white-space: nowrap;
+    cursor: pointer;
+
+    transition:
+        background 160ms ease,
+        color 160ms ease,
+        transform 160ms ease;
+}
+
+.studio5-track-add-version:hover,
+.studio5-version-toggle:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+}
+
+.studio5-track-add-version:active,
+.studio5-version-toggle:active {
+    transform: scale(.96);
+}
+
+.studio5-track-add-version svg {
+    width: 12px;
+    height: 12px;
+}
+
+.studio5-version-toggle {
+    background: var(--surface);
+}
+
+.studio5-version-toggle.is-open {
+    color: var(--text);
+}
+
+.studio5-version-toggle-mark {
+    width: 14px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    font-size: 13px;
+    line-height: 1;
+}
+
+.studio5-track-card-main {
+    cursor: default;
+}
+
+.studio5-track-card-body {
+    animation:
+        studio5VersionReveal
+        220ms
+        cubic-bezier(.22,.8,.25,1);
+}
+
+@keyframes studio5VersionReveal {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .studio5-track-card-body {
+        animation: none;
+    }
+}
+
+
+/* =========================================================
+   STUDIO V5 — CLEANER COLLAPSED TRACK ROW
+   ========================================================= */
+
+.studio5-track-card {
+    min-height: 0 !important;
+}
+
+.studio5-track-card-head {
+    min-height: 0 !important;
+    padding: 14px 16px !important;
+    gap: 12px !important;
+    align-items: center !important;
+}
+
+.studio5-track-card-main {
+    min-width: 0;
+}
+
+.studio5-track-card-main strong {
+    font-size: 14px !important;
+    line-height: 1.25 !important;
+}
+
+.studio5-track-card-main span {
+    font-size: 12px !important;
+    line-height: 1.25 !important;
+    margin-top: 2px !important;
+}
+
+.studio5-track-card-main span:empty {
+    display: none !important;
+}
+
+.studio5-track-card-body {
+    padding-top: 12px !important;
+}
+
+.studio5-track-card:not(.is-expanded) .studio5-track-card-body {
+    display: none !important;
+}
+
+.studio5-track-card .studio5-track-add-version {
+    margin-left: auto;
+}
+
+
+/* =========================================================
+   STUDIO V5 — HARD ROUTE ISOLATION
+   Studio is a page, never normal document content.
+   ========================================================= */
+
+#studioView:not(.active) {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+#studioView.active {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+@media (max-width: 680px) {
+
+    #studioView:not(.active) {
+        display: none !important;
+        position: absolute !important;
+        width: 0 !important;
+        height: 0 !important;
+        overflow: hidden !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+}
+
+
+
+/* =========================================================
+   STUDIO V5 — NATURAL WORLD GALLERY
+   ========================================================= */
+
+.studio5-media-grid {
+    display: block !important;
+    columns: 3;
+    column-gap: 13px;
+}
+
+.studio5-media-card {
+    break-inside: avoid;
+    margin: 0 0 13px;
+}
+
+/* Image cards are just the image */
+.studio5-media-card.is-image {
+    position: relative;
+    display: inline-block;
+    width: 100%;
+    overflow: hidden;
+
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 15px;
+}
+
+/* No forced 16:11 box */
+.studio5-media-card.is-image .studio5-media-visual {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: auto !important;
+    overflow: hidden;
+}
+
+/* Preserve original image ratio */
+.studio5-media-card.is-image .studio5-media-visual img {
+    display: block;
+    width: 100%;
+    height: auto !important;
+    aspect-ratio: auto !important;
+    object-fit: contain !important;
+}
+
+/* Keep actions without showing filename/card footer */
+.studio5-media-card.is-image .studio5-media-more {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 3;
+
+    background: rgba(20,20,20,.48);
+    color: white;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+
+    opacity: 0;
+    transition: opacity .15s ease, transform .15s ease;
+}
+
+.studio5-media-card.is-image:hover .studio5-media-more {
+    opacity: 1;
+}
+
+.studio5-media-card.is-image:hover .studio5-media-visual img {
+    transform: none !important;
+}
+
+@media (max-width: 900px) {
+    .studio5-media-grid {
+        columns: 2;
+    }
+}
+
+
+/* =========================================================
+   STUDIO V5 — WORLD GALLERY ROW FLOW
+   Fill left → right before starting next row
+   ========================================================= */
+
+.studio5-media-grid {
+    display: grid !important;
+    grid-template-columns:
+        repeat(auto-fill, minmax(190px, 1fr)) !important;
+    gap: 13px !important;
+
+    columns: unset !important;
+    column-gap: unset !important;
+
+    align-items: start !important;
+}
+
+.studio5-media-card {
+    width: 100% !important;
+    margin: 0 !important;
+    break-inside: auto !important;
+}
+
+.studio5-media-card.is-image {
+    display: block !important;
+    width: 100% !important;
+}
+
+/* Still preserve every image's original ratio */
+.studio5-media-card.is-image .studio5-media-visual {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: auto !important;
+}
+
+.studio5-media-card.is-image .studio5-media-visual img {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: auto !important;
+    object-fit: contain !important;
+}
+
+@media (max-width: 700px) {
+    .studio5-media-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 9px !important;
+    }
+}
+
+
+
+/* =========================================================
+   STUDIO V5 — JUSTIFIED WORLD GALLERY
+   Natural ratios, rows fill left → right
+   ========================================================= */
+
+.studio5-media-grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    gap: 13px !important;
+
+    columns: unset !important;
+    column-gap: unset !important;
+}
+
+.studio5-media-card.is-image {
+    position: relative !important;
+    display: block !important;
+
+    flex: 0 0 auto !important;
+
+    width: auto;
+    height: auto !important;
+    margin: 0 !important;
+
+    background: transparent !important;
+    border: 0 !important;
+    overflow: hidden !important;
+    border-radius: 15px !important;
+}
+
+.studio5-media-card.is-image .studio5-media-visual {
+    display: block !important;
+
+    width: 100% !important;
+    height: auto !important;
+
+    aspect-ratio: auto !important;
+    overflow: hidden !important;
+}
+
+.studio5-media-card.is-image .studio5-media-visual img {
+    display: block !important;
+
+    width: 100% !important;
+    height: auto !important;
+
+    aspect-ratio: auto !important;
+    object-fit: contain !important;
+
+    transform: none !important;
+}
+
+/* Non-image references stay as normal cards */
+.studio5-media-card:not(.is-image) {
+    flex: 0 0 220px;
+}
+
+/* Phone */
+@media (max-width: 700px) {
+    .studio5-media-grid {
+        gap: 8px !important;
+    }
+}
+
+
+
+/* =========================================================
+   STUDIO V5 — PINTEREST WORLD GALLERY
+   ========================================================= */
+
+.studio5-media-grid {
+    display: block !important;
+
+    columns: 4 !important;
+    column-gap: 13px !important;
+
+    width: 100% !important;
+}
+
+/* Every image occupies one masonry column */
+.studio5-media-card.is-image {
+    position: relative !important;
+
+    display: inline-block !important;
+
+    width: 100% !important;
+    height: auto !important;
+
+    margin: 0 0 13px !important;
+
+    break-inside: avoid !important;
+    vertical-align: top !important;
+
+    background: transparent !important;
+    border: 0 !important;
+
+    border-radius: 15px !important;
+    overflow: hidden !important;
+}
+
+/* Remove any forced image box */
+.studio5-media-card.is-image .studio5-media-visual {
+    display: block !important;
+
+    width: 100% !important;
+    height: auto !important;
+
+    aspect-ratio: auto !important;
+
+    overflow: hidden !important;
+}
+
+/* Natural ratio — absolutely no crop */
+.studio5-media-card.is-image .studio5-media-visual img {
+    display: block !important;
+
+    width: 100% !important;
+    height: auto !important;
+
+    max-width: 100% !important;
+    max-height: none !important;
+
+    aspect-ratio: auto !important;
+
+    object-fit: contain !important;
+
+    transform: none !important;
+}
+
+/* Keep non-image references usable */
+.studio5-media-card:not(.is-image) {
+    display: inline-block !important;
+    width: 100% !important;
+
+    margin: 0 0 13px !important;
+
+    break-inside: avoid !important;
+}
+
+/* Responsive */
+@media (max-width: 1050px) {
+    .studio5-media-grid {
+        columns: 3 !important;
+    }
+}
+
+@media (max-width: 750px) {
+    .studio5-media-grid {
+        columns: 2 !important;
+        column-gap: 9px !important;
+    }
+
+    .studio5-media-card.is-image,
+    .studio5-media-card:not(.is-image) {
+        margin-bottom: 9px !important;
+    }
+}
+

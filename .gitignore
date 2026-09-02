@@ -1,0 +1,72 @@
+# =========================
+# Apollo private/runtime data
+# =========================
+
+# OAuth / credentials / secrets
+.env
+.env.*
+!.env.example
+google_oauth.json
+whoop_oauth.json
+credentials.json
+client_secret*.json
+token.json
+tokens.json
+*secret*.json
+
+# Database + database backups
+*.db
+*.db.*
+*.sqlite
+*.sqlite3
+
+# User/chat uploads
+chat_uploads/
+
+# Generated/runtime files
+generated/
+pdf_preview/
+deliverables/
+
+# Logs
+*.log
+logs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS/editor junk
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.tmp
+
+# Apollo's old manual backup files
+*.backup
+*.backup-*
+*.bak
+*.bak-*
+*.before-*
+*.current-safe
+*.recovery
+*.v1-backup
+*.v2-start
+*.STABLE-*
+*.WORKING-*
+*.broken-*
+*.test-*
+
+# Personal/non-code files sitting in project root
+*.pdf
+*.wav
+local-files-cover.jpg
+cultural_appropriation_reflection.json
+
+# Apollo WIP / Studio user content
+wip/
+
+# Stray manual backups
+*.logo-backup
