@@ -702,6 +702,27 @@ html[data-theme="dark"] .nav-button.active {
     background: rgba(255,255,255,.095) !important;
 }
 
+/* Routed desktop windows are absolutely positioned, so they do not
+   inherit .main's padding. Give every destination the same visible
+   frame as Home instead of letting its border touch the viewport. */
+@media (min-width: 761px) and (min-height: 521px) {
+    #apolloView,
+    #musicView,
+    #calendarView,
+    #tasksView,
+    #settingsView {
+        inset: 14px 14px 14px 0 !important;
+        width: auto !important;
+        height: auto !important;
+    }
+
+    .main:has(.home:not(.hidden)) .home {
+        height: auto !important;
+        min-height: 0 !important;
+        padding-bottom: 28px !important;
+    }
+}
+
 @media (max-width: 760px) {
     html[data-theme="dark"] .card,
     html[data-theme="dark"] .debrief-box,
@@ -812,6 +833,16 @@ html[data-theme="dark"] .nav-button.active {
     #studioView,
     #apolloView {
         border-radius: 20px !important;
+    }
+
+    #apolloView,
+    #musicView,
+    #calendarView,
+    #tasksView,
+    #settingsView {
+        inset: 6px 6px 6px 0 !important;
+        width: auto !important;
+        height: auto !important;
     }
 
     .home {
