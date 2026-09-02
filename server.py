@@ -14,7 +14,7 @@ import shutil
 from email.parser import BytesParser
 from email.policy import default as email_policy
 
-from datetime import datetime, timedelta, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -664,7 +664,6 @@ def apollo_capture_generated_images(
     """
 
     import re
-    import time
 
     generated_paths = []
     visible_lines = []
@@ -928,8 +927,6 @@ def _apollo_prepare_hermes_messages(messages):
     see the image pixels.
     """
     import base64
-    import mimetypes
-    import os
     import re
 
     prepared = []
@@ -7058,10 +7055,6 @@ def whoop_summary_is_current_morning(
     summary
 ):
 
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
-
     recovery = (
         summary.get("recovery")
         or {}
@@ -7281,10 +7274,6 @@ def whoop_datetime_is_today(
 
 
     try:
-
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-
 
         time_zone = (
             app_state_get(

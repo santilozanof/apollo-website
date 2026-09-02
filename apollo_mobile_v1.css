@@ -1509,27 +1509,6 @@
 }
 
 
-@media (max-width: 760px) and (max-height: 520px) {
-    :root {
-        --apollo-mobile-nav-h: 62px;
-    }
-
-    .sidebar {
-        bottom:
-            calc(
-                5px
-                + var(--apollo-mobile-safe-bottom)
-            )
-            !important;
-        height: 54px !important;
-    }
-
-    .sidebar .nav-button {
-        height: 46px !important;
-    }
-}
-
-
 /* =========================================================
    APOLLO MOBILE V1.7 — IPHONE UI REVIEW
    ========================================================= */
@@ -3213,41 +3192,10 @@ and (
 
 /* Final cascade guard: the keyboard patch above only changes visibility. */
 @media (max-width: 760px) {
-    :root {
-        --apollo-mobile-nav-h: 70px;
-    }
-
     body:not(.apollo-mobile-keyboard-visible) .sidebar,
     body.apollo-mobile-keyboard-open:not(.apollo-mobile-keyboard-visible) .sidebar,
     body.apollo-mobile-typing:not(.apollo-mobile-keyboard-visible) .sidebar {
-        left: var(--apollo-mobile-dock-edge) !important;
-        right: var(--apollo-mobile-dock-edge) !important;
-        bottom: calc(8px + var(--apollo-mobile-safe-bottom)) !important;
-        width: auto !important;
-        height: 60px !important;
         display: grid !important;
-        grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
-        padding: 4px !important;
-        border-radius: 24px !important;
-    }
-
-    .sidebar .nav,
-    .sidebar .sidebar-bottom {
-        display: contents !important;
-    }
-
-    .sidebar .nav-button {
-        width: 100% !important;
-        height: 50px !important;
-        padding: 0 !important;
-    }
-
-    .sidebar .nav-label {
-        position: absolute !important;
-        width: 1px !important;
-        height: 1px !important;
-        overflow: hidden !important;
-        clip: rect(0, 0, 0, 0) !important;
     }
 }
 
