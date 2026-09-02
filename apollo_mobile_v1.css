@@ -1531,6 +1531,146 @@
 
 
 /* =========================================================
+   APOLLO MOBILE V1.7 — IPHONE UI REVIEW
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    /* Keep the composer above the dock until the real iOS
+       keyboard is confirmed visible. */
+    body.apollo-mobile-typing:not(.apollo-mobile-keyboard-visible)
+    #apolloView.active
+    .apollo-composer-wrap,
+
+    body.apollo-mobile-keyboard-open:not(.apollo-mobile-keyboard-visible)
+    #apolloView.active
+    .apollo-composer-wrap {
+        bottom:
+            calc(
+                var(--apollo-mobile-nav-h)
+                + var(--apollo-mobile-safe-bottom)
+                + 10px
+            )
+            !important;
+    }
+
+
+    /* Calendar's historical desktop header occupied the same
+       top region as the mobile Apollo presence bar. */
+    #calendarView.active {
+        padding:
+            calc(
+                var(--apollo-mobile-safe-top)
+                + 92px
+            )
+            18px
+            calc(
+                var(--apollo-mobile-nav-h)
+                + var(--apollo-mobile-safe-bottom)
+                + 8px
+            )
+            !important;
+    }
+
+    #calendarView .apollo-week-header {
+        width: 100% !important;
+
+        margin: 0 0 12px !important;
+
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+
+        gap: 10px !important;
+    }
+
+    #calendarView .apollo-week-header > div:first-child {
+        min-width: 0 !important;
+    }
+
+    #calendarView .apollo-week-title {
+        font-size: 32px !important;
+        line-height: 1 !important;
+    }
+
+    #calendarView .apollo-week-month {
+        min-height: 24px !important;
+        height: auto !important;
+
+        margin-top: 7px !important;
+    }
+
+    #calendarView .apollo-week-controls {
+        width: 100% !important;
+
+        display: grid !important;
+        grid-template-columns: 40px 1fr 40px 40px !important;
+
+        gap: 6px !important;
+    }
+
+    #calendarView .apollo-week-button {
+        width: 100% !important;
+        min-width: 0 !important;
+        min-height: 40px !important;
+
+        padding: 0 8px !important;
+    }
+
+    #calendarView .apollo-week-shell {
+        width: 100% !important;
+
+        border-radius: 15px !important;
+
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+
+        scrollbar-width: none !important;
+    }
+
+    #calendarView .apollo-week-shell::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
+
+    /* A legible three-to-four-day viewport is more useful on
+       iPhone than the former two-column crop. Horizontal swipe
+       still exposes the complete seven-day week. */
+    #calendarView .apollo-week-head {
+        min-width: 614px !important;
+
+        grid-template-columns:
+            40px
+            repeat(7, minmax(82px, 1fr))
+            !important;
+    }
+
+    #calendarView .apollo-week-scroll-content {
+        min-width: 614px !important;
+
+        grid-template-columns:
+            40px
+            minmax(0, 1fr)
+            !important;
+    }
+
+    #calendarView .apollo-week-grid {
+        grid-template-columns:
+            repeat(7, minmax(82px, 1fr))
+            !important;
+    }
+
+    #calendarView .apollo-week-time-label {
+        right: 7px !important;
+    }
+}
+
+
+/* =========================================================
    SHORT / LANDSCAPE PHONE
    ========================================================= */
 
