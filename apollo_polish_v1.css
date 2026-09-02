@@ -1,0 +1,308 @@
+/* =========================================================
+   APOLLO POLISH V1
+   A restrained finish for Apollo's original interface.
+   Structure and behavior remain unchanged.
+   ========================================================= */
+
+:root {
+    --apollo-accent: #0a7ff2;
+    --apollo-polish-bg: #f6f6f4;
+    --apollo-polish-surface: #ffffff;
+    --apollo-polish-raised: #ffffff;
+    --apollo-polish-line: rgba(20, 20, 24, .085);
+    --apollo-polish-muted: rgba(25, 25, 29, .56);
+    --apollo-polish-dim: rgba(25, 25, 29, .38);
+    --apollo-polish-shadow: 0 8px 28px rgba(26, 26, 32, .045);
+    --apollo-polish-shadow-raised: 0 14px 36px rgba(26, 26, 32, .075);
+    --apollo-polish-ease: cubic-bezier(.22, 1, .36, 1);
+
+    --bg: var(--apollo-polish-bg);
+    --surface: var(--apollo-polish-surface);
+    --surface-hover: #fbfbfb;
+    --border: var(--apollo-polish-line);
+    --border-hover: rgba(20, 20, 24, .15);
+    --muted: var(--apollo-polish-muted);
+    --dim: var(--apollo-polish-dim);
+}
+
+html[data-theme="dark"] {
+    --apollo-accent: #2997ff;
+    --apollo-polish-bg: #0b0b0d;
+    --apollo-polish-surface: #141416;
+    --apollo-polish-raised: #1a1a1d;
+    --apollo-polish-line: rgba(255, 255, 255, .085);
+    --apollo-polish-muted: rgba(245, 245, 247, .55);
+    --apollo-polish-dim: rgba(245, 245, 247, .34);
+    --apollo-polish-shadow: 0 9px 30px rgba(0, 0, 0, .18);
+    --apollo-polish-shadow-raised: 0 16px 40px rgba(0, 0, 0, .28);
+
+    --bg: var(--apollo-polish-bg);
+    --surface: var(--apollo-polish-surface);
+    --surface-hover: #19191c;
+    --border: var(--apollo-polish-line);
+    --border-hover: rgba(255, 255, 255, .16);
+    --muted: var(--apollo-polish-muted);
+    --dim: var(--apollo-polish-dim);
+    --control-bg: #1a1a1d;
+    --control-selected: #f2f2f4;
+    --control-selected-text: #111113;
+}
+
+body,
+.main,
+.home,
+#musicView,
+#calendarView,
+#tasksView,
+#settingsView,
+#studioView,
+#apolloView {
+    background: var(--apollo-polish-bg) !important;
+}
+
+body {
+    color: var(--text) !important;
+}
+
+/* Navigation stays compact and familiar. The phone dock keeps its
+   purpose-built liquid material from Apollo's mobile layer. */
+@media (min-width: 761px) {
+    .sidebar {
+        border-right-color: var(--apollo-polish-line) !important;
+        background: color-mix(in srgb, var(--apollo-polish-bg) 94%, transparent) !important;
+    }
+}
+
+.nav-button {
+    border: 1px solid transparent !important;
+    border-radius: 13px !important;
+    transition:
+        color 160ms ease,
+        background 160ms ease,
+        border-color 160ms ease,
+        transform 220ms var(--apollo-polish-ease) !important;
+}
+
+.nav-button:hover {
+    background: var(--surface) !important;
+    border-color: var(--apollo-polish-line) !important;
+    transform: translateY(-1px) !important;
+}
+
+.nav-button.active {
+    color: var(--apollo-accent) !important;
+    background: var(--surface) !important;
+    border-color: var(--apollo-polish-line) !important;
+    box-shadow: 0 4px 14px rgba(24, 24, 30, .055) !important;
+}
+
+html[data-theme="dark"] .nav-button.active {
+    box-shadow: 0 5px 16px rgba(0, 0, 0, .22) !important;
+}
+
+/* Tight typography with the original scale preserved. */
+.greeting,
+.apollo-page-title,
+.apollo-music-title,
+.apollo-tasks-title,
+.apollo-week-title,
+.apollo-settings-title,
+.studio5-brandcopy h1 {
+    letter-spacing: -.045em !important;
+    text-wrap: balance;
+}
+
+.eyebrow,
+.apollo-page-eyebrow,
+.apollo-music-eyebrow,
+.apollo-tasks-eyebrow,
+.apollo-settings-eyebrow,
+.apollo-settings-section-title {
+    color: var(--apollo-polish-dim) !important;
+    letter-spacing: .17em !important;
+}
+
+.subheading,
+.apollo-page-subtitle,
+.apollo-music-subtitle,
+.apollo-tasks-subtitle,
+.apollo-settings-subtitle,
+.apollo-setting-description {
+    color: var(--apollo-polish-muted) !important;
+}
+
+/* Solid, quiet surfaces replace decorative glass. */
+.card,
+.debrief-box,
+.apollo-now-playing,
+.apollo-music-coming-card,
+.apollo-task-add,
+.apollo-task-section,
+.apollo-settings-panel,
+.studio5-stage,
+.studio5-project-card,
+.apollo-week-shell,
+.apollo-history-card,
+.apollo-history-search-wrap,
+.apollo-history-new {
+    border-color: var(--apollo-polish-line) !important;
+    background: var(--apollo-polish-surface) !important;
+    box-shadow: var(--apollo-polish-shadow) !important;
+}
+
+.card,
+.debrief-box,
+.apollo-now-playing,
+.apollo-music-coming-card,
+.apollo-task-add,
+.apollo-task-section,
+.apollo-settings-panel,
+.studio5-stage,
+.studio5-project-card,
+.apollo-week-shell {
+    border-radius: 20px !important;
+}
+
+.ask-box,
+.apollo-presence,
+.apollo-composer,
+.apollo-task-title-input,
+.apollo-setting-select {
+    border-color: var(--apollo-polish-line) !important;
+    background: var(--apollo-polish-raised) !important;
+    box-shadow: var(--apollo-polish-shadow-raised) !important;
+}
+
+.card,
+.apollo-music-coming-card,
+.studio5-project-card,
+.apollo-task-section {
+    transition:
+        border-color 180ms ease,
+        box-shadow 240ms ease,
+        transform 280ms var(--apollo-polish-ease) !important;
+}
+
+.card:hover,
+.apollo-music-coming-card:hover,
+.studio5-project-card:hover,
+.apollo-task-section:hover {
+    border-color: var(--border-hover) !important;
+    box-shadow: var(--apollo-polish-shadow-raised) !important;
+    transform: translateY(-2px) !important;
+}
+
+.apollo-setting-row + .apollo-setting-row {
+    border-top-color: var(--apollo-polish-line) !important;
+}
+
+.apollo-segmented,
+.apollo-toggle {
+    border-color: var(--apollo-polish-line) !important;
+}
+
+.apollo-segmented button.active {
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .12) !important;
+}
+
+/* One consistent system accent for selection and focus. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--apollo-accent) 72%, transparent) !important;
+    outline-offset: 3px !important;
+}
+
+.ask-send,
+.apollo-presence-send,
+.apollo-send,
+.apollo-task-add-button,
+.studio5-primary {
+    border-radius: 12px !important;
+    transition:
+        transform 200ms var(--apollo-polish-ease),
+        opacity 160ms ease,
+        box-shadow 180ms ease !important;
+}
+
+.ask-send:hover,
+.apollo-presence-send:hover,
+.apollo-send:hover,
+.apollo-task-add-button:hover,
+.studio5-primary:hover {
+    box-shadow: 0 7px 20px rgba(0, 0, 0, .15) !important;
+}
+
+button:active {
+    transform: scale(.97) !important;
+}
+
+/* Keep routed pages flush, but protect headers from the viewport. */
+@media (min-width: 761px) {
+    #apolloView,
+    #musicView,
+    #calendarView,
+    #tasksView,
+    #settingsView {
+        inset: 0 !important;
+        width: auto !important;
+        height: auto !important;
+    }
+}
+
+@media (max-width: 760px) {
+    body,
+    .main,
+    .home,
+    #musicView,
+    #calendarView,
+    #tasksView,
+    #settingsView,
+    #studioView,
+    #apolloView {
+        background: var(--apollo-polish-bg) !important;
+    }
+
+    .card,
+    .debrief-box,
+    .apollo-now-playing,
+    .apollo-task-add,
+    .apollo-task-section,
+    .apollo-settings-panel,
+    .studio5-stage,
+    .apollo-week-shell {
+        border-radius: 18px !important;
+        box-shadow: 0 5px 20px rgba(24, 24, 30, .045) !important;
+    }
+
+    html[data-theme="dark"] .card,
+    html[data-theme="dark"] .debrief-box,
+    html[data-theme="dark"] .apollo-now-playing,
+    html[data-theme="dark"] .apollo-task-add,
+    html[data-theme="dark"] .apollo-task-section,
+    html[data-theme="dark"] .apollo-settings-panel,
+    html[data-theme="dark"] .studio5-stage,
+    html[data-theme="dark"] .apollo-week-shell {
+        box-shadow: 0 6px 22px rgba(0, 0, 0, .18) !important;
+    }
+
+    .sidebar .nav-button.active,
+    .sidebar .nav .nav-button:nth-child(1).active {
+        color: var(--apollo-accent) !important;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nav-button,
+    .card,
+    .apollo-music-coming-card,
+    .studio5-project-card,
+    .apollo-task-section,
+    button {
+        transition-duration: .01ms !important;
+        transform: none !important;
+    }
+}
