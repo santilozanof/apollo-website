@@ -385,3 +385,319 @@ button:active {
         scroll-behavior: auto !important;
     }
 }
+
+/* =========================================================
+   APOLLO PREMIUM V1.1 — CUPERTINO DISCIPLINE
+   Glass is reserved for system chrome. Content uses calm,
+   legible material tiers so Apollo feels like an OS, not a
+   collection of translucent cards.
+   ========================================================= */
+
+:root {
+    --apollo-os-bg: #f3f4f7;
+    --apollo-os-ink: #111216;
+    --apollo-os-muted: rgba(25, 27, 34, .60);
+    --apollo-os-line: rgba(26, 29, 38, .075);
+    --apollo-os-glass: rgba(255, 255, 255, .68);
+    --apollo-os-glass-strong: rgba(255, 255, 255, .86);
+    --apollo-os-content: rgba(255, 255, 255, .82);
+    --apollo-os-content-raised: rgba(255, 255, 255, .94);
+    --apollo-os-shadow:
+        0 18px 48px rgba(45, 51, 70, .075),
+        0 2px 8px rgba(45, 51, 70, .035),
+        inset 0 1px 0 rgba(255, 255, 255, .86);
+}
+
+html[data-theme="dark"] {
+    --apollo-os-bg: #08090c;
+    --apollo-os-line: rgba(255, 255, 255, .085);
+    --apollo-os-glass: rgba(25, 27, 33, .68);
+    --apollo-os-glass-strong: rgba(31, 34, 41, .86);
+    --apollo-os-content: rgba(24, 26, 32, .88);
+    --apollo-os-content-raised: rgba(31, 34, 41, .94);
+}
+
+body {
+    background:
+        radial-gradient(ellipse 72% 58% at 8% -8%, rgba(102, 154, 255, .16), transparent 64%),
+        radial-gradient(ellipse 54% 45% at 96% 2%, rgba(168, 124, 255, .10), transparent 68%),
+        var(--apollo-os-bg) !important;
+}
+
+body::before {
+    opacity: .55;
+    background: linear-gradient(112deg, rgba(255,255,255,.24), transparent 34%) !important;
+}
+
+.sidebar {
+    margin: 14px 0 14px 14px !important;
+    height: calc(100% - 28px) !important;
+    border-radius: 22px !important;
+    box-shadow:
+        0 20px 54px rgba(35, 40, 56, .09),
+        0 2px 8px rgba(35, 40, 56, .04),
+        inset 0 1px 0 rgba(255,255,255,.82) !important;
+}
+
+.brand-name {
+    font-weight: 690 !important;
+    letter-spacing: .08em !important;
+}
+
+.nav-button.active {
+    color: #087bf2 !important;
+    background: rgba(255,255,255,.88) !important;
+    box-shadow: 0 6px 18px rgba(39,45,66,.08), inset 0 0 0 1px rgba(20,24,34,.04) !important;
+}
+
+.main {
+    padding: 14px 14px 14px 10px !important;
+}
+
+.home,
+#musicView,
+#calendarView,
+#tasksView,
+#settingsView,
+#studioView,
+#apolloView {
+    border-color: rgba(255,255,255,.68) !important;
+    background: rgba(247, 248, 251, .72) !important;
+    box-shadow: 0 24px 70px rgba(43, 49, 67, .065), inset 0 1px 0 rgba(255,255,255,.82) !important;
+    backdrop-filter: blur(28px) saturate(115%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(115%) !important;
+}
+
+.greeting,
+.apollo-page-title,
+.apollo-music-title,
+.apollo-tasks-title,
+.apollo-week-title,
+.studio5-brandcopy h1 {
+    letter-spacing: -.045em !important;
+    font-weight: 640 !important;
+}
+
+.eyebrow,
+.apollo-page-eyebrow,
+.apollo-music-eyebrow,
+.apollo-tasks-eyebrow,
+.apollo-settings-eyebrow {
+    color: rgba(28, 31, 39, .52) !important;
+    letter-spacing: .16em !important;
+}
+
+.card,
+.debrief-box,
+.apollo-now-playing,
+.apollo-music-coming-card,
+.apollo-task-add,
+.apollo-task-section,
+.apollo-settings-section,
+.studio5-stage,
+.studio5-project-card,
+.apollo-week-shell,
+.apollo-history-card,
+.apollo-history-search-wrap,
+.apollo-history-new {
+    border-color: var(--apollo-os-line) !important;
+    background: var(--apollo-os-content) !important;
+    box-shadow: 0 10px 32px rgba(44, 50, 68, .055), inset 0 1px 0 rgba(255,255,255,.76) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+}
+
+.ask-box,
+.apollo-presence,
+.apollo-composer,
+.apollo-task-title-input,
+.apollo-setting-select {
+    background: var(--apollo-os-content-raised) !important;
+    box-shadow: 0 12px 34px rgba(44,50,68,.075), inset 0 1px 0 rgba(255,255,255,.9) !important;
+}
+
+.card:hover,
+.apollo-music-coming-card:hover,
+.studio5-project-card:hover,
+.apollo-task-section:hover {
+    transform: translateY(-2px) scale(1.003) !important;
+    box-shadow: 0 18px 44px rgba(42,48,66,.09), inset 0 1px 0 rgba(255,255,255,.88) !important;
+}
+
+@media (max-width: 760px) {
+    :root {
+        --apollo-mobile-nav-h: 72px;
+        --apollo-mobile-dock-edge: 12px;
+    }
+
+    body {
+        background:
+            radial-gradient(ellipse 120% 42% at 0% -8%, rgba(105,155,255,.13), transparent 64%),
+            var(--apollo-os-bg) !important;
+    }
+
+    .main {
+        padding: 0 0 calc(var(--apollo-mobile-nav-h) + var(--apollo-mobile-safe-bottom) + 14px) !important;
+    }
+
+    .home,
+    #musicView,
+    #calendarView,
+    #tasksView,
+    #settingsView,
+    #studioView,
+    #apolloView {
+        background: transparent !important;
+    }
+
+    .home {
+        padding-left: 20px !important;
+        padding-right: 20px !important;
+    }
+
+    .home .eyebrow {
+        margin-bottom: 14px !important;
+        font-size: 10px !important;
+    }
+
+    .home .greeting {
+        max-width: 340px;
+        font-size: clamp(38px, 11vw, 48px) !important;
+        line-height: .96 !important;
+        letter-spacing: -.052em !important;
+    }
+
+    .home .subheading {
+        margin-top: 14px !important;
+        color: var(--apollo-os-muted) !important;
+    }
+
+    .home .ask {
+        margin-top: 28px !important;
+    }
+
+    .home .ask-box {
+        min-height: 58px !important;
+        border-radius: 18px !important;
+        border: 1px solid rgba(25,28,37,.06) !important;
+        background: rgba(255,255,255,.94) !important;
+        box-shadow: 0 14px 34px rgba(42,48,67,.085), inset 0 1px 0 white !important;
+    }
+
+    .home .dashboard {
+        gap: 12px !important;
+        margin-top: 28px !important;
+    }
+
+    .card,
+    .debrief-box,
+    .apollo-now-playing,
+    .apollo-task-add,
+    .apollo-task-section,
+    .apollo-settings-section,
+    .studio5-stage,
+    .apollo-week-shell {
+        border-radius: 20px !important;
+        background: rgba(255,255,255,.84) !important;
+        box-shadow: 0 8px 26px rgba(43,49,68,.055), inset 0 1px 0 rgba(255,255,255,.9) !important;
+    }
+
+    .home .card {
+        min-height: 112px !important;
+    }
+
+    .home .debrief {
+        margin-top: 12px !important;
+    }
+
+    .sidebar {
+        left: var(--apollo-mobile-dock-edge) !important;
+        right: var(--apollo-mobile-dock-edge) !important;
+        bottom: calc(8px + var(--apollo-mobile-safe-bottom)) !important;
+        margin: 0 !important;
+        width: auto !important;
+        height: 64px !important;
+        padding: 5px !important;
+        border: 1px solid rgba(255,255,255,.82) !important;
+        border-bottom-color: rgba(70,76,92,.12) !important;
+        border-radius: 24px !important;
+        background: rgba(245,247,251,.72) !important;
+        box-shadow:
+            0 18px 50px rgba(32,38,56,.18),
+            0 3px 10px rgba(32,38,56,.08),
+            inset 0 1px 0 rgba(255,255,255,.96),
+            inset 0 -1px 0 rgba(54,60,76,.06) !important;
+        backdrop-filter: blur(34px) saturate(185%) !important;
+        -webkit-backdrop-filter: blur(34px) saturate(185%) !important;
+    }
+
+    .sidebar::before {
+        inset: 1px 8px auto !important;
+        height: 34% !important;
+        opacity: .7;
+    }
+
+    .sidebar .nav-button {
+        height: 54px !important;
+        border-radius: 18px !important;
+        color: rgba(27,30,38,.56) !important;
+    }
+
+    .sidebar .nav-button.active {
+        color: #087bf2 !important;
+        background: rgba(255,255,255,.76) !important;
+        box-shadow: 0 4px 14px rgba(39,45,64,.08), inset 0 1px 0 white !important;
+    }
+
+    /* Home is the OS anchor: visibly centered and slightly
+       more tactile without changing the existing route order. */
+    .sidebar .nav .nav-button:nth-child(1) {
+        z-index: 2 !important;
+        transform: translateY(-1px) !important;
+        color: rgba(13,14,17,.72) !important;
+        background: rgba(255,255,255,.90) !important;
+        box-shadow:
+            0 8px 22px rgba(40,47,68,.13),
+            inset 0 1px 0 white,
+            inset 0 0 0 1px rgba(30,35,50,.045) !important;
+    }
+
+    .sidebar .nav .nav-button:nth-child(1):active {
+        transform: translateY(-1px) scale(.90) !important;
+    }
+
+    .sidebar .nav .nav-button:nth-child(1).active {
+        color: #087bf2 !important;
+    }
+
+    .sidebar .nav-icon svg {
+        stroke-width: 1.75 !important;
+    }
+}
+
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .debrief-box,
+html[data-theme="dark"] .apollo-now-playing,
+html[data-theme="dark"] .apollo-task-add,
+html[data-theme="dark"] .apollo-task-section,
+html[data-theme="dark"] .apollo-settings-section,
+html[data-theme="dark"] .studio5-stage,
+html[data-theme="dark"] .apollo-week-shell {
+    border-color: rgba(255,255,255,.075) !important;
+    box-shadow: 0 14px 38px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.055) !important;
+}
+
+html[data-theme="dark"] .nav-button.active {
+    color: #5aa7ff !important;
+    background: rgba(255,255,255,.095) !important;
+}
+
+@media (max-width: 760px) and (max-height: 520px) {
+    .sidebar {
+        height: 54px !important;
+    }
+
+    .sidebar .nav-button {
+        height: 44px !important;
+    }
+}
