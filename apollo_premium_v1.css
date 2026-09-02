@@ -859,3 +859,255 @@ html[data-theme="dark"] .nav-button.active {
         height: 44px !important;
     }
 }
+
+/* =========================================================
+   APOLLO PREMIUM V1.2 — NIGHT MATERIAL
+   Dark mode uses distinct material depths instead of stacking
+   near-black slabs. Cool light is reserved for focus and chrome.
+   ========================================================= */
+
+html[data-theme="dark"] {
+    --apollo-os-bg: #0c0f16;
+    --apollo-os-ink: #f5f7fb;
+    --apollo-os-muted: rgba(224, 229, 240, .64);
+    --apollo-os-line: rgba(232, 240, 255, .12);
+    --apollo-os-glass: rgba(30, 34, 44, .70);
+    --apollo-os-glass-strong: rgba(40, 45, 57, .86);
+    --apollo-os-content: rgba(35, 39, 49, .86);
+    --apollo-os-content-raised: rgba(45, 50, 63, .92);
+    --apollo-os-shadow:
+        0 24px 64px rgba(0, 0, 0, .34),
+        0 3px 12px rgba(0, 0, 0, .18),
+        inset 0 1px 0 rgba(255, 255, 255, .11);
+
+    --bg: var(--apollo-os-bg);
+    --surface: var(--apollo-os-content);
+    --surface-hover: rgba(48, 53, 66, .92);
+    --border: rgba(232, 240, 255, .10);
+    --border-hover: rgba(136, 190, 255, .30);
+    --text: var(--apollo-os-ink);
+    --muted: var(--apollo-os-muted);
+    --dim: rgba(210, 220, 238, .42);
+    --accent: #0a84ff;
+    --sidebar-bg: rgba(25, 29, 38, .72);
+    --input-bg: rgba(39, 44, 56, .88);
+    --control-bg: rgba(8, 11, 17, .42);
+    --control-selected: rgba(92, 163, 255, .20);
+    --control-selected-text: #eef6ff;
+}
+
+html[data-theme="dark"] body {
+    background:
+        radial-gradient(ellipse 78% 62% at 4% -12%, rgba(76, 130, 218, .28), transparent 62%),
+        radial-gradient(ellipse 58% 50% at 102% 0%, rgba(117, 86, 190, .17), transparent 67%),
+        radial-gradient(ellipse 56% 48% at 64% 112%, rgba(34, 121, 151, .10), transparent 68%),
+        linear-gradient(145deg, #111620 0%, #0c0f16 48%, #090c12 100%) !important;
+}
+
+html[data-theme="dark"] body::before {
+    opacity: 1;
+    background:
+        linear-gradient(118deg, rgba(207, 226, 255, .075), transparent 30%),
+        radial-gradient(ellipse 48% 28% at 50% -8%, rgba(255,255,255,.055), transparent 72%) !important;
+}
+
+html[data-theme="dark"] .sidebar {
+    border-color: rgba(226, 237, 255, .14) !important;
+    border-bottom-color: rgba(255, 255, 255, .07) !important;
+    background:
+        linear-gradient(180deg, rgba(44, 49, 63, .70), rgba(24, 28, 37, .73)) !important;
+    box-shadow:
+        0 28px 68px rgba(0, 0, 0, .34),
+        0 4px 16px rgba(0, 0, 0, .19),
+        inset 0 1px 0 rgba(255, 255, 255, .15),
+        inset 0 -1px 0 rgba(0, 0, 0, .22) !important;
+    backdrop-filter: blur(38px) saturate(155%) !important;
+    -webkit-backdrop-filter: blur(38px) saturate(155%) !important;
+}
+
+html[data-theme="dark"] .home,
+html[data-theme="dark"] #musicView,
+html[data-theme="dark"] #calendarView,
+html[data-theme="dark"] #tasksView,
+html[data-theme="dark"] #settingsView,
+html[data-theme="dark"] #studioView,
+html[data-theme="dark"] #apolloView {
+    border-color: rgba(224, 235, 255, .13) !important;
+    border-bottom-color: rgba(255, 255, 255, .065) !important;
+    background:
+        linear-gradient(145deg, rgba(30, 34, 44, .78), rgba(15, 18, 25, .84)) !important;
+    box-shadow:
+        0 30px 84px rgba(0, 0, 0, .31),
+        inset 0 1px 0 rgba(255, 255, 255, .13),
+        inset 0 -1px 0 rgba(0, 0, 0, .24) !important;
+    backdrop-filter: blur(34px) saturate(130%) !important;
+    -webkit-backdrop-filter: blur(34px) saturate(130%) !important;
+}
+
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .debrief-box,
+html[data-theme="dark"] .apollo-now-playing,
+html[data-theme="dark"] .apollo-music-coming-card,
+html[data-theme="dark"] .apollo-task-add,
+html[data-theme="dark"] .apollo-task-section,
+html[data-theme="dark"] .apollo-settings-panel,
+html[data-theme="dark"] .studio5-stage,
+html[data-theme="dark"] .studio5-project-card,
+html[data-theme="dark"] .apollo-week-shell,
+html[data-theme="dark"] .apollo-history-card,
+html[data-theme="dark"] .apollo-history-search-wrap,
+html[data-theme="dark"] .apollo-history-new {
+    border-color: rgba(226, 237, 255, .115) !important;
+    background:
+        linear-gradient(145deg, rgba(48, 53, 66, .82), rgba(29, 33, 42, .88)) !important;
+    box-shadow:
+        0 16px 42px rgba(0, 0, 0, .24),
+        inset 0 1px 0 rgba(255, 255, 255, .12),
+        inset 0 -1px 0 rgba(0, 0, 0, .18) !important;
+}
+
+html[data-theme="dark"] .ask-box,
+html[data-theme="dark"] .apollo-presence,
+html[data-theme="dark"] .apollo-composer,
+html[data-theme="dark"] .apollo-task-title-input,
+html[data-theme="dark"] .apollo-setting-select {
+    border-color: rgba(228, 238, 255, .14) !important;
+    background:
+        linear-gradient(180deg, rgba(57, 62, 76, .91), rgba(38, 43, 54, .93)) !important;
+    box-shadow:
+        0 15px 38px rgba(0, 0, 0, .25),
+        inset 0 1px 0 rgba(255, 255, 255, .14),
+        inset 0 -1px 0 rgba(0, 0, 0, .18) !important;
+}
+
+html[data-theme="dark"] .eyebrow,
+html[data-theme="dark"] .apollo-page-eyebrow,
+html[data-theme="dark"] .apollo-music-eyebrow,
+html[data-theme="dark"] .apollo-tasks-eyebrow,
+html[data-theme="dark"] .apollo-settings-eyebrow,
+html[data-theme="dark"] .apollo-settings-section-title {
+    color: rgba(204, 217, 238, .50) !important;
+}
+
+html[data-theme="dark"] .nav-button {
+    color: rgba(226, 233, 245, .61) !important;
+}
+
+html[data-theme="dark"] .nav-button:hover {
+    color: rgba(244, 248, 255, .92) !important;
+    background: rgba(255, 255, 255, .075) !important;
+}
+
+html[data-theme="dark"] .nav-button.active {
+    color: #78b7ff !important;
+    border-color: rgba(115, 181, 255, .20) !important;
+    background:
+        linear-gradient(180deg, rgba(91, 153, 230, .22), rgba(61, 112, 183, .14)) !important;
+    box-shadow:
+        0 10px 28px rgba(0, 0, 0, .22),
+        0 0 24px rgba(41, 132, 255, .08),
+        inset 0 1px 0 rgba(216, 235, 255, .17) !important;
+}
+
+html[data-theme="dark"] .apollo-segmented {
+    border-color: rgba(228, 238, 255, .105) !important;
+    background: rgba(7, 10, 16, .42) !important;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .24) !important;
+}
+
+html[data-theme="dark"] .apollo-segmented button.active {
+    color: #edf6ff !important;
+    background: linear-gradient(180deg, rgba(94, 166, 255, .28), rgba(53, 119, 205, .22)) !important;
+    box-shadow:
+        0 3px 10px rgba(0, 0, 0, .20),
+        inset 0 1px 0 rgba(225, 241, 255, .17),
+        inset 0 0 0 1px rgba(113, 181, 255, .10) !important;
+}
+
+html[data-theme="dark"] .apollo-toggle {
+    background: rgba(7, 10, 16, .48) !important;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .28) !important;
+}
+
+html[data-theme="dark"] .apollo-toggle::after {
+    background: #9aa5b8 !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .32) !important;
+}
+
+html[data-theme="dark"] .apollo-toggle.on {
+    background: linear-gradient(180deg, #2994ff, #0878e8) !important;
+}
+
+html[data-theme="dark"] .apollo-toggle.on::after {
+    background: #fff !important;
+}
+
+html[data-theme="dark"] .ask-send,
+html[data-theme="dark"] .apollo-presence-send,
+html[data-theme="dark"] .apollo-send,
+html[data-theme="dark"] .apollo-task-add-button,
+html[data-theme="dark"] .studio5-primary {
+    color: #fff !important;
+    border-color: rgba(154, 207, 255, .30) !important;
+    background: linear-gradient(180deg, #3398ff, #0878e8) !important;
+    box-shadow:
+        0 12px 28px rgba(0, 80, 184, .30),
+        inset 0 1px 0 rgba(255, 255, 255, .30) !important;
+}
+
+html[data-theme="dark"] .apollo-calendar-modal,
+html[data-theme="dark"] .apollo-task-modal,
+html[data-theme="dark"] .studio5-modal,
+html[data-theme="dark"] .apollo-history-strip {
+    border-color: rgba(226, 237, 255, .14) !important;
+    background: rgba(35, 40, 51, .88) !important;
+    box-shadow: 0 44px 120px rgba(0, 0, 0, .52), inset 0 1px 0 rgba(255,255,255,.12) !important;
+}
+
+html[data-theme="dark"] .apollo-calendar-modal-backdrop,
+html[data-theme="dark"] .studio5-modal-backdrop,
+html[data-theme="dark"] .apollo-history-scrim {
+    background: rgba(3, 5, 9, .46) !important;
+}
+
+@media (max-width: 760px) {
+    html[data-theme="dark"] .home,
+    html[data-theme="dark"] #musicView,
+    html[data-theme="dark"] #calendarView,
+    html[data-theme="dark"] #tasksView,
+    html[data-theme="dark"] #settingsView,
+    html[data-theme="dark"] #studioView,
+    html[data-theme="dark"] #apolloView {
+        border-color: transparent !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+    }
+
+    html[data-theme="dark"] .sidebar {
+        border-color: rgba(225, 237, 255, .16) !important;
+        border-top-color: rgba(239, 246, 255, .22) !important;
+        background:
+            linear-gradient(180deg, rgba(51, 57, 72, .80), rgba(26, 30, 40, .82)) !important;
+        box-shadow:
+            0 22px 58px rgba(0, 0, 0, .44),
+            inset 0 1px 0 rgba(255, 255, 255, .16),
+            inset 0 -1px 0 rgba(0, 0, 0, .24) !important;
+    }
+
+    html[data-theme="dark"] .home .ask-box {
+        border-color: rgba(228, 238, 255, .14) !important;
+        background:
+            linear-gradient(180deg, rgba(56, 62, 76, .94), rgba(37, 42, 53, .96)) !important;
+    }
+
+    html[data-theme="dark"] .sidebar .nav-button.active,
+    html[data-theme="dark"] .sidebar .nav .nav-button:nth-child(1) {
+        background:
+            linear-gradient(180deg, rgba(98, 163, 242, .23), rgba(55, 105, 174, .16)) !important;
+        box-shadow:
+            0 8px 22px rgba(0, 0, 0, .28),
+            inset 0 1px 0 rgba(222, 239, 255, .17) !important;
+    }
+}
