@@ -1,0 +1,387 @@
+/* =========================================================
+   APOLLO PREMIUM V1 — PERSONAL OS
+   Visual layer only. Existing structure and behavior remain intact.
+   ========================================================= */
+
+:root {
+    --apollo-os-bg: #eef1f7;
+    --apollo-os-ink: #15161a;
+    --apollo-os-muted: rgba(30, 32, 40, .58);
+    --apollo-os-line: rgba(255, 255, 255, .66);
+    --apollo-os-glass: rgba(255, 255, 255, .56);
+    --apollo-os-glass-strong: rgba(255, 255, 255, .72);
+    --apollo-os-shadow:
+        0 24px 70px rgba(41, 48, 72, .11),
+        0 3px 12px rgba(41, 48, 72, .05),
+        inset 0 1px 0 rgba(255, 255, 255, .78);
+    --apollo-os-radius: 24px;
+    --apollo-os-spring: cubic-bezier(.22, 1, .36, 1);
+
+    --bg: var(--apollo-os-bg);
+    --surface: rgba(255, 255, 255, .46);
+    --surface-hover: rgba(255, 255, 255, .66);
+    --border: rgba(255, 255, 255, .62);
+    --border-hover: rgba(255, 255, 255, .88);
+    --text: var(--apollo-os-ink);
+    --muted: var(--apollo-os-muted);
+    --dim: rgba(35, 38, 48, .38);
+}
+
+html[data-theme="dark"] {
+    --apollo-os-bg: #090b10;
+    --apollo-os-ink: #f4f6fb;
+    --apollo-os-muted: rgba(225, 229, 240, .58);
+    --apollo-os-line: rgba(255, 255, 255, .12);
+    --apollo-os-glass: rgba(24, 27, 35, .58);
+    --apollo-os-glass-strong: rgba(30, 34, 43, .76);
+    --apollo-os-shadow:
+        0 28px 80px rgba(0, 0, 0, .42),
+        0 3px 14px rgba(0, 0, 0, .22),
+        inset 0 1px 0 rgba(255, 255, 255, .10);
+
+    --bg: var(--apollo-os-bg);
+    --surface: rgba(28, 31, 39, .55);
+    --surface-hover: rgba(39, 43, 53, .7);
+    --border: rgba(255, 255, 255, .10);
+    --border-hover: rgba(255, 255, 255, .18);
+    --text: var(--apollo-os-ink);
+    --muted: var(--apollo-os-muted);
+    --dim: rgba(225, 229, 240, .32);
+}
+
+html,
+body,
+.app,
+.main {
+    background: transparent !important;
+}
+
+body {
+    color: var(--text) !important;
+    background:
+        radial-gradient(circle at 12% 8%, rgba(116, 164, 255, .24), transparent 34%),
+        radial-gradient(circle at 88% 16%, rgba(197, 138, 255, .18), transparent 31%),
+        radial-gradient(circle at 68% 92%, rgba(83, 210, 190, .13), transparent 34%),
+        var(--apollo-os-bg) !important;
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    z-index: -1;
+    inset: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(120deg, rgba(255,255,255,.10), transparent 42%),
+        radial-gradient(circle at 50% -20%, rgba(255,255,255,.34), transparent 52%);
+}
+
+/* App rail */
+.sidebar {
+    margin: 12px 0 12px 12px !important;
+    height: calc(100% - 24px) !important;
+    border: 1px solid var(--apollo-os-line) !important;
+    border-radius: 24px !important;
+    background: var(--apollo-os-glass) !important;
+    box-shadow: var(--apollo-os-shadow) !important;
+    backdrop-filter: blur(34px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(34px) saturate(180%) !important;
+}
+
+.brand-mark {
+    filter: drop-shadow(0 4px 10px rgba(60, 70, 100, .14));
+}
+
+.nav-button {
+    border-radius: 14px !important;
+    transition:
+        color 180ms ease,
+        background 180ms ease,
+        box-shadow 260ms var(--apollo-os-spring),
+        transform 260ms var(--apollo-os-spring) !important;
+}
+
+.nav-button:hover {
+    background: rgba(255,255,255,.30) !important;
+    transform: translateX(2px) scale(1.015) !important;
+}
+
+.nav-button.active {
+    background: var(--apollo-os-glass-strong) !important;
+    box-shadow:
+        0 8px 24px rgba(43, 50, 75, .10),
+        inset 0 1px 0 rgba(255,255,255,.58) !important;
+}
+
+html[data-theme="dark"] .nav-button:hover,
+html[data-theme="dark"] .nav-button.active {
+    background: rgba(255,255,255,.09) !important;
+}
+
+/* Workspace */
+.main {
+    padding: 12px 12px 12px 8px !important;
+}
+
+.home,
+#musicView,
+#calendarView,
+#tasksView,
+#settingsView,
+#studioView,
+#apolloView {
+    border: 1px solid var(--apollo-os-line) !important;
+    border-radius: 28px !important;
+    background: rgba(255,255,255,.20) !important;
+    box-shadow:
+        0 30px 90px rgba(49, 56, 80, .08),
+        inset 0 1px 0 rgba(255,255,255,.48) !important;
+    backdrop-filter: blur(18px) saturate(125%) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(125%) !important;
+}
+
+html[data-theme="dark"] .home,
+html[data-theme="dark"] #musicView,
+html[data-theme="dark"] #calendarView,
+html[data-theme="dark"] #tasksView,
+html[data-theme="dark"] #settingsView,
+html[data-theme="dark"] #studioView,
+html[data-theme="dark"] #apolloView {
+    background: rgba(10, 12, 17, .34) !important;
+}
+
+.greeting,
+.apollo-page-title,
+.apollo-music-title,
+.apollo-tasks-title,
+.apollo-week-title,
+.studio5-brandcopy h1 {
+    letter-spacing: -.052em !important;
+    text-wrap: balance;
+}
+
+.eyebrow,
+.apollo-page-eyebrow,
+.apollo-music-eyebrow,
+.apollo-tasks-eyebrow,
+.apollo-settings-eyebrow {
+    letter-spacing: .20em !important;
+}
+
+/* Glass surfaces */
+.card,
+.debrief-box,
+.ask-box,
+.apollo-now-playing,
+.apollo-music-coming-card,
+.apollo-task-add,
+.apollo-task-section,
+.apollo-settings-section,
+.studio5-stage,
+.studio5-project-card,
+.apollo-week-shell,
+.apollo-history-card,
+.apollo-history-search-wrap,
+.apollo-history-new {
+    border: 1px solid var(--apollo-os-line) !important;
+    border-radius: var(--apollo-os-radius) !important;
+    background: var(--apollo-os-glass) !important;
+    box-shadow: var(--apollo-os-shadow) !important;
+    backdrop-filter: blur(30px) saturate(160%) !important;
+    -webkit-backdrop-filter: blur(30px) saturate(160%) !important;
+}
+
+.card,
+.apollo-music-coming-card,
+.studio5-project-card,
+.apollo-task-section {
+    transition:
+        transform 420ms var(--apollo-os-spring),
+        box-shadow 420ms var(--apollo-os-spring),
+        border-color 220ms ease,
+        background 220ms ease !important;
+}
+
+.card:hover,
+.apollo-music-coming-card:hover,
+.studio5-project-card:hover,
+.apollo-task-section:hover {
+    transform: translateY(-4px) scale(1.008) !important;
+    border-color: var(--border-hover) !important;
+    box-shadow:
+        0 32px 76px rgba(42, 50, 76, .15),
+        inset 0 1px 0 rgba(255,255,255,.82) !important;
+}
+
+html[data-theme="dark"] .card:hover,
+html[data-theme="dark"] .apollo-music-coming-card:hover,
+html[data-theme="dark"] .studio5-project-card:hover,
+html[data-theme="dark"] .apollo-task-section:hover {
+    box-shadow:
+        0 34px 80px rgba(0,0,0,.48),
+        inset 0 1px 0 rgba(255,255,255,.13) !important;
+}
+
+.ask-box,
+.apollo-presence,
+.apollo-composer,
+.apollo-task-title-input,
+.apollo-setting-select {
+    border-color: var(--apollo-os-line) !important;
+    background: var(--apollo-os-glass-strong) !important;
+    box-shadow:
+        0 18px 48px rgba(46, 54, 82, .10),
+        inset 0 1px 0 rgba(255,255,255,.72) !important;
+    backdrop-filter: blur(28px) saturate(165%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(165%) !important;
+}
+
+button,
+select,
+input,
+textarea {
+    transition:
+        transform 220ms var(--apollo-os-spring),
+        box-shadow 220ms ease,
+        border-color 180ms ease,
+        background 180ms ease,
+        opacity 180ms ease !important;
+}
+
+button:active {
+    transform: scale(.96) !important;
+}
+
+.ask-send,
+.apollo-presence-send,
+.apollo-send,
+.apollo-task-add-button,
+.studio5-primary {
+    border-radius: 14px !important;
+    box-shadow:
+        0 10px 26px rgba(16,18,24,.20),
+        inset 0 1px 0 rgba(255,255,255,.20) !important;
+}
+
+/* Panels and overlays */
+.apollo-calendar-modal,
+.apollo-task-modal,
+.studio5-modal,
+.apollo-history-strip {
+    border: 1px solid var(--apollo-os-line) !important;
+    background: var(--apollo-os-glass-strong) !important;
+    box-shadow: 0 42px 110px rgba(18, 22, 34, .28) !important;
+    backdrop-filter: blur(42px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(42px) saturate(180%) !important;
+}
+
+.apollo-calendar-modal-backdrop,
+.studio5-modal-backdrop,
+.apollo-history-scrim {
+    background: rgba(24, 28, 38, .20) !important;
+    backdrop-filter: blur(12px) saturate(120%) !important;
+    -webkit-backdrop-filter: blur(12px) saturate(120%) !important;
+}
+
+/* Motion */
+.home:not(.hidden),
+#musicView.active,
+#calendarView.active,
+#tasksView.active,
+#settingsView.active,
+#studioView.active,
+#apolloView.active {
+    animation: apolloOSReveal 560ms var(--apollo-os-spring) both !important;
+}
+
+@keyframes apolloOSReveal {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(.992);
+        filter: blur(5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        filter: blur(0);
+    }
+}
+
+@media (max-width: 760px) {
+    body {
+        background:
+            radial-gradient(circle at 18% 0%, rgba(116,164,255,.18), transparent 34%),
+            radial-gradient(circle at 92% 14%, rgba(196,138,255,.13), transparent 30%),
+            var(--apollo-os-bg) !important;
+    }
+
+    .main {
+        padding: 0 0 calc(var(--apollo-mobile-nav-h) + var(--apollo-mobile-safe-bottom)) !important;
+    }
+
+    .home,
+    #musicView,
+    #calendarView,
+    #tasksView,
+    #settingsView,
+    #studioView,
+    #apolloView {
+        border: 0 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+    }
+
+    .sidebar {
+        margin: 0 !important;
+        height: 60px !important;
+    }
+
+    .card,
+    .debrief-box,
+    .apollo-now-playing,
+    .apollo-task-add,
+    .apollo-task-section,
+    .apollo-settings-section,
+    .studio5-stage,
+    .apollo-week-shell {
+        border-radius: 22px !important;
+        box-shadow:
+            0 18px 48px rgba(44, 52, 78, .10),
+            inset 0 1px 0 rgba(255,255,255,.76) !important;
+    }
+
+    .card:hover,
+    .apollo-task-section:hover {
+        transform: none !important;
+    }
+
+    .home:not(.hidden),
+    #musicView.active,
+    #calendarView.active,
+    #tasksView.active,
+    #settingsView.active,
+    #studioView.active,
+    #apolloView.active {
+        animation-duration: 440ms !important;
+    }
+}
+
+@media (max-width: 760px) and (max-height: 520px) {
+    .sidebar {
+        height: 54px !important;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 1ms !important;
+        scroll-behavior: auto !important;
+    }
+}
