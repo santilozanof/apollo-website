@@ -8588,6 +8588,51 @@ def google_calendar_datetime(
     return parsed.isoformat()
 
 
+def validate_google_event_time_range(body):
+    """Reject complete event ranges whose end is not after their start."""
+    start = body.get("start")
+    end = body.get("end")
+
+    if not isinstance(start, dict) or not isinstance(end, dict):
+        return
+
+    start_datetime = start.get("dateTime")
+    end_datetime = end.get("dateTime")
+
+    if start_datetime or end_datetime:
+        if not start_datetime or not end_datetime:
+            raise ValueError(
+                "Start and end must both be timed or all-day"
+            )
+
+        start_value = datetime.fromisoformat(
+            str(start_datetime).replace("Z", "+00:00")
+        )
+        end_value = datetime.fromisoformat(
+            str(end_datetime).replace("Z", "+00:00")
+        )
+    else:
+        start_date = start.get("date")
+        end_date = end.get("date")
+
+        if not start_date or not end_date:
+            raise ValueError(
+                "Start and end must both be timed or all-day"
+            )
+
+        start_value = datetime.strptime(
+            str(start_date), "%Y-%m-%d"
+        )
+        end_value = datetime.strptime(
+            str(end_date), "%Y-%m-%d"
+        )
+
+    if end_value <= start_value:
+        raise ValueError(
+            "Event end must be after event start"
+        )
+
+
 def build_google_event_body(
     data,
     partial=False
@@ -8724,6 +8769,8 @@ def build_google_event_body(
             raise ValueError(
                 "Event end is required"
             )
+
+    validate_google_event_time_range(body)
 
     return body
 
@@ -8952,6 +8999,34 @@ def google_calendar_update_event(
         raise ValueError(
             "No event changes provided"
         )
+
+    if (
+        "start" in body
+        and "end" not in body
+    ) or (
+        "end" in body
+        and "start" not in body
+    ):
+        existing = (
+            parent
+            if scope == "series"
+            else google_calendar_get_event(
+                target_id
+            )
+        )
+
+        validate_google_event_time_range({
+            "start": body.get(
+                "start",
+                existing.get("start")
+            ),
+            "end": body.get(
+                "end",
+                existing.get("end")
+            )
+        })
+    else:
+        validate_google_event_time_range(body)
 
     event = google_calendar_api_request(
         "PATCH",

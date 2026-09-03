@@ -28743,148 +28743,174 @@ requestAnimationFrame(() => {
             const end =
                 eventEnd(event);
 
-            if (!start || !end) {
+            if (
+                !start ||
+                !end ||
+                end <= start
+            ) {
                 continue;
             }
 
-            const dayIndex =
-                Math.floor(
-                    (
-                        new Date(
-                            start.getFullYear(),
-                            start.getMonth(),
-                            start.getDate()
-                        )
-                        -
+            /*
+             * Render one clipped segment for every calendar day the
+             * event overlaps. This keeps overnight and multi-day events
+             * visible in each affected column instead of treating an
+             * end time on a later day as an earlier clock time.
+             */
+            for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+
+                const dayStart =
+                    addDays(
                         new Date(
                             weekStart.getFullYear(),
                             weekStart.getMonth(),
                             weekStart.getDate()
-                        )
+                        ),
+                        dayIndex
+                    );
+
+                const dayEnd =
+                    addDays(dayStart, 1);
+
+                if (
+                    end <= dayStart ||
+                    start >= dayEnd
+                ) {
+                    continue;
+                }
+
+                const segmentStart =
+                    start > dayStart
+                    ? start
+                    : dayStart;
+
+                const segmentEnd =
+                    end < dayEnd
+                    ? end
+                    : dayEnd;
+
+                const startMinutes =
+                    segmentStart.getHours() * 60
+                    + segmentStart.getMinutes();
+
+                const endMinutes =
+                    segmentEnd.getHours() * 60
+                    + segmentEnd.getMinutes()
+                    + (
+                        segmentEnd.getTime()
+                        === dayEnd.getTime()
+                        ? 24 * 60
+                        : 0
+                    );
+
+                const visibleStart =
+                    START_HOUR * 60;
+
+                const visibleEnd =
+                    END_HOUR * 60;
+
+                const clippedStart =
+                    Math.max(
+                        startMinutes,
+                        visibleStart
+                    );
+
+                const clippedEnd =
+                    Math.min(
+                        endMinutes,
+                        visibleEnd
+                    );
+
+                const top =
+                    (
+                        clippedStart
+                        - visibleStart
                     )
-                    / 86400000
-                );
+                    / 60
+                    * HOUR_HEIGHT;
 
-            if (
-                dayIndex < 0 ||
-                dayIndex > 6
-            ) {
-                continue;
-            }
+                const rawHeight =
+                    (
+                        clippedEnd
+                        - clippedStart
+                    )
+                    / 60
+                    * HOUR_HEIGHT;
 
-            const startMinutes =
-                start.getHours() * 60
-                + start.getMinutes();
+                const height =
+                    Math.max(
+                        25,
+                        rawHeight - 3
+                    );
 
-            const endMinutes =
-                end.getHours() * 60
-                + end.getMinutes();
-
-            const visibleStart =
-                START_HOUR * 60;
-
-            const visibleEnd =
-                END_HOUR * 60;
-
-            if (
-                endMinutes <= visibleStart ||
-                startMinutes >= visibleEnd
-            ) {
-                continue;
-            }
-
-            const clippedStart =
-                Math.max(
-                    startMinutes,
-                    visibleStart
-                );
-
-            const clippedEnd =
-                Math.min(
-                    endMinutes,
-                    visibleEnd
-                );
-
-            const top =
-                (
-                    clippedStart
-                    - visibleStart
-                )
-                / 60
-                * HOUR_HEIGHT;
-
-            const rawHeight =
-                (
-                    clippedEnd
-                    - clippedStart
-                )
-                / 60
-                * HOUR_HEIGHT;
-
-            const height =
-                Math.max(
-                    25,
-                    rawHeight - 3
-                );
-
-            const block =
-                document.createElement("div");
-
-            block.className =
-                "apollo-week-event";
-
-            if (event.id) {
-                block.dataset.eventId =
-                    event.id;
-            }
-
-            block.style.top =
-                `${top}px`;
-
-            block.style.height =
-                `${height}px`;
-
-            const title =
-                document.createElement("div");
-
-            title.className =
-                "apollo-week-event-title";
-
-            title.textContent =
-                event.summary ||
-                "Untitled event";
-
-            block.appendChild(title);
-
-            if (height >= 38) {
-                const time =
+                const block =
                     document.createElement("div");
 
-                time.className =
-                    "apollo-week-event-time";
+                block.className =
+                    "apollo-week-event";
 
-                time.textContent =
-                    `${formatTime(start)} – ${formatTime(end)}`;
+                if (event.id) {
+                    block.dataset.eventId =
+                        event.id;
+                }
 
-                block.appendChild(time);
-            }
+                block.style.top =
+                    `${top}px`;
 
-            if (event.htmlLink) {
-                block.addEventListener(
-                    "click",
-                    () => {
-                        window.open(
-                            event.htmlLink,
-                            "_blank",
-                            "noopener,noreferrer"
-                        );
+                block.style.height =
+                    `${height}px`;
+
+                const title =
+                    document.createElement("div");
+
+                title.className =
+                    "apollo-week-event-title";
+
+                title.textContent =
+                    event.summary ||
+                    "Untitled event";
+
+                block.appendChild(title);
+
+                if (height >= 38) {
+                    const time =
+                        document.createElement("div");
+
+                    time.className =
+                        "apollo-week-event-time";
+
+                    if (segmentStart.getTime() === start.getTime()) {
+                        time.textContent =
+                            segmentEnd.getTime() === end.getTime()
+                            ? `${formatTime(start)} – ${formatTime(end)}`
+                            : `${formatTime(start)} →`;
+                    } else if (segmentEnd.getTime() === end.getTime()) {
+                        time.textContent =
+                            `→ ${formatTime(end)}`;
+                    } else {
+                        time.textContent = "Continues";
                     }
-                );
-            }
 
-            columns[
-                dayIndex
-            ].appendChild(block);
+                    block.appendChild(time);
+                }
+
+                if (event.htmlLink) {
+                    block.addEventListener(
+                        "click",
+                        () => {
+                            window.open(
+                                event.htmlLink,
+                                "_blank",
+                                "noopener,noreferrer"
+                            );
+                        }
+                    );
+                }
+
+                columns[
+                    dayIndex
+                ].appendChild(block);
+            }
         }
 
         scroll.appendChild(times);
@@ -30065,17 +30091,8 @@ requestAnimationFrame(() => {
                         const start =
                             eventStart(event);
 
-                        const endRaw =
-                            event.end
-                            && (
-                                event.end.dateTime
-                                || event.end.date
-                            );
-
                         const end =
-                            endRaw
-                                ? new Date(endRaw)
-                                : null;
+                            eventEnd(event);
 
                         return (
                             start
@@ -30223,17 +30240,8 @@ requestAnimationFrame(() => {
                         const eventStartDate =
                             eventStart(event);
 
-                        const eventEndRaw =
-                            event.end
-                            && (
-                                event.end.dateTime
-                                || event.end.date
-                            );
-
                         const eventEndDate =
-                            eventEndRaw
-                                ? new Date(eventEndRaw)
-                                : null;
+                            eventEnd(event);
 
 
                         const isCurrent =
@@ -31173,15 +31181,35 @@ requestAnimationFrame(() => {
 
 
         <div class="apollo-calendar-field">
-            <label class="apollo-calendar-label">
-                Date
-            </label>
 
-            <input
-                class="apollo-calendar-input"
-                id="apolloEventDate"
-                type="hidden"
-            >
+            <div class="apollo-calendar-row">
+
+                <div>
+                    <label class="apollo-calendar-label">
+                        Start date
+                    </label>
+
+                    <input
+                        class="apollo-calendar-input"
+                        id="apolloEventStartDate"
+                        type="hidden"
+                    >
+                </div>
+
+                <div>
+                    <label class="apollo-calendar-label">
+                        End date
+                    </label>
+
+                    <input
+                        class="apollo-calendar-input"
+                        id="apolloEventEndDate"
+                        type="hidden"
+                    >
+                </div>
+
+            </div>
+
         </div>
 
 
@@ -31191,7 +31219,7 @@ requestAnimationFrame(() => {
 
                 <div>
                     <label class="apollo-calendar-label">
-                        Start
+                        Start time
                     </label>
 
                     <input
@@ -31204,7 +31232,7 @@ requestAnimationFrame(() => {
 
                 <div>
                     <label class="apollo-calendar-label">
-                        End
+                        End time
                     </label>
 
                     <input
@@ -31461,9 +31489,14 @@ requestAnimationFrame(() => {
             "apolloEventTitle"
         );
 
-    const dateInput =
+    const startDateInput =
         document.getElementById(
-            "apolloEventDate"
+            "apolloEventStartDate"
+        );
+
+    const endDateInput =
+        document.getElementById(
+            "apolloEventEndDate"
         );
 
     const startInput =
@@ -31599,8 +31632,11 @@ requestAnimationFrame(() => {
 
         titleInput.value = "";
 
-        dateInput.value =
+        startDateInput.value =
             dateKey(date);
+
+        const endDate =
+            new Date(date);
 
         const startHour =
             Math.floor(
@@ -31614,15 +31650,21 @@ requestAnimationFrame(() => {
             `${pad(startHour)}:${pad(startMinute)}`;
 
         const endMinutes =
-            Math.min(
-                startMinutes + 60,
-                23 * 60 + 59
+            startMinutes + 60;
+
+        if (endMinutes >= 24 * 60) {
+            endDate.setDate(
+                endDate.getDate() + 1
             );
+        }
+
+        endDateInput.value =
+            dateKey(endDate);
 
         endInput.value =
             `${pad(
                 Math.floor(
-                    endMinutes / 60
+                    (endMinutes % (24 * 60)) / 60
                 )
             )}:${pad(
                 endMinutes % 60
@@ -31678,7 +31720,7 @@ requestAnimationFrame(() => {
             );
 
         if (start) {
-            dateInput.value =
+            startDateInput.value =
                 start.date;
 
             startInput.value =
@@ -31686,6 +31728,9 @@ requestAnimationFrame(() => {
         }
 
         if (end) {
+            endDateInput.value =
+                end.date;
+
             endInput.value =
                 end.time;
         }
@@ -31789,8 +31834,11 @@ requestAnimationFrame(() => {
         const title =
             titleInput.value.trim();
 
-        const date =
-            dateInput.value;
+        const startDate =
+            startDateInput.value;
+
+        const endDate =
+            endDateInput.value;
 
         const start =
             startInput.value;
@@ -31806,27 +31854,28 @@ requestAnimationFrame(() => {
         }
 
         if (
-            !date ||
+            !startDate ||
+            !endDate ||
             !start ||
             !end
         ) {
             errorElement.textContent =
-                "Date, start and end are required.";
+                "Start and end dates and times are required.";
             return;
         }
 
         const startDateTime =
-            `${date}T${start}`;
+            `${startDate}T${start}`;
 
         const endDateTime =
-            `${date}T${end}`;
+            `${endDate}T${end}`;
 
         if (
             endDateTime
             <= startDateTime
         ) {
             errorElement.textContent =
-                "End time must be after start time.";
+                "End date and time must be after start date and time.";
             return;
         }
 
@@ -33074,9 +33123,14 @@ requestAnimationFrame(() => {
             "apolloCalendarEditor"
         );
 
-    const eventDate =
+    const eventStartDate =
         document.getElementById(
-            "apolloEventDate"
+            "apolloEventStartDate"
+        );
+
+    const eventEndDate =
+        document.getElementById(
+            "apolloEventEndDate"
         );
 
     const repeatUntil =
@@ -33111,7 +33165,8 @@ requestAnimationFrame(() => {
 
     if (
         !editor ||
-        !eventDate ||
+        !eventStartDate ||
+        !eventEndDate ||
         !repeatUntil
     ) {
         return;
@@ -33132,12 +33187,12 @@ requestAnimationFrame(() => {
 
     function selectedEventWeekday() {
 
-        if (!eventDate.value) {
+        if (!eventStartDate.value) {
             return null;
         }
 
         const [y, m, d] =
-            eventDate.value
+            eventStartDate.value
                 .split("-")
                 .map(Number);
 
@@ -33545,10 +33600,16 @@ requestAnimationFrame(() => {
     }
 
 
-    const eventDateWidget =
+    const eventStartDateWidget =
         makeDateButton(
-            eventDate,
-            "Select date"
+            eventStartDate,
+            "Select start date"
+        );
+
+    const eventEndDateWidget =
+        makeDateButton(
+            eventEndDate,
+            "Select end date"
         );
 
     const repeatDateWidget =
@@ -33849,7 +33910,8 @@ requestAnimationFrame(() => {
                     requestAnimationFrame(
                         () => {
 
-                            eventDateWidget.sync();
+                            eventStartDateWidget.sync();
+                            eventEndDateWidget.sync();
                             repeatDateWidget.sync();
 
                             updateCustomOptions();
