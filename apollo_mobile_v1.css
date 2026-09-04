@@ -3244,3 +3244,380 @@ and (
         height: 46px !important;
     }
 }
+
+
+/* =========================================================
+   APOLLO MOBILE V1.8 — SHARED PAGE RHYTHM
+
+   This is the single mobile layout contract for every primary
+   destination.  Earlier page-specific mobile declarations remain for
+   component sizing, while spacing, type hierarchy, safe areas, and the
+   navigation reserve are defined here.
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    :root {
+        --mobile-safe-top: env(safe-area-inset-top, 0px);
+        --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+        --mobile-header-height: 84px;
+        --mobile-header-padding-top: 24px;
+        --mobile-page-padding-x: 20px;
+        --mobile-header-gap: 10px;
+        --mobile-content-gap: 28px;
+        --mobile-tabbar-height: 74px;
+        --mobile-tabbar-bottom-inset: var(--mobile-safe-bottom);
+
+        /* Compatibility aliases for existing mobile component rules. */
+        --apollo-mobile-safe-top: var(--mobile-safe-top);
+        --apollo-mobile-safe-bottom: var(--mobile-safe-bottom);
+        --apollo-mobile-nav-h: var(--mobile-tabbar-height);
+    }
+
+    html,
+    body,
+    .app {
+        min-height: 100svh !important;
+        height: 100dvh !important;
+    }
+
+    .main {
+        height: 100dvh !important;
+        padding-bottom: calc(
+            var(--mobile-tabbar-height)
+            + var(--mobile-tabbar-bottom-inset)
+        ) !important;
+        scroll-padding-bottom: var(--mobile-content-gap);
+    }
+
+    /* The tab bar owns the only bottom safe-area reserve. */
+    .sidebar {
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100% !important;
+        height: calc(
+            var(--mobile-tabbar-height)
+            + var(--mobile-tabbar-bottom-inset)
+        ) !important;
+        padding: 5px 4px calc(
+            5px + var(--mobile-tabbar-bottom-inset)
+        ) !important;
+
+        display: grid !important;
+        grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+        align-items: center !important;
+        overflow: visible !important;
+
+        border: 0 !important;
+        border-top: 1px solid rgba(255,255,255,.09) !important;
+        border-radius: 0 !important;
+        background: rgba(12,12,13,.82) !important;
+        box-shadow: 0 -8px 24px rgba(0,0,0,.14) !important;
+        backdrop-filter: blur(22px) saturate(125%) !important;
+        -webkit-backdrop-filter: blur(22px) saturate(125%) !important;
+    }
+
+    .sidebar::before {
+        content: none !important;
+    }
+
+    html[data-theme="light"] .sidebar {
+        border-top-color: rgba(0,0,0,.08) !important;
+        background: rgba(248,248,249,.82) !important;
+        box-shadow: 0 -8px 24px rgba(0,0,0,.055) !important;
+    }
+
+    .sidebar .nav,
+    .sidebar .sidebar-bottom {
+        display: contents !important;
+    }
+
+    .sidebar .nav .nav-button:nth-child(n),
+    .sidebar .sidebar-bottom .nav-button {
+        order: initial !important;
+    }
+
+    .sidebar .nav-button {
+        width: 100% !important;
+        height: 62px !important;
+        min-width: 0 !important;
+        padding: 5px 1px 4px !important;
+        gap: 3px !important;
+        border-radius: 10px !important;
+        color: rgba(255,255,255,.54) !important;
+        background: transparent !important;
+        transition:
+            color 140ms ease,
+            background 140ms ease,
+            transform 110ms ease !important;
+    }
+
+    html[data-theme="light"] .sidebar .nav-button {
+        color: rgba(0,0,0,.48) !important;
+    }
+
+    .sidebar .nav-button.active {
+        color: var(--text) !important;
+        background: rgba(255,255,255,.085) !important;
+        box-shadow: none !important;
+    }
+
+    html[data-theme="light"] .sidebar .nav-button.active {
+        background: rgba(0,0,0,.065) !important;
+    }
+
+    .sidebar .nav-button:active {
+        transform: scale(.94) !important;
+    }
+
+    .sidebar .nav-icon,
+    .sidebar .nav-icon svg {
+        width: 19px !important;
+        height: 19px !important;
+        flex: 0 0 19px !important;
+        transform: none !important;
+    }
+
+    .sidebar .nav-label {
+        position: static !important;
+        display: block !important;
+        width: auto !important;
+        height: auto !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        clip: auto !important;
+        overflow: hidden !important;
+        color: inherit !important;
+        font-size: 9px !important;
+        font-weight: 600 !important;
+        line-height: 1 !important;
+        letter-spacing: -.015em !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    /* Primary destinations deliberately share one page start and gutter. */
+    .home,
+    .apollo-music-inner,
+    .apollo-tasks-shell,
+    .apollo-settings-inner,
+    .apollo-studio-shell,
+    #studioView .studio5-shell {
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: calc(
+            var(--mobile-safe-top)
+            + var(--mobile-header-padding-top)
+        ) var(--mobile-page-padding-x) var(--mobile-content-gap) !important;
+        box-sizing: border-box !important;
+    }
+
+    #musicView.active,
+    #tasksView.active,
+    #settingsView.active,
+    #studioView.active {
+        top: 0 !important;
+        bottom: calc(
+            var(--mobile-tabbar-height)
+            + var(--mobile-tabbar-bottom-inset)
+        ) !important;
+        height: auto !important;
+        padding: 0 !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    #calendarView.active {
+        top: 0 !important;
+        bottom: calc(
+            var(--mobile-tabbar-height)
+            + var(--mobile-tabbar-bottom-inset)
+        ) !important;
+        height: auto !important;
+        padding: calc(
+            var(--mobile-safe-top)
+            + var(--mobile-header-padding-top)
+        ) var(--mobile-page-padding-x) var(--mobile-content-gap) !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Page headers: title top edge and typography are intentionally identical. */
+    .home .header,
+    .apollo-music-header,
+    .apollo-tasks-header,
+    #calendarView .apollo-week-header,
+    .apollo-studio-header,
+    #studioView .studio5-topbar {
+        margin: 0 0 var(--mobile-content-gap) !important;
+        padding: 0 !important;
+        animation: apolloMobilePageEnter 150ms ease-out both !important;
+    }
+
+    .apollo-settings-eyebrow,
+    .home .eyebrow,
+    .apollo-music-eyebrow,
+    .apollo-tasks-eyebrow,
+    #calendarView .apollo-calendar-eyebrow,
+    .apollo-studio-eyebrow,
+    #studioView .studio5-eyebrow {
+        margin: 0 0 var(--mobile-header-gap) !important;
+        font-size: 9px !important;
+        font-weight: 650 !important;
+        line-height: 1 !important;
+        letter-spacing: .18em !important;
+    }
+
+    .home .greeting,
+    .apollo-music-title,
+    .apollo-tasks-title,
+    .apollo-settings-title,
+    #calendarView .apollo-week-title,
+    #calendarView .apollo-calendar-title,
+    .apollo-studio-heading,
+    #studioView .studio5-brandcopy h1 {
+        margin: 0 !important;
+        font-family: var(--apollo-font, -apple-system, BlinkMacSystemFont, sans-serif) !important;
+        font-size: 34px !important;
+        font-weight: 600 !important;
+        line-height: 1 !important;
+        letter-spacing: -.045em !important;
+    }
+
+    .home .subheading,
+    .apollo-tasks-subtitle,
+    .apollo-settings-subtitle,
+    .apollo-studio-copy,
+    #studioView .studio5-brandcopy p,
+    #calendarView .apollo-week-month {
+        margin-top: 11px !important;
+        font-size: 13px !important;
+        line-height: 1.5 !important;
+    }
+
+    .home .ask {
+        margin-top: var(--mobile-content-gap) !important;
+    }
+
+    .home .header {
+        margin-bottom: 0 !important;
+    }
+
+    .apollo-settings-section:first-of-type {
+        margin-top: var(--mobile-content-gap) !important;
+    }
+
+    #calendarView .apollo-week-header {
+        width: 100% !important;
+        gap: 16px !important;
+    }
+
+    #calendarView .apollo-week-header .apollo-calendar-eyebrow {
+        margin-bottom: var(--mobile-header-gap) !important;
+    }
+
+    #calendarView .apollo-week-shell {
+        width: 100% !important;
+        margin: 0 !important;
+    }
+
+    #studioView .studio5-topbar {
+        gap: 16px !important;
+    }
+
+    #studioView.active {
+        height: 100% !important;
+        bottom: auto !important;
+    }
+
+    /* Preserve the contextual assistant without obscuring page titles. */
+    #apolloPresence {
+        top: auto !important;
+        right: var(--mobile-page-padding-x) !important;
+        bottom: calc(
+            var(--mobile-tabbar-height)
+            + var(--mobile-safe-bottom)
+            + 10px
+        ) !important;
+        left: var(--mobile-page-padding-x) !important;
+        width: auto !important;
+    }
+
+    #musicView.active .apollo-music-inner,
+    #tasksView.active .apollo-tasks-shell {
+        padding-bottom: calc(var(--mobile-content-gap) + 74px) !important;
+    }
+
+    #calendarView.active {
+        padding-bottom: calc(var(--mobile-content-gap) + 74px) !important;
+    }
+
+    /* Chat intentionally remains a compact control header, using the same inset and gutter. */
+    #apolloMobileChatHeader {
+        top: 0 !important;
+        height: calc(var(--mobile-safe-top) + 64px) !important;
+        padding: calc(var(--mobile-safe-top) + 10px) var(--mobile-page-padding-x) 8px !important;
+    }
+
+    #apolloView .apollo-messages {
+        padding-top: calc(var(--mobile-safe-top) + 72px) !important;
+        padding-right: var(--mobile-page-padding-x) !important;
+        padding-left: var(--mobile-page-padding-x) !important;
+        padding-bottom: calc(
+            var(--mobile-tabbar-height)
+            + var(--mobile-safe-bottom)
+            + 118px
+        ) !important;
+    }
+
+    #apolloView.active .apollo-composer-wrap {
+        bottom: calc(
+            var(--mobile-tabbar-height)
+            + var(--mobile-safe-bottom)
+            + 10px
+        ) !important;
+    }
+
+    /* A quiet, stable transition avoids page-specific entrance jumps. */
+    #musicView.active,
+    #calendarView.active,
+    #tasksView.active,
+    #settingsView.active,
+    #studioView.active {
+        animation: apolloMobilePageEnter 150ms ease-out both !important;
+    }
+
+    @keyframes apolloMobilePageEnter {
+        from { opacity: .98; }
+        to { opacity: 1; }
+    }
+}
+
+@media (max-width: 360px) {
+    :root {
+        --mobile-page-padding-x: 16px;
+    }
+
+    .sidebar .nav-label {
+        font-size: 8.5px !important;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    @media (max-width: 760px) {
+        #musicView.active,
+        #calendarView.active,
+        #tasksView.active,
+        #settingsView.active,
+        #studioView.active,
+        .sidebar,
+        .sidebar .nav-button {
+            animation: none !important;
+            transition-duration: .01ms !important;
+        }
+    }
+}
