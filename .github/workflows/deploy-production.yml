@@ -53,6 +53,12 @@ jobs:
           cd /root/Apollo
           git fetch origin main
           git checkout main
+
+          # Preserve any emergency server-local edit before fast-forwarding.
+          # A deployment must never silently overwrite it.
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            git stash push -m "apollo pre-deploy $(date -u +%Y%m%dT%H%M%SZ)"
+          fi
           git pull --ff-only origin main
 
           systemctl restart apollo-backend apollo-web
