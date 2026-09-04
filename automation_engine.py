@@ -7,6 +7,7 @@ testable and avoids a second backend).
 """
 
 import json
+import re
 import sqlite3
 import threading
 import time
@@ -81,6 +82,48 @@ def valid_deep_link(value):
     if not value.startswith("/") or value.startswith("//") or "\x00" in value:
         return "/"
     return value[:500]
+
+
+def automation_title_from_intent(value):
+    """Make a concise label when a natural-language request has no title."""
+    text = " ".join(str(value or "").strip().split())
+    if not text:
+        return ""
+    saying = re.search(r"\b(?:saying|to say)\s+(.+)$", text, re.IGNORECASE)
+    if saying:
+        return saying.group(1).strip(" .!?\"'")[:120].title() or "Reminder"
+    pack = re.search(r"\bto\s+(.+)$", text, re.IGNORECASE)
+    if pack:
+        candidate = pack.group(1).strip(" .!?\"'")
+        if candidate:
+            return candidate[:120].capitalize()
+    cleaned = re.sub(r"^(?:please\s+)?(?:notify|remind|tell|let)\s+me(?:\s+when|\s+in|\s+tomorrow|\s+every)?\s*", "", text, flags=re.IGNORECASE)
+    return (cleaned or text)[:120].strip(" .!?").capitalize()
+
+
+def normalize_automation_payload(payload, intent_text=""):
+    """The one creation contract shared by chat and API callers.
+
+    Titles and instructions are convenience metadata, never information a
+    person must provide separately from a valid automation request.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid automation")
+    result = dict(payload)
+    action = result.get("action") if isinstance(result.get("action"), dict) else {}
+    instruction = str(
+        result.get("instruction") or result.get("intent") or result.get("message")
+        or action.get("body") or intent_text or ""
+    ).strip()
+    title = str(result.get("title") or result.get("name") or action.get("title") or "").strip()
+    if not title:
+        title = automation_title_from_intent(instruction)
+    if not title or not instruction:
+        raise ValueError("A usable automation instruction is required")
+    result["title"] = title[:240]
+    result["instruction"] = instruction[:2000]
+    result["action"] = {**action, "title": str(action.get("title") or title)[:240], "body": str(action.get("body") or instruction)[:500]}
+    return result
 
 
 def row_to_automation(row):
@@ -276,15 +319,12 @@ class AutomationEngine:
         return self.preferences()
 
     def create(self, payload):
-        if not isinstance(payload, dict):
-            raise ValueError("Invalid automation")
+        payload = normalize_automation_payload(payload)
         kind = str(payload.get("type", "")).strip()
         if kind not in AUTOMATION_TYPES:
             raise ValueError("Unsupported automation type")
-        title = str(payload.get("title", "")).strip()[:240]
-        instruction = str(payload.get("instruction", title)).strip()[:2000]
-        if not title or not instruction:
-            raise ValueError("Automation title and instruction are required")
+        title = payload["title"]
+        instruction = payload["instruction"]
         tz_name = str(payload.get("timezone") or self.timezone_provider() or "UTC").strip()
         try:
             ZoneInfo(tz_name)

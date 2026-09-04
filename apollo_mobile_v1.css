@@ -3942,8 +3942,7 @@ and (
 
 .apollo-notification-button,
 .apollo-notification-text-button,
-.apollo-notification-category,
-.apollo-automation-row button {
+.apollo-notification-category {
     border: 0;
     font: inherit;
     cursor: pointer;
@@ -3999,63 +3998,10 @@ and (
     font-size: 10px;
 }
 
-.apollo-automation-create {
-    display: flex;
-    gap: 8px;
-    padding: 14px;
-    border-bottom: 1px solid var(--border);
-}
-
-.apollo-automation-create input {
-    width: 100%;
-    min-width: 0;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: transparent;
-    color: var(--text);
-    padding: 0 11px;
-    font: inherit;
-    font-size: 12px;
-}
-
-.apollo-automation-feedback {
-    min-height: 0;
-    color: var(--muted);
-    font-size: 11px;
-    line-height: 1.45;
-    padding: 0 14px;
-}
-
-.apollo-automation-feedback:not(:empty) {
-    padding-top: 10px;
-}
-
-.apollo-automation-group h3 {
-    margin: 0;
-    padding: 16px 14px 8px;
-    color: var(--dim);
-    font-size: 9px;
-    font-weight: 650;
-    letter-spacing: .15em;
-    text-transform: uppercase;
-}
-
-.apollo-automation-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    align-items: center;
-    gap: 8px;
-    min-height: 56px;
-    padding: 8px 14px;
-    border-top: 1px solid var(--border);
-}
-
-.apollo-automation-row div,
 .apollo-notification-history-row span {
     min-width: 0;
 }
 
-.apollo-automation-row strong,
 .apollo-notification-history-row strong {
     display: block;
     overflow: hidden;
@@ -4066,7 +4012,6 @@ and (
     white-space: nowrap;
 }
 
-.apollo-automation-row span,
 .apollo-notification-history-row small {
     display: block;
     overflow: hidden;
@@ -4075,24 +4020,6 @@ and (
     font-size: 10px;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.apollo-automation-row button {
-    background: transparent;
-    color: var(--muted);
-    font-size: 10px;
-}
-
-.apollo-automation-row button:last-child {
-    font-size: 19px;
-    line-height: 1;
-}
-
-.apollo-automation-empty {
-    margin: 0;
-    padding: 10px 14px 15px;
-    color: var(--dim);
-    font-size: 11px;
 }
 
 .apollo-notification-history-actions {
@@ -4163,12 +4090,4 @@ and (
         min-height: 38px;
     }
 
-    .apollo-automation-create {
-        align-items: stretch;
-        flex-direction: column;
-    }
-
-    .apollo-automation-create input {
-        min-height: 42px;
-    }
 }

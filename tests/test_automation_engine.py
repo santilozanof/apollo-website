@@ -1,10 +1,21 @@
+import ast
 import tempfile
 import unittest
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from automation_engine import AutomationEngine, iso, utc_now
+
+
+SERVER = Path(__file__).resolve().parents[1] / "server.py"
+
+
+def load_server_function(name, namespace):
+    tree = ast.parse(SERVER.read_text())
+    node = next(item for item in tree.body if isinstance(item, ast.FunctionDef) and item.name == name)
+    exec(compile(ast.Module(body=[node], type_ignores=[]), str(SERVER), "exec"), namespace)
+    return namespace[name]
 
 
 class AutomationEngineTests(unittest.TestCase):
@@ -119,3 +130,29 @@ class AutomationEngineTests(unittest.TestCase):
         self.engine._set_state("default_rules_checked_at", iso(utc_now() - timedelta(minutes=6)), utc_now())
         self.engine.run_once()
         self.assertEqual(1, len(self.sent), "a built-in rule must not repeat after restart/poll")
+
+    def test_natural_intent_derives_title_and_instruction(self):
+        created = self.engine.create({
+            "type": "one_time",
+            "intent": "Notify me in 2 minutes saying test.",
+            "schedule": {"at": iso(utc_now() + timedelta(minutes=2))},
+        })
+        self.assertEqual("Test", created["title"])
+        self.assertEqual("Notify me in 2 minutes saying test.", created["instruction"])
+        self.assertEqual("Test", created["action"]["title"])
+
+    def test_common_chat_time_intents_have_correct_persistent_shapes(self):
+        parser = load_server_function("apollo_fallback_automation_intent", {
+            "re": __import__("re"), "timedelta": timedelta, "timezone": timezone,
+        })
+        now = datetime(2026, 9, 4, 20, 0, tzinfo=timezone.utc)
+        two_minutes = parser("Notify me in 2 minutes saying test.", "UTC", now)
+        self.assertEqual("one_time", two_minutes["type"])
+        self.assertEqual(now + timedelta(minutes=2), datetime.fromisoformat(two_minutes["schedule"]["at"]))
+        tomorrow = parser("Remind me tomorrow at 8 to pack.", "UTC", now)
+        self.assertEqual(datetime(2026, 9, 5, 8, 0, tzinfo=timezone.utc), datetime.fromisoformat(tomorrow["schedule"]["at"]))
+        weekly = parser("Every Monday at 7 remind me to study.", "UTC", now)
+        self.assertEqual({"weekday": 0, "hour": 7, "minute": 0}, weekly["schedule"])
+        whoop = parser("Notify me when WHOOP recovery is above 80%.", "UTC", now)
+        self.assertEqual("condition_once", whoop["type"])
+        self.assertEqual(80.0, whoop["condition"]["value"])

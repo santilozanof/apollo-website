@@ -1,4 +1,4 @@
-/* Apollo Notifications + Automations UI.  It augments Settings without a new tab. */
+/* Apollo Notifications UI. Automations are created and managed through chat. */
 (() => {
     const doc = document;
     const escapeHTML = value => String(value ?? "").replace(/[&<>'"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[char]));
@@ -33,23 +33,13 @@
             <div class="apollo-notification-category-list" id="apolloNotificationCategories"></div>
         </div>
     `;
-    const automationSection = doc.createElement("section");
-    automationSection.className = "apollo-settings-section apollo-automation-settings";
-    automationSection.innerHTML = `
-        <div class="apollo-settings-section-title">Automations</div>
-        <div class="apollo-settings-panel">
-            <form class="apollo-automation-create" id="apolloAutomationCreate"><input id="apolloAutomationInstruction" maxlength="500" placeholder="e.g. Remind me tomorrow at 8 to pack"><button type="submit" class="apollo-notification-button">Add</button></form>
-            <div class="apollo-automation-feedback" id="apolloAutomationFeedback" aria-live="polite"></div>
-            <div class="apollo-automation-groups" id="apolloAutomationGroups"></div>
-        </div>
-    `;
     const historySection = doc.createElement("section");
     historySection.className = "apollo-settings-section apollo-notification-history-section";
     historySection.innerHTML = `
         <div class="apollo-settings-section-title">Notification history</div>
         <div class="apollo-settings-panel"><div class="apollo-notification-history-actions"><span id="apolloNotificationHistoryState">Recent notifications</span><button type="button" class="apollo-notification-text-button" id="apolloNotificationClear">Clear</button></div><div id="apolloNotificationHistory" class="apollo-notification-history"></div></div>
     `;
-    inner.append(section, automationSection, historySection);
+    inner.append(section, historySection);
 
     let state = null;
     const categoryLabels = {calendar: "Calendar", tasks: "Tasks", debrief: "Daily Debrief", whoop: "WHOOP", travel: "Travel", automations: "Automations / Reminders", sound: "Sound"};
@@ -71,7 +61,8 @@
             ? Notification.permission
             : "unsupported";
         if (master) {
-            master.classList.toggle("active", Boolean(prefs.master));
+            // Settings' shared toggle stylesheet uses `.on`, not `.active`.
+            master.classList.toggle("on", Boolean(prefs.master));
             master.setAttribute("aria-pressed", String(Boolean(prefs.master)));
         }
         if (stateNode) stateNode.textContent = statusCopy();
@@ -91,18 +82,6 @@
         const date = new Date(value);
         return Number.isNaN(date.getTime()) ? "Watching" : new Intl.DateTimeFormat(undefined, {month:"short", day:"numeric", hour:"numeric", minute:"2-digit"}).format(date);
     };
-    const renderAutomations = automations => {
-        const groups = doc.getElementById("apolloAutomationGroups");
-        if (!groups) return;
-        const active = automations.filter(item => item.status === "active" || item.status === "paused");
-        const completed = automations.filter(item => item.status === "completed");
-        const render = (title, items) => `<section class="apollo-automation-group"><h3>${title}</h3>${items.length ? items.map(item => {
-            const next = item.type.includes("condition") || item.type === "relative_event" ? "Watching" : formatWhen(item.next_run_at);
-            const action = item.status === "active" ? "pause" : "resume";
-            return `<article class="apollo-automation-row" data-automation-id="${escapeHTML(item.id)}"><div><strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(item.status === "completed" ? "Completed " + formatWhen(item.completed_at) : next)}</span></div>${item.status !== "completed" ? `<button type="button" data-automation-action="${action}">${action === "pause" ? "Pause" : "Resume"}</button>` : ""}<button type="button" data-automation-action="delete" aria-label="Delete ${escapeHTML(item.title)}">×</button></article>`;
-        }).join("") : `<p class="apollo-automation-empty">Nothing here yet.</p>`}</section>`;
-        groups.innerHTML = render("Active", active) + render("Completed", completed);
-    };
     const renderHistory = notifications => {
         const list = doc.getElementById("apolloNotificationHistory");
         if (!list) return;
@@ -115,10 +94,9 @@
     };
     const refresh = async () => {
         try {
-            const [nextState, automationData, historyData] = await Promise.all([api("/api/notifications/status"), api("/api/automations"), api("/api/notifications")]);
+            const [nextState, historyData] = await Promise.all([api("/api/notifications/status"), api("/api/notifications")]);
             state = nextState;
             renderPreferences();
-            renderAutomations(automationData.automations || []);
             renderHistory(historyData.notifications || []);
         } catch (_) {
             const node = doc.getElementById("apolloNotificationState");
@@ -152,29 +130,6 @@
         if (event.target.closest("#apolloNotificationMaster")) return setPreferences({master: !state?.preferences?.master});
         const category = event.target.closest("[data-notification-category]")?.dataset.notificationCategory;
         if (category) return setPreferences({[category]: !state?.preferences?.[category]});
-    });
-    automationSection.addEventListener("submit", async event => {
-        if (event.target.id !== "apolloAutomationCreate") return;
-        event.preventDefault();
-        const input = doc.getElementById("apolloAutomationInstruction");
-        const feedback = doc.getElementById("apolloAutomationFeedback");
-        const instruction = input.value.trim();
-        if (!instruction) return;
-        feedback.textContent = "Understanding that…";
-        try {
-            const data = await api("/api/automations/interpret", {method:"POST", body:JSON.stringify({instruction, client_context:{time_zone:Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"}})});
-            feedback.textContent = data.reply;
-            input.value = "";
-            await refresh();
-        } catch (error) { feedback.textContent = error.message || "Automation could not be created."; }
-    });
-    automationSection.addEventListener("click", async event => {
-        const button = event.target.closest("[data-automation-action]");
-        if (!button) return;
-        const row = button.closest("[data-automation-id]");
-        const id = row?.dataset.automationId;
-        if (!id) return;
-        try { await api(`/api/automations/${encodeURIComponent(id)}/${button.dataset.automationAction}`, {method:"POST", body:"{}"}); await refresh(); } catch (_) {}
     });
     historySection.addEventListener("click", async event => {
         if (event.target.closest("#apolloNotificationClear")) { await api("/api/notifications/clear", {method:"POST", body:"{}"}); return refresh(); }

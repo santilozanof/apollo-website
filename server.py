@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import urllib.request
@@ -13,6 +14,7 @@ import shutil
 from automation_engine import (
     AutomationEngine,
     init_automation_schema,
+    normalize_automation_payload,
     valid_deep_link,
 )
 
@@ -12034,8 +12036,82 @@ def apollo_automation_json(text):
 
 def apollo_automation_candidate(message):
     lower = str(message or "").lower()
-    markers = ("remind", "reminder", "notify", "notification", "automation", "automations", "tell me when", "what are you reminding", "stop reminding", "cancel the")
+    markers = ("remind", "reminder", "notify", "notification", "automation", "automations", "tell me when", "what are you reminding", "show my", "stop reminding", "stop watching", "cancel ", "delete completed", "change my")
     return any(marker in lower for marker in markers)
+
+
+def apollo_fallback_automation_intent(message, tz_name, now):
+    """Small deterministic safety net for common natural-language requests.
+
+    Hermes remains the general interpreter. This covers time-critical phrases
+    if its JSON is incomplete, rather than silently routing a reminder into a
+    legacy task flow.
+    """
+    text = " ".join(str(message or "").strip().split())
+    lower = text.lower()
+    if not text:
+        return None
+    relative = re.search(r"\b(?:notify|remind|tell)\s+me\s+in\s+(\d+)\s+minutes?\b", lower)
+    if relative:
+        minutes = int(relative.group(1))
+        if 1 <= minutes <= 7 * 24 * 60:
+            return {"type": "one_time", "schedule": {"at": (now + timedelta(minutes=minutes)).astimezone(timezone.utc).isoformat()}, "action": {"body": text, "deep_link": "/?tab=apollo"}}
+    tomorrow = re.search(r"\b(?:notify|remind|tell)\s+me\s+tomorrow\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?", lower)
+    if tomorrow:
+        hour, minute, meridiem = int(tomorrow.group(1)), int(tomorrow.group(2) or 0), (tomorrow.group(3) or "").replace(".", "")
+        if meridiem == "pm" and hour < 12:
+            hour += 12
+        if meridiem == "am" and hour == 12:
+            hour = 0
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            run_at = (now + timedelta(days=1)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+            return {"type": "one_time", "schedule": {"at": run_at.astimezone(timezone.utc).isoformat()}, "action": {"body": text, "deep_link": "/?tab=apollo"}}
+    weekly = re.search(r"\bevery\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?", lower)
+    if weekly:
+        weekdays = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6}
+        hour, minute, meridiem = int(weekly.group(2)), int(weekly.group(3) or 0), (weekly.group(4) or "").replace(".", "")
+        if meridiem == "pm" and hour < 12:
+            hour += 12
+        if meridiem == "am" and hour == 12:
+            hour = 0
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return {"type": "recurring_schedule", "schedule": {"weekday": weekdays[weekly.group(1)], "hour": hour, "minute": minute}, "action": {"body": text, "deep_link": "/?tab=apollo"}}
+    recovery = re.search(r"\bwhoop\b.*\brecovery\b.*\babove\s+(\d+(?:\.\d+)?)%?", lower)
+    if recovery:
+        return {"type": "condition_once", "condition": {"source": "whoop", "kind": "threshold", "metric": "recovery", "operator": "gt", "value": float(recovery.group(1))}, "action": {"body": text, "deep_link": "/"}}
+    if "flight" in lower and any(word in lower for word in ("change", "changed", "changes")):
+        return {"type": "condition_recurring", "condition": {"source": "travel", "kind": "flight_changed"}, "action": {"body": text, "deep_link": "/?tab=calendar"}}
+    return None
+
+
+def apollo_create_automation(payload, message, tz_name, now):
+    """The sole chat/API creation adapter before durable persistence."""
+    candidate = payload if isinstance(payload, dict) else {}
+    if isinstance(candidate.get("automation"), dict):
+        candidate = candidate["automation"]
+    candidate = normalize_automation_payload(candidate, message)
+    candidate["timezone"] = tz_name
+    return apollo_automation_engine().create(candidate)
+
+
+def apollo_automation_confirmation(created, message):
+    lower = str(message or "").lower()
+    if created["type"] in {"condition_once", "condition_recurring", "relative_event"}:
+        if "whoop" in lower and "recovery" in lower:
+            condition = created["condition"]
+            return f"I’ll let you know when your WHOOP recovery goes above {condition.get('value'):g}%."
+        return f"I’ll notify you when {created['title'].rstrip('.')}"
+    minutes = re.search(r"\bin\s+(\d+)\s+minutes?\b", lower)
+    if minutes:
+        return f"I’ll notify you in {minutes.group(1)} minutes."
+    local_run = apollo_parse_event_datetime(created.get("next_run_at"))
+    if local_run:
+        local_run = local_run.astimezone(ZoneInfo(created["timezone"]))
+        if "tomorrow" in lower:
+            return f"I’ll remind you tomorrow at {local_run.strftime('%-I:%M %p')} to {created['title'].lower()}."
+        if created["type"] == "recurring_schedule":
+            return f"I’ll remind you every {local_run.strftime('%A')} at {local_run.strftime('%-I:%M %p')} to {created['title'].lower()}."
+    return f"I’ll notify you: {created['action']['body']}"
 
 
 def apollo_automation_chat_reply(message, client_context):
@@ -12050,7 +12126,7 @@ def apollo_automation_chat_reply(message, client_context):
     ]
     prompt = {
         "role": "system",
-        "content": """You are Apollo's automation intent interpreter. Return JSON only, never prose. Choose one operation: create, list, pause, delete, update, delete_completed, none. Do not produce cron syntax or executable code. For create, return a validated-looking automation object using only these types: one_time, recurring_schedule, condition_once, condition_recurring, relative_event. Conditions may use only whoop/calendar/tasks/travel/canvas/email structured kinds. For a one_time schedule use an absolute ISO-8601 UTC `at`; for recurring_schedule use weekday (Monday=0), hour, minute. Make action.title/body concise and action.deep_link one of /, /?tab=calendar, /?tab=tasks, /?tab=apollo. If the message lacks a necessary time, use operation none. For matching an existing record return match text or exact id. The local time and timezone below are authoritative.""",
+        "content": """You are Apollo's automation intent interpreter. Return JSON only, never prose. Choose one operation: create, list, pause, delete, update, delete_completed, none. Do not produce cron syntax or executable code. For create use {\"operation\":\"create\",\"automation\":{...}}. The automation must include type, schedule or condition, and action; title and instruction are optional because Apollo derives them from the user's exact message. Use only types one_time, recurring_schedule, condition_once, condition_recurring, relative_event. Conditions may use only whoop/calendar/tasks/travel/canvas/email structured kinds. A one_time schedule needs absolute ISO-8601 UTC `at`; recurring_schedule uses weekday (Monday=0), hour, minute. action.deep_link is one of /, /?tab=calendar, /?tab=tasks, /?tab=apollo. If the message lacks a necessary time, return none. For matching an existing record return match text or exact id. The local time and timezone below are authoritative.""",
     }
     try:
         interpreted = apollo_automation_json(ask_hermes([
@@ -12059,18 +12135,27 @@ def apollo_automation_chat_reply(message, client_context):
         ]))
     except Exception as error:
         print(f"[Apollo Automations] interpretation failed safely: {error}")
-        return None
+        interpreted = {}
     operation = str(interpreted.get("operation") or "none").strip().lower()
+    if operation == "none":
+        fallback = apollo_fallback_automation_intent(message, tz_name, datetime.now(ZoneInfo(tz_name)))
+        if fallback:
+            interpreted = {"operation": "create", "automation": fallback}
+            operation = "create"
     engine = apollo_automation_engine()
     if operation == "none":
         return None
     if operation == "list":
-        active = engine.list(status="active")
-        if not active:
-            return "You don't have any active automations."
-        lines = ["Your active automations:"]
-        for item in active[:12]:
+        automations = engine.list(limit=40)
+        if not automations:
+            return "You don't have any automations yet."
+        lines = ["Your automations:"]
+        for item in automations[:12]:
             suffix = "Watching" if item["type"].startswith("condition") or item["type"] == "relative_event" else item.get("next_run_at") or "Scheduled"
+            if item["status"] == "completed":
+                suffix = "Completed"
+            elif item["status"] == "paused":
+                suffix = "Paused"
             lines.append(f"- {item['title']} — {suffix}")
         return "\n".join(lines)
     if operation == "delete_completed":
@@ -12093,19 +12178,17 @@ def apollo_automation_chat_reply(message, client_context):
         updated = engine.update(item["id"], interpreted.get("changes") or {})
         return f"I updated “{updated['title']}”."
     if operation == "create":
-        automation = interpreted.get("automation")
-        if not isinstance(automation, dict):
-            return "I need a little more detail before I can create that automation."
-        automation["instruction"] = automation.get("instruction") or message
-        automation["timezone"] = tz_name
+        automation = interpreted.get("automation") if isinstance(interpreted.get("automation"), dict) else interpreted
+        if not isinstance(automation, dict) or not automation.get("type"):
+            fallback = apollo_fallback_automation_intent(message, tz_name, datetime.now(ZoneInfo(tz_name)))
+            automation = fallback or {}
+        if not automation:
+            return "I need a little more timing detail before I can create that automation."
         try:
-            created = engine.create(automation)
+            created = apollo_create_automation(automation, message, tz_name, datetime.now(ZoneInfo(tz_name)))
         except ValueError as error:
             return f"I couldn't create that automation: {error}."
-        action = created["action"]
-        if created["type"] in {"condition_once", "condition_recurring", "relative_event"}:
-            return f"I’ll notify you when {created['title'].rstrip('.')}."
-        return f"I’ll notify you: {action['body']}"
+        return apollo_automation_confirmation(created, message)
     return None
 
 
