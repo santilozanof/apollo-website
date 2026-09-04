@@ -36309,6 +36309,31 @@ html[data-theme="light"] #calendarView {
 }
 
 
+.apollo-google-connection {
+    display: inline-flex;
+    align-items: center;
+
+    gap: 12px;
+}
+
+
+.apollo-google-connect {
+    padding: 6px 9px;
+
+    border: 1px solid var(--border);
+    border-radius: 8px;
+
+    color: var(--text);
+    font-size: 11px;
+    text-decoration: none;
+}
+
+
+.apollo-google-connect:hover {
+    background: var(--control-bg);
+}
+
+
 /* ---------- REDUCED MOTION MANUAL ---------- */
 
 html.apollo-reduce-motion *,
@@ -36809,16 +36834,29 @@ html.apollo-reduce-motion *::after {
 
                         </div>
 
-                        <div
-                            class="apollo-connection-status"
-                            id="apolloGoogleStatus"
-                        >
+                        <div class="apollo-google-connection">
 
-                            <span class="apollo-connection-dot"></span>
+                            <div
+                                class="apollo-connection-status"
+                                id="apolloGoogleStatus"
+                            >
 
-                            <span>
-                                Checking…
-                            </span>
+                                <span class="apollo-connection-dot"></span>
+
+                                <span>
+                                    Checking…
+                                </span>
+
+                            </div>
+
+                            <a
+                                class="apollo-google-connect"
+                                id="apolloGoogleConnect"
+                                href="/api/google/connect"
+                                hidden
+                            >
+                                Reconnect
+                            </a>
 
                         </div>
 
@@ -37281,6 +37319,12 @@ html.apollo-reduce-motion *::after {
                 );
 
 
+            const reconnect =
+                document.getElementById(
+                    "apolloGoogleConnect"
+                );
+
+
             element.classList.toggle(
                 "connected",
                 connected
@@ -37297,7 +37341,16 @@ html.apollo-reduce-motion *::after {
                 text.textContent =
                     connected
                     ? "Connected"
-                    : "Not connected";
+                    : (
+                        data.reconnect
+                        ? "Reconnect needed"
+                        : "Unavailable"
+                    );
+            }
+
+
+            if (reconnect) {
+                reconnect.hidden = connected;
             }
 
         }
@@ -37319,6 +37372,17 @@ html.apollo-reduce-motion *::after {
             if (text) {
                 text.textContent =
                     "Unavailable";
+            }
+
+
+            const reconnect =
+                document.getElementById(
+                    "apolloGoogleConnect"
+                );
+
+
+            if (reconnect) {
+                reconnect.hidden = false;
             }
         }
     }

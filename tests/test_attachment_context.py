@@ -1,9 +1,13 @@
 import ast
 import base64
+import io
 import json
 import mimetypes
 import os
 import tempfile
+import types
+import urllib.error
+import urllib.parse
 import unittest
 from pathlib import Path
 
@@ -187,6 +191,177 @@ class AttachmentContextTests(unittest.TestCase):
             self.assertIn("Mexico City to Oaxaca", sent_message)
             self.assertIn("2026-09-12", sent_message)
             self.assertIn("Oaxaca to Monterrey", sent_message)
+
+    def test_real_three_turn_attachment_reference_stays_next_to_current_user(self):
+        """Normal chat retains exact itinerary facts after every follow-up."""
+        facts = (
+            "APOLLO ATTACHMENT FACTS V2\n"
+            "Salida de México: 04 de septiembre.\n"
+            "Llegada a Antibes: 05 de septiembre.\n"
+            "Salida a París: 03 de octubre.\n"
+            "Salida a Lausana: 06 de octubre.\n"
+            "Salida a Milán: 06 de noviembre.\n"
+            "Salida a Florencia: 08 de noviembre.\n"
+            "Salida a Roma: 28 de noviembre.\n"
+            "Salida a México: 01 de diciembre."
+        )
+        reference = load_function(
+            "apollo_attachment_reference_message", {}
+        )
+        prepare = load_function(
+            "_apollo_prepare_hermes_messages",
+            {"base64": base64, "mimetypes": mimetypes, "os": os},
+        )
+
+        history = [
+            {"role": "user", "content": "add these to my calendar"},
+            {"role": "assistant", "content": "What time should I use?"},
+        ]
+
+        for follow_up in (
+            "just add them like at the beginning of the day",
+            "all the dates listed there",
+            "add them",
+        ):
+            messages = history + [
+                reference(facts),
+                {"role": "user", "content": follow_up},
+            ]
+            prepared = prepare(messages)
+            durable = prepared[-2]["content"]
+
+            self.assertIn("04 de septiembre", durable)
+            self.assertIn("Antibes", durable)
+            self.assertIn("03 de octubre", durable)
+            self.assertIn("París", durable)
+            self.assertIn("06 de noviembre", durable)
+            self.assertIn("Milán", durable)
+            self.assertIn("01 de diciembre", durable)
+
+            history.extend([
+                {"role": "user", "content": follow_up},
+                {"role": "assistant", "content": "Acknowledged."},
+            ])
+
+    def test_google_refresh_persists_rotated_refresh_token(self):
+        state = {
+            "google_access_token": "expired",
+            "google_access_token_expires_at": "0",
+            "google_refresh_token": "old-refresh",
+        }
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "access_token": "fresh-access",
+                    "refresh_token": "rotated-refresh",
+                    "expires_in": 3600,
+                }).encode("utf-8")
+
+        fake_urllib = types.SimpleNamespace(
+            parse=urllib.parse,
+            error=types.SimpleNamespace(HTTPError=urllib.error.HTTPError),
+            request=types.SimpleNamespace(
+                Request=lambda *args, **kwargs: (args, kwargs),
+                urlopen=lambda *_args, **_kwargs: Response(),
+            ),
+        )
+        namespace = {
+            "json": json,
+            "time": types.SimpleNamespace(time=lambda: 1000),
+            "urllib": fake_urllib,
+            "GoogleCalendarAuthError": RuntimeError,
+            "app_state_get": lambda key, default=None: state.get(key, default),
+            "app_state_set": lambda key, value: state.__setitem__(key, str(value)),
+            "get_google_oauth_config": lambda: {
+                "client_id": "id",
+                "client_secret": "secret",
+                "token_uri": "https://example.test/token",
+            },
+        }
+        token = load_function("google_get_access_token", namespace)
+
+        self.assertEqual(token(), "fresh-access")
+        self.assertEqual(state["google_access_token"], "fresh-access")
+        self.assertEqual(state["google_refresh_token"], "rotated-refresh")
+
+    def test_google_status_requires_reconnect_when_refresh_is_invalid(self):
+        class AuthError(RuntimeError):
+            pass
+
+        namespace = {
+            "GoogleCalendarAuthError": AuthError,
+            "app_state_get": lambda key, default=None: (
+                "saved-refresh" if key == "google_refresh_token" else default
+            ),
+            "google_get_access_token": lambda: (_ for _ in ()).throw(
+                AuthError("authorization expired")
+            ),
+        }
+        status = load_function("google_calendar_connection_status", namespace)
+
+        self.assertEqual(
+            status(),
+            {
+                "connected": False,
+                "reconnect": True,
+                "error": "authorization expired",
+            },
+        )
+
+    def test_google_calendar_request_retries_once_after_unauthorized(self):
+        calls = []
+        cleared = []
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b'{"items": []}'
+
+        def urlopen(request, **_kwargs):
+            calls.append(request)
+            if len(calls) == 1:
+                raise urllib.error.HTTPError(
+                    "https://example.test/calendar",
+                    401,
+                    "Unauthorized",
+                    {},
+                    io.BytesIO(b'{"error":"invalidCredentials"}'),
+                )
+            return Response()
+
+        fake_urllib = types.SimpleNamespace(
+            error=types.SimpleNamespace(HTTPError=urllib.error.HTTPError),
+            request=types.SimpleNamespace(urlopen=urlopen),
+        )
+        namespace = {
+            "urllib": fake_urllib,
+            "GoogleCalendarAuthError": RuntimeError,
+            "google_get_access_token": lambda: (
+                "stale" if not cleared else "fresh"
+            ),
+            "google_clear_access_token": lambda: cleared.append(True),
+            "google_clear_oauth_tokens": lambda: None,
+        }
+        request_raw = load_function("google_calendar_request_raw", namespace)
+
+        self.assertEqual(
+            request_raw(lambda token: token, "request"),
+            b'{"items": []}',
+        )
+        self.assertEqual(calls, ["stale", "fresh"])
+        self.assertEqual(cleared, [True])
 
 
 if __name__ == "__main__":
