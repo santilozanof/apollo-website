@@ -63,7 +63,11 @@ jobs:
 
           # Install the server-side Web Push dependency before the backend
           # starts. VAPID keys remain in the server environment, never here.
-          python3 -m pip install --disable-pip-version-check -r requirements.txt
+          if ! python3 -m pip --version >/dev/null 2>&1; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip
+          fi
+          python3 -m pip install --break-system-packages --disable-pip-version-check -r requirements.txt
 
           systemctl restart apollo-backend apollo-web
           systemctl is-active --quiet apollo-backend
