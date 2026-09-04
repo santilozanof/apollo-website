@@ -105,6 +105,16 @@ def init_db():
     """)
 
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS message_attachment_contexts (
+            message_id INTEGER PRIMARY KEY,
+            chat_id INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(message_id) REFERENCES messages(id)
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS app_state (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -1037,6 +1047,61 @@ def _apollo_prepare_hermes_messages(messages):
         prepared.append(item)
 
     return prepared
+
+
+def apollo_extract_attachment_context(attachments):
+    """Create a compact, durable factual record for an uploaded turn."""
+    if not attachments:
+        return ""
+
+    files = []
+    for attachment in attachments:
+        path = str(attachment["file_path"] or "").strip()
+        if not path:
+            continue
+        files.append(
+            "- " + str(attachment["filename"] or "attachment")
+            + " | " + str(attachment["mime_type"] or "")
+            + " | local path: " + path
+        )
+
+    if not files:
+        return ""
+
+    result = ask_hermes([
+        {
+            "role": "system",
+            "content": (
+                "You create durable attachment memory for a conversation. "
+                "Read every attached image/file directly. Return concise plain "
+                "text facts only: every visible date, destination, person, "
+                "identifier, schedule detail, and any explicitly unknown field. "
+                "Do not invent facts or address the user. This note will be used "
+                "for later references such as 'those dates' or 'all of them'."
+            )
+        },
+        {
+            "role": "user",
+            "content": "ATTACHMENTS\n" + "\n".join(files)
+        }
+    ])
+
+    return str(result or "").strip()[:12000]
+
+
+def apollo_save_attachment_context(chat_id, message_id, content):
+    content = str(content or "").strip()
+    if not content or not message_id:
+        return
+
+    conn = db()
+    conn.execute("""
+        INSERT INTO message_attachment_contexts (message_id, chat_id, content)
+        VALUES (?, ?, ?)
+        ON CONFLICT(message_id) DO UPDATE SET content = excluded.content
+    """, (message_id, chat_id, content))
+    conn.commit()
+    conn.close()
 
 
 
@@ -11127,8 +11192,17 @@ def apollo_send_direct_sse(
 def apollo_calendar_chat(
     chat_id,
     user_message,
-    client_context
+    client_context,
+    attachment_context=""
 ):
+    attachment_context = str(attachment_context or "").strip()
+    calendar_message = user_message
+
+    if attachment_context:
+        calendar_message += (
+            "\n\nPERSISTED ATTACHMENT FACTS FOR THIS FOLLOW-UP:\n"
+            + attachment_context
+        )
     last_calendar_event = (
         calendar_last_event_get(
             chat_id
@@ -11283,12 +11357,22 @@ def apollo_calendar_chat(
                 last_calendar_event
             )
         )
+        and not (
+            attachment_context
+            and any(
+                term in str(user_message).lower()
+                for term in (
+                    "add", "schedule", "calendar", "them", "those",
+                    "all of", "the dates", "this", "that"
+                )
+            )
+        )
     ):
         return None
 
 
     interpreted = calendar_interpret_message(
-        user_message,
+        calendar_message,
         client_context,
         last_calendar_event=
             last_calendar_event
@@ -17016,6 +17100,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
             # Save user message.
 
+            user_message_id = None
+
             # APOLLO_RETRY_MESSAGE
             # Retry keeps the existing user message and removes
             # the previous assistant response.
@@ -17142,6 +17228,43 @@ class ApolloHandler(BaseHTTPRequestHandler):
             conn.commit()
             conn.close()
 
+            # Read an attachment once when it arrives and persist a compact
+            # factual note. Later turns receive this note, not repeated image
+            # base64, while the original file remains stored and resolvable.
+            if current_attachments:
+                try:
+                    apollo_save_attachment_context(
+                        chat_id,
+                        user_message_id,
+                        apollo_extract_attachment_context(
+                            current_attachments
+                        )
+                    )
+                except Exception as error:
+                    print(
+                        "[Apollo Attachment Context] "
+                        f"Could not persist context: {error}"
+                    )
+
+            conn = db()
+            context_rows = conn.execute("""
+                SELECT message_id, content
+                FROM message_attachment_contexts
+                WHERE chat_id = ?
+                ORDER BY message_id ASC
+            """, (chat_id,)).fetchall()
+            conn.close()
+
+            attachment_context_by_message = {
+                row["message_id"]: row["content"]
+                for row in context_rows
+            }
+
+            recent_attachment_context = "\n\n".join(
+                str(row["content"] or "")
+                for row in context_rows[-3:]
+            )
+
 
             # APOLLO_CONTEXT_WINDOW_V1
             # Keep full chat history in the database/UI, but only send a
@@ -17227,6 +17350,19 @@ class ApolloHandler(BaseHTTPRequestHandler):
                         "\n".join(
                             attachment_context
                         )
+                    )
+
+                persisted_attachment_context = (
+                    attachment_context_by_message.get(
+                        row["id"],
+                        ""
+                    )
+                )
+
+                if persisted_attachment_context:
+                    content += (
+                        "\n\nPERSISTED ATTACHMENT FACTS:\n"
+                        + persisted_attachment_context
                     )
 
 
@@ -18020,7 +18156,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     apollo_calendar_chat(
                         chat_id,
                         user_message,
-                        client_context
+                        client_context,
+                        attachment_context=
+                            recent_attachment_context
                     )
                 )
 
