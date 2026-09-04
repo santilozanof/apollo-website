@@ -1616,9 +1616,8 @@
         height: 0 !important;
     }
 
-    /* A legible three-to-four-day viewport is more useful on
-       iPhone than the former two-column crop. Horizontal swipe
-       still exposes the complete seven-day week. */
+    /* The calendar renderer switches this grid to one focused day
+       on phones; the desktop week remains unchanged. */
     #calendarView .apollo-week-head {
         min-width: 614px !important;
 
@@ -1645,6 +1644,38 @@
 
     #calendarView .apollo-week-time-label {
         right: 7px !important;
+    }
+}
+
+/* Calendar uses a focused day column on phones; desktop keeps the week grid. */
+@media (max-width: 760px) {
+    #calendarView .apollo-week-shell {
+        overflow-x: hidden !important;
+    }
+
+    #calendarView .apollo-week-head {
+        min-width: 0 !important;
+        grid-template-columns: 66px minmax(0, 1fr) !important;
+    }
+
+    #calendarView .apollo-week-day-head.apollo-week-day-hidden,
+    #calendarView .apollo-week-column.apollo-week-day-hidden {
+        display: none !important;
+    }
+
+    #calendarView .apollo-week-day-head.apollo-week-day-visible {
+        display: flex !important;
+    }
+
+    #calendarView .apollo-week-scroll-content {
+        width: 100% !important;
+        min-width: 0 !important;
+        grid-template-columns: 66px minmax(0, 1fr) !important;
+    }
+
+    #calendarView .apollo-week-grid {
+        min-width: 0 !important;
+        grid-template-columns: minmax(0, 1fr) !important;
     }
 }
 

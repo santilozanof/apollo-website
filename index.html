@@ -28269,6 +28269,7 @@ requestAnimationFrame(() => {
     let weekStart = startOfWeek(new Date());
     let nowTimer = null;
     let firstCalendarOpen = true;
+    let mobileSelectedDateKey = null;
 
     function localDateKey(date) {
         const y = date.getFullYear();
@@ -28298,6 +28299,52 @@ requestAnimationFrame(() => {
             result.getDate() + amount
         );
         return result;
+    }
+
+    function mobileCalendarEnabled() {
+        return typeof window.matchMedia === "function"
+            && window.matchMedia(
+                "(max-width: 760px)"
+            ).matches;
+    }
+
+    function parseLocalDateKey(value) {
+        const match = String(value || "").match(
+            /^(\d{4})-(\d{2})-(\d{2})$/
+        );
+
+        if (!match) return null;
+
+        return new Date(
+            Number(match[1]),
+            Number(match[2]) - 1,
+            Number(match[3]),
+            0,
+            0,
+            0
+        );
+    }
+
+    function mobileCalendarDate() {
+        const stored = parseLocalDateKey(
+            mobileSelectedDateKey
+        );
+
+        if (stored && !Number.isNaN(stored.getTime())) {
+            return stored;
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        mobileSelectedDateKey = localDateKey(today);
+        return today;
+    }
+
+    function setMobileCalendarDate(date) {
+        const next = new Date(date);
+        next.setHours(0, 0, 0, 0);
+        mobileSelectedDateKey = localDateKey(next);
+        weekStart = startOfWeek(next);
     }
 
     function sameDay(a, b) {
@@ -28489,10 +28536,20 @@ requestAnimationFrame(() => {
                 const previousScroll =
                     body ? body.scrollTop : 0;
 
-                weekStart = addDays(
-                    weekStart,
-                    -7
-                );
+                if (mobileCalendarEnabled()) {
+                    setMobileCalendarDate(
+                        addDays(
+                            mobileCalendarDate(),
+                            -1
+                        )
+                    );
+                    firstCalendarOpen = false;
+                } else {
+                    weekStart = addDays(
+                        weekStart,
+                        -7
+                    );
+                }
 
                 await loadWeek();
 
@@ -28519,10 +28576,20 @@ requestAnimationFrame(() => {
                 const previousScroll =
                     body ? body.scrollTop : 0;
 
-                weekStart = addDays(
-                    weekStart,
-                    7
-                );
+                if (mobileCalendarEnabled()) {
+                    setMobileCalendarDate(
+                        addDays(
+                            mobileCalendarDate(),
+                            1
+                        )
+                    );
+                    firstCalendarOpen = false;
+                } else {
+                    weekStart = addDays(
+                        weekStart,
+                        7
+                    );
+                }
 
                 await loadWeek();
 
@@ -28540,9 +28607,15 @@ requestAnimationFrame(() => {
         document
             .getElementById("apolloWeekToday")
             .addEventListener("click", () => {
-                weekStart = startOfWeek(
-                    new Date()
-                );
+                if (mobileCalendarEnabled()) {
+                    setMobileCalendarDate(
+                        new Date()
+                    );
+                } else {
+                    weekStart = startOfWeek(
+                        new Date()
+                    );
+                }
 
                 firstCalendarOpen = true;
                 loadWeek();
@@ -28566,6 +28639,12 @@ requestAnimationFrame(() => {
         head.appendChild(spacer);
 
         const today = new Date();
+        const mobileDate = mobileCalendarEnabled()
+            ? mobileCalendarDate()
+            : null;
+        const mobileDateKey = mobileDate
+            ? localDateKey(mobileDate)
+            : "";
 
         for (let i = 0; i < 7; i++) {
             const date = addDays(
@@ -28578,6 +28657,17 @@ requestAnimationFrame(() => {
 
             item.className =
                 "apollo-week-day-head";
+
+            const dateKey = localDateKey(date);
+            item.dataset.date = dateKey;
+
+            if (mobileDateKey) {
+                item.classList.add(
+                    dateKey === mobileDateKey
+                        ? "apollo-week-day-visible"
+                        : "apollo-week-day-hidden"
+                );
+            }
 
             if (sameDay(date, today)) {
                 item.classList.add(
@@ -28639,10 +28729,41 @@ requestAnimationFrame(() => {
         const year =
             weekEnd.getFullYear();
 
-        monthLabel.textContent =
-            startMonth === endMonth
-            ? `${startMonth} ${year}`
-            : `${startMonth} – ${endMonth} ${year}`;
+        monthLabel.textContent = mobileDate
+            ? new Intl.DateTimeFormat(
+                undefined,
+                {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric"
+                }
+            ).format(mobileDate)
+            : (
+                startMonth === endMonth
+                    ? `${startMonth} ${year}`
+                    : `${startMonth} – ${endMonth} ${year}`
+            );
+
+        const previous =
+            document.getElementById("apolloWeekPrev");
+        const next =
+            document.getElementById("apolloWeekNext");
+
+        if (previous && next) {
+            previous.setAttribute(
+                "aria-label",
+                mobileDateKey
+                    ? "Previous day"
+                    : "Previous week"
+            );
+            next.setAttribute(
+                "aria-label",
+                mobileDateKey
+                    ? "Next day"
+                    : "Next week"
+            );
+        }
     }
 
     function renderWeek(events) {
@@ -28711,6 +28832,9 @@ requestAnimationFrame(() => {
             "apollo-week-grid";
 
         const columns = [];
+        const mobileDateKey = mobileCalendarEnabled()
+            ? localDateKey(mobileCalendarDate())
+            : "";
 
         /*
          * Explicit hour lines instead of a CSS repeating gradient.
@@ -28749,6 +28873,14 @@ requestAnimationFrame(() => {
 
             column.dataset.date =
                 localDateKey(date);
+
+            if (mobileDateKey) {
+                column.classList.add(
+                    column.dataset.date === mobileDateKey
+                        ? "apollo-week-day-visible"
+                        : "apollo-week-day-hidden"
+                );
+            }
 
             if (sameDay(date, new Date())) {
                 column.classList.add(
@@ -30541,10 +30673,16 @@ requestAnimationFrame(() => {
                 );
             }
 
-            weekStart =
-                startOfWeek(
+            if (mobileCalendarEnabled()) {
+                setMobileCalendarDate(
                     destination
                 );
+            } else {
+                weekStart =
+                    startOfWeek(
+                        destination
+                    );
+            }
 
             /*
              * Do not run the initial auto-scroll-to-now
