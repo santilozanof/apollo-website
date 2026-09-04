@@ -61,6 +61,10 @@ jobs:
           fi
           git pull --ff-only origin main
 
+          # Install the server-side Web Push dependency before the backend
+          # starts. VAPID keys remain in the server environment, never here.
+          python3 -m pip install --disable-pip-version-check -r requirements.txt
+
           systemctl restart apollo-backend apollo-web
           systemctl is-active --quiet apollo-backend
           systemctl is-active --quiet apollo-web

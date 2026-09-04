@@ -3929,3 +3929,246 @@ and (
         display: none !important;
     }
 }
+
+/* =========================================================
+   APOLLO NOTIFICATIONS + AUTOMATIONS
+   ========================================================= */
+
+.apollo-notification-actions {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.apollo-notification-button,
+.apollo-notification-text-button,
+.apollo-notification-category,
+.apollo-automation-row button {
+    border: 0;
+    font: inherit;
+    cursor: pointer;
+}
+
+.apollo-notification-button {
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: var(--text);
+    color: var(--bg);
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.apollo-notification-button:disabled {
+    cursor: not-allowed;
+    opacity: .45;
+}
+
+.apollo-notification-category-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-top: 1px solid var(--border);
+}
+
+.apollo-notification-category {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 47px;
+    padding: 0 18px;
+    background: transparent;
+    color: var(--muted);
+    text-align: left;
+    font-size: 12px;
+}
+
+.apollo-notification-category:nth-child(odd) {
+    border-right: 1px solid var(--border);
+}
+
+.apollo-notification-category:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+}
+
+.apollo-notification-category.is-enabled {
+    color: var(--text);
+}
+
+.apollo-notification-category small {
+    color: var(--dim);
+    font-size: 10px;
+}
+
+.apollo-automation-create {
+    display: flex;
+    gap: 8px;
+    padding: 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.apollo-automation-create input {
+    width: 100%;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text);
+    padding: 0 11px;
+    font: inherit;
+    font-size: 12px;
+}
+
+.apollo-automation-feedback {
+    min-height: 0;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.45;
+    padding: 0 14px;
+}
+
+.apollo-automation-feedback:not(:empty) {
+    padding-top: 10px;
+}
+
+.apollo-automation-group h3 {
+    margin: 0;
+    padding: 16px 14px 8px;
+    color: var(--dim);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: .15em;
+    text-transform: uppercase;
+}
+
+.apollo-automation-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 56px;
+    padding: 8px 14px;
+    border-top: 1px solid var(--border);
+}
+
+.apollo-automation-row div,
+.apollo-notification-history-row span {
+    min-width: 0;
+}
+
+.apollo-automation-row strong,
+.apollo-notification-history-row strong {
+    display: block;
+    overflow: hidden;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.apollo-automation-row span,
+.apollo-notification-history-row small {
+    display: block;
+    overflow: hidden;
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.apollo-automation-row button {
+    background: transparent;
+    color: var(--muted);
+    font-size: 10px;
+}
+
+.apollo-automation-row button:last-child {
+    font-size: 19px;
+    line-height: 1;
+}
+
+.apollo-automation-empty {
+    margin: 0;
+    padding: 10px 14px 15px;
+    color: var(--dim);
+    font-size: 11px;
+}
+
+.apollo-notification-history-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 48px;
+    padding: 0 14px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.apollo-notification-text-button {
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.apollo-notification-history-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    width: 100%;
+    padding: 11px 14px;
+    border: 0;
+    border-top: 1px solid var(--border);
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.apollo-notification-history-row.is-unread strong::before {
+    content: "";
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin: 0 6px 1px 0;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.apollo-notification-history-row time {
+    color: var(--dim);
+    font-size: 9px;
+    white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+    .apollo-notification-category-list {
+        grid-template-columns: 1fr;
+    }
+
+    .apollo-notification-category:nth-child(odd) {
+        border-right: 0;
+    }
+
+    .apollo-notification-category:nth-child(n + 2) {
+        border-top: 1px solid var(--border);
+    }
+
+    .apollo-notification-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .apollo-notification-button {
+        min-height: 38px;
+    }
+
+    .apollo-automation-create {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .apollo-automation-create input {
+        min-height: 42px;
+    }
+}

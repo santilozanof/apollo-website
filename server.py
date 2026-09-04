@@ -10,6 +10,11 @@ import secrets
 import time
 import mimetypes
 import shutil
+from automation_engine import (
+    AutomationEngine,
+    init_automation_schema,
+    valid_deep_link,
+)
 
 from email.parser import BytesParser
 from email.policy import default as email_policy
@@ -50,6 +55,11 @@ HERMES_GOOGLE_TOKEN_FILE = (
 
 SPOTIFY_PYTHON = "/usr/local/lib/hermes-agent/venv/bin/python"
 SPOTIFY_TOOL = "/root/spotify_tool.py"
+
+# Created after all Apollo data adapters are available.  The worker remains
+# part of this process so systemd only needs to keep the existing backend
+# service alive; individual automations never become OS cron entries.
+AUTOMATION_ENGINE = None
 
 
 def get_api_key():
@@ -639,6 +649,8 @@ def init_db():
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    init_automation_schema(conn)
 
     conn.commit()
     conn.close()
@@ -11779,6 +11791,324 @@ def get_tasks():
     ]
 
 
+# =========================================================
+# APOLLO NOTIFICATIONS + AUTOMATIONS
+# =========================================================
+
+def apollo_private_env_value(key):
+    """Read deployment secrets without placing them in frontend assets."""
+    value = os.environ.get(key)
+    if value:
+        return value.strip()
+    env_path = Path("/root/.hermes/.env")
+    try:
+        for line in env_path.read_text().splitlines():
+            if line.startswith(key + "="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return ""
+
+
+def apollo_vapid_config():
+    public_key = apollo_private_env_value("APOLLO_VAPID_PUBLIC_KEY")
+    private_key = apollo_private_env_value("APOLLO_VAPID_PRIVATE_KEY")
+    subject = apollo_private_env_value("APOLLO_VAPID_SUBJECT") or "mailto:apollo@localhost"
+    return {
+        "public_key": public_key,
+        "private_key": private_key,
+        "subject": subject,
+    }
+
+
+def apollo_send_web_push(notification):
+    """Deliver one privacy-minimal payload to every currently subscribed device."""
+    config = apollo_vapid_config()
+    if not config["public_key"] or not config["private_key"]:
+        return "not_configured"
+
+    try:
+        from pywebpush import webpush, WebPushException
+    except ImportError:
+        return "unavailable"
+
+    conn = db()
+    subscriptions = conn.execute("""
+        SELECT id, endpoint, p256dh, auth
+        FROM push_subscriptions
+    """).fetchall()
+    conn.close()
+
+    if not subscriptions:
+        return "no_subscription"
+
+    payload = json.dumps({
+        "title": str(notification.get("title", "Apollo"))[:240],
+        "body": str(notification.get("body", ""))[:500],
+        "url": valid_deep_link(notification.get("deep_link")),
+        "notification_id": notification.get("id"),
+        "category": notification.get("category"),
+    }, ensure_ascii=False)
+
+    delivered = 0
+    conn = db()
+
+    for subscription in subscriptions:
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": subscription["endpoint"],
+                    "keys": {
+                        "p256dh": subscription["p256dh"],
+                        "auth": subscription["auth"],
+                    },
+                },
+                data=payload,
+                vapid_private_key=config["private_key"],
+                vapid_claims={"sub": config["subject"]},
+                ttl=60 * 60,
+            )
+            delivered += 1
+            conn.execute("""
+                UPDATE push_subscriptions
+                SET last_success_at = ?, last_error = NULL
+                WHERE id = ?
+            """, (datetime.now(timezone.utc).isoformat(), subscription["id"]))
+        except WebPushException as error:
+            response = getattr(error, "response", None)
+            status = getattr(response, "status_code", None)
+            if status in {404, 410}:
+                conn.execute("DELETE FROM push_subscriptions WHERE id = ?", (subscription["id"],))
+            else:
+                conn.execute("UPDATE push_subscriptions SET last_error = ? WHERE id = ?", (str(error)[:1000], subscription["id"]))
+        except Exception as error:
+            conn.execute("UPDATE push_subscriptions SET last_error = ? WHERE id = ?", (str(error)[:1000], subscription["id"]))
+
+    conn.commit()
+    conn.close()
+    return "sent" if delivered else "failed"
+
+
+def apollo_parse_event_datetime(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=ZoneInfo(app_state_get("time_zone", "UTC")))
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def apollo_automation_condition_provider(source, condition, now):
+    """Structured adapters only; user text can never become executable code."""
+    if source == "whoop":
+        payload = whoop_card_payload()
+        summary = payload.get("summary") or {}
+        return {
+            "recovery": (summary.get("recovery") or {}).get("score"),
+            "strain": (summary.get("cycle") or {}).get("strain"),
+        }
+
+    if source in {"calendar", "travel"}:
+        events = google_calendar_events(days=3)
+        phrase = str(condition.get("query") or condition.get("match") or "").strip().lower()
+        minutes_before = int(condition.get("minutes_before") or 30)
+        for event in events:
+            title = str(event.get("summary") or "")
+            start = apollo_parse_event_datetime((event.get("start") or {}).get("dateTime"))
+            if not start:
+                continue
+            is_travel = any(word in title.lower() for word in ("flight", "airport", "boarding", "departure"))
+            if source == "travel" and not is_travel:
+                continue
+            if phrase and phrase not in title.lower():
+                continue
+            seconds = (start - now).total_seconds()
+            if 0 <= seconds <= minutes_before * 60:
+                return {
+                    "matched": True,
+                    "detail": {"event_id": event.get("id"), "event": title, "starts_at": start.isoformat()},
+                }
+        return {"matched": False}
+
+    if source == "tasks":
+        kind = condition.get("kind")
+        minutes = int(condition.get("minutes_before") or 60)
+        query = str(condition.get("query") or "").lower().strip()
+        for task in get_tasks():
+            if query and query not in str(task.get("title") or "").lower():
+                continue
+            due = apollo_parse_event_datetime(task.get("due_at"))
+            if kind == "completed" and task.get("completed"):
+                return {"matched": True, "detail": {"task_id": task["id"], "task": task["title"]}}
+            if not due or task.get("completed"):
+                continue
+            seconds = (due - now).total_seconds()
+            if kind == "overdue" and seconds < 0:
+                return {"matched": True, "detail": {"task_id": task["id"], "task": task["title"]}}
+            if kind == "due_soon" and 0 <= seconds <= minutes * 60:
+                return {"matched": True, "detail": {"task_id": task["id"], "task": task["title"], "due_at": due.isoformat()}}
+        return {"matched": False}
+
+    # Canvas and email are intentionally registered condition sources, but
+    # stay unavailable until their respective integrations are connected.
+    raise RuntimeError(f"{source.title()} is not connected")
+
+
+def apollo_default_notification_rules(now, preferences):
+    """Useful, opt-in notifications from existing Apollo data sources."""
+    notices = []
+    if preferences.get("tasks"):
+        for task in get_tasks():
+            if task.get("completed"):
+                continue
+            due = apollo_parse_event_datetime(task.get("due_at"))
+            if due and 0 <= (due - now).total_seconds() <= 30 * 60:
+                notices.append({"title": "Task due soon", "body": str(task.get("title") or "A task is due soon"), "category": "tasks", "deep_link": "/?tab=tasks", "dedupe_key": f"task:{task['id']}:{due.isoformat()}", "detail": {"task_id": task["id"], "due_at": due.isoformat()}})
+
+    if preferences.get("debrief"):
+        try:
+            local_date = now.astimezone(ZoneInfo(apollo_automation_timezone())).date().isoformat()
+        except Exception:
+            local_date = now.date().isoformat()
+        conn = db()
+        row = conn.execute("SELECT id FROM daily_debriefs WHERE local_date = ? LIMIT 1", (local_date,)).fetchone()
+        conn.close()
+        if row:
+            notices.append({"title": "Your Daily Debrief is ready", "body": "Open Apollo to review today’s notes and priorities.", "category": "debrief", "deep_link": "/?tab=home", "dedupe_key": f"debrief:{local_date}", "detail": {"local_date": local_date}})
+
+    if preferences.get("whoop"):
+        try:
+            local_now = now.astimezone(ZoneInfo(apollo_automation_timezone()))
+            if 7 <= local_now.hour < 12:
+                payload = whoop_card_payload()
+                recovery = ((payload.get("summary") or {}).get("recovery") or {}).get("score")
+                if recovery is not None:
+                    notices.append({"title": "Your WHOOP recovery is ready", "body": f"Recovery: {recovery}%.", "category": "whoop", "deep_link": "/?tab=home", "dedupe_key": f"whoop:{local_now.date().isoformat()}", "detail": {"recovery": recovery}})
+        except Exception as error:
+            print(f"[Apollo Automations] WHOOP default notification unavailable: {error}")
+
+    if preferences.get("calendar") or preferences.get("travel"):
+        try:
+            for event in google_calendar_events(days=3):
+                title = str(event.get("summary") or "Upcoming event")
+                start = apollo_parse_event_datetime((event.get("start") or {}).get("dateTime"))
+                if not start:
+                    continue
+                seconds = (start - now).total_seconds()
+                event_id = str(event.get("id") or f"{title}:{start.isoformat()}")
+                is_travel = any(word in title.lower() for word in ("flight", "airport", "boarding", "departure"))
+                if preferences.get("calendar") and 0 <= seconds <= 30 * 60:
+                    notices.append({"title": "Upcoming calendar event", "body": f"{title} starts in about 30 minutes.", "category": "calendar", "deep_link": "/?tab=calendar", "dedupe_key": f"calendar:{event_id}:30m", "detail": {"event_id": event_id, "starts_at": start.isoformat()}})
+                if preferences.get("travel") and is_travel and 0 <= seconds <= 2 * 60 * 60:
+                    notices.append({"title": "Travel reminder", "body": f"{title} is coming up. Check your travel details.", "category": "travel", "deep_link": "/?tab=calendar", "dedupe_key": f"travel:{event_id}:2h", "detail": {"event_id": event_id, "starts_at": start.isoformat()}})
+        except Exception as error:
+            print(f"[Apollo Automations] Calendar default notification unavailable: {error}")
+    return notices
+
+
+def apollo_automation_timezone():
+    return app_state_get("time_zone", "UTC") or "UTC"
+
+
+def apollo_automation_engine():
+    if AUTOMATION_ENGINE is None:
+        raise RuntimeError("Automation service is starting")
+    return AUTOMATION_ENGINE
+
+
+def apollo_automation_json(text):
+    value = str(text or "").strip()
+    if value.startswith("```"):
+        value = "\n".join(value.splitlines()[1:])
+        if value.rstrip().endswith("```"):
+            value = value.rstrip()[:-3]
+    parsed = json.loads(value.strip())
+    if not isinstance(parsed, dict):
+        raise ValueError("Automation interpretation was not an object")
+    return parsed
+
+
+def apollo_automation_candidate(message):
+    lower = str(message or "").lower()
+    markers = ("remind", "reminder", "notify", "notification", "automation", "automations", "tell me when", "what are you reminding", "stop reminding", "cancel the")
+    return any(marker in lower for marker in markers)
+
+
+def apollo_automation_chat_reply(message, client_context):
+    """Use Hermes for interpretation, then validate every structured field locally."""
+    if not apollo_automation_candidate(message):
+        return None
+    tz_name = str((client_context or {}).get("time_zone") or apollo_automation_timezone()).strip()
+    now = datetime.now(ZoneInfo(tz_name)).isoformat()
+    existing = [
+        {"id": item["id"], "title": item["title"], "instruction": item["instruction"], "status": item["status"]}
+        for item in apollo_automation_engine().list(limit=40)
+    ]
+    prompt = {
+        "role": "system",
+        "content": """You are Apollo's automation intent interpreter. Return JSON only, never prose. Choose one operation: create, list, pause, delete, update, delete_completed, none. Do not produce cron syntax or executable code. For create, return a validated-looking automation object using only these types: one_time, recurring_schedule, condition_once, condition_recurring, relative_event. Conditions may use only whoop/calendar/tasks/travel/canvas/email structured kinds. For a one_time schedule use an absolute ISO-8601 UTC `at`; for recurring_schedule use weekday (Monday=0), hour, minute. Make action.title/body concise and action.deep_link one of /, /?tab=calendar, /?tab=tasks, /?tab=apollo. If the message lacks a necessary time, use operation none. For matching an existing record return match text or exact id. The local time and timezone below are authoritative.""",
+    }
+    try:
+        interpreted = apollo_automation_json(ask_hermes([
+            prompt,
+            {"role": "user", "content": json.dumps({"message": message, "local_now": now, "timezone": tz_name, "existing": existing}, ensure_ascii=False)},
+        ]))
+    except Exception as error:
+        print(f"[Apollo Automations] interpretation failed safely: {error}")
+        return None
+    operation = str(interpreted.get("operation") or "none").strip().lower()
+    engine = apollo_automation_engine()
+    if operation == "none":
+        return None
+    if operation == "list":
+        active = engine.list(status="active")
+        if not active:
+            return "You don't have any active automations."
+        lines = ["Your active automations:"]
+        for item in active[:12]:
+            suffix = "Watching" if item["type"].startswith("condition") or item["type"] == "relative_event" else item.get("next_run_at") or "Scheduled"
+            lines.append(f"- {item['title']} — {suffix}")
+        return "\n".join(lines)
+    if operation == "delete_completed":
+        for item in engine.list(status="completed", limit=200):
+            engine.delete(item["id"])
+        return "I cleared your completed automations."
+    if operation in {"pause", "delete", "update"}:
+        requested_id = str(interpreted.get("id") or "").strip()
+        match = str(interpreted.get("match") or "").strip().lower()
+        candidates = [item for item in engine.list(limit=100) if item["id"] == requested_id or (match and (match in item["title"].lower() or match in item["instruction"].lower()))]
+        if len(candidates) != 1:
+            return "I couldn't identify one automation to change. Please name it more specifically."
+        item = candidates[0]
+        if operation == "pause":
+            engine.set_status(item["id"], "paused")
+            return f"I paused “{item['title']}”."
+        if operation == "delete":
+            engine.delete(item["id"])
+            return f"I deleted “{item['title']}”."
+        updated = engine.update(item["id"], interpreted.get("changes") or {})
+        return f"I updated “{updated['title']}”."
+    if operation == "create":
+        automation = interpreted.get("automation")
+        if not isinstance(automation, dict):
+            return "I need a little more detail before I can create that automation."
+        automation["instruction"] = automation.get("instruction") or message
+        automation["timezone"] = tz_name
+        try:
+            created = engine.create(automation)
+        except ValueError as error:
+            return f"I couldn't create that automation: {error}."
+        action = created["action"]
+        if created["type"] in {"condition_once", "condition_recurring", "relative_event"}:
+            return f"I’ll notify you when {created['title'].rstrip('.')}."
+        return f"I’ll notify you: {action['body']}"
+    return None
+
+
 def get_task(task_id):
 
     try:
@@ -14548,6 +14878,39 @@ class ApolloHandler(BaseHTTPRequestHandler):
         route = parsed_url.path
 
         # ─────────────────────────────
+        # NOTIFICATIONS + AUTOMATIONS
+        # ─────────────────────────────
+
+        if route == "/api/notifications/status":
+            engine = apollo_automation_engine()
+            config = apollo_vapid_config()
+            conn = db()
+            count = conn.execute("SELECT COUNT(*) AS count FROM push_subscriptions").fetchone()["count"]
+            conn.close()
+            json_response(self, {
+                "preferences": engine.preferences(),
+                "vapid_public_key": config["public_key"],
+                "push_configured": bool(config["public_key"] and config["private_key"]),
+                "subscription_count": count,
+            })
+            return
+
+        if route == "/api/notifications":
+            query = urllib.parse.parse_qs(parsed_url.query)
+            try:
+                limit = int(query.get("limit", ["50"])[0])
+            except ValueError:
+                limit = 50
+            json_response(self, {"notifications": apollo_automation_engine().notification_history(limit)})
+            return
+
+        if route == "/api/automations":
+            query = urllib.parse.parse_qs(parsed_url.query)
+            status = query.get("status", [None])[0]
+            json_response(self, {"automations": apollo_automation_engine().list(status=status)})
+            return
+
+        # ─────────────────────────────
         # TASKS
         # ─────────────────────────────
 
@@ -15763,6 +16126,67 @@ class ApolloHandler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self):
+
+        automation_route = urllib.parse.urlparse(self.path).path
+        if automation_route.startswith("/notifications/") or automation_route.startswith("/automations"):
+            if not automation_route.startswith("/api/"):
+                automation_route = "/api" + automation_route
+
+        if automation_route.startswith("/api/notifications/") or automation_route.startswith("/api/automations"):
+            try:
+                automation_data = read_json(self)
+            except Exception:
+                json_response(self, {"error": "Invalid JSON"}, 400)
+                return
+            engine = apollo_automation_engine()
+            try:
+                if automation_route == "/api/notifications/subscribe":
+                    json_response(self, engine.add_subscription(automation_data.get("subscription"), self.headers.get("User-Agent", "")), 201)
+                    return
+                if automation_route == "/api/notifications/unsubscribe":
+                    json_response(self, engine.remove_subscription(automation_data.get("endpoint")))
+                    return
+                if automation_route == "/api/notifications/preferences":
+                    json_response(self, {"preferences": engine.update_preferences(automation_data.get("preferences") or {})})
+                    return
+                if automation_route == "/api/notifications/read":
+                    json_response(self, engine.mark_notification_read(str(automation_data.get("id") or "")))
+                    return
+                if automation_route == "/api/notifications/clear":
+                    json_response(self, engine.clear_notifications())
+                    return
+                if automation_route == "/api/automations/create":
+                    json_response(self, {"automation": engine.create(automation_data.get("automation") or {})}, 201)
+                    return
+                if automation_route == "/api/automations/interpret":
+                    reply = apollo_automation_chat_reply(automation_data.get("instruction", ""), automation_data.get("client_context") or {})
+                    json_response(self, {"reply": reply or "I couldn't turn that into an automation yet."})
+                    return
+                if automation_route.startswith("/api/automations/"):
+                    parts = automation_route.strip("/").split("/")
+                    if len(parts) != 4:
+                        raise ValueError("Invalid automation route")
+                    automation_id, action = parts[2], parts[3]
+                    if action == "pause":
+                        json_response(self, {"automation": engine.set_status(automation_id, "paused")})
+                        return
+                    if action == "resume":
+                        json_response(self, {"automation": engine.set_status(automation_id, "active")})
+                        return
+                    if action == "delete":
+                        json_response(self, engine.delete(automation_id))
+                        return
+                    if action == "update":
+                        json_response(self, {"automation": engine.update(automation_id, automation_data.get("changes") or {})})
+                        return
+                raise ValueError("Unknown automation route")
+            except ValueError as error:
+                json_response(self, {"error": str(error)}, 400)
+                return
+            except Exception as error:
+                print(f"[Apollo Automations] API error: {error}")
+                json_response(self, {"error": "Automation request could not be completed"}, 500)
+                return
 
         # =====================================================
         # APOLLO STUDIO WRITE ROUTES V1
@@ -18431,6 +18855,29 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
 
             # ─────────────────────────────
+            # APOLLO AUTOMATIONS
+            # ─────────────────────────────
+            # This precedes legacy task routing so “remind me…” creates a
+            # persistent automation rather than a browser-session todo.
+            try:
+                automation_reply = apollo_automation_chat_reply(
+                    user_message,
+                    client_context
+                )
+            except Exception as error:
+                print(f"[Apollo Automations] Chat handler failed safely: {error}")
+                automation_reply = None
+
+            if automation_reply is not None:
+                apollo_send_direct_sse(
+                    self,
+                    chat_id,
+                    automation_reply
+                )
+                return
+
+
+            # ─────────────────────────────
             # APOLLO ACTION ROUTER V1
             # Tasks first for homework / reminders / todos.
             # Calendar second for events / meetings / schedule.
@@ -19020,6 +19467,15 @@ class ApolloHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
 
     init_db()
+
+    AUTOMATION_ENGINE = AutomationEngine(
+        DB_PATH,
+        condition_provider=apollo_automation_condition_provider,
+        push_sender=apollo_send_web_push,
+        timezone_provider=apollo_automation_timezone,
+        default_provider=apollo_default_notification_rules,
+    )
+    AUTOMATION_ENGINE.start()
 
     server = ThreadingHTTPServer(
         ("127.0.0.1", 8765),

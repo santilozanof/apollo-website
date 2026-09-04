@@ -1,0 +1,2 @@
+# Web Push encryption and VAPID delivery. Kept server-side only.
+pywebpush>=2.0,<3.0
