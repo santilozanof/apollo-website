@@ -3306,7 +3306,7 @@ and (
         ) !important;
 
         display: grid !important;
-        grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+        grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
         align-items: center !important;
         overflow: visible !important;
 
@@ -3339,9 +3339,8 @@ and (
         order: initial !important;
     }
 
-    /* Music and Studio remain direct destinations; neither is a phone tab. */
-    .sidebar .nav .nav-button:nth-child(3),
-    .sidebar .nav .nav-button:nth-child(6) {
+    /* Music remains available by direct navigation; it is not a phone tab. */
+    .sidebar .nav .nav-button:nth-child(3) {
         display: none !important;
     }
 
@@ -3529,6 +3528,23 @@ and (
             var(--mobile-tabbar-height)
             + var(--mobile-tabbar-bottom-inset)
         ) !important;
+    }
+
+    /* Keep the WHOOP label attached to the telemetry it describes. */
+    .home .apollo-home-whoop > .section-label {
+        display: none !important;
+    }
+
+    .home .apollo-whoop-box::before {
+        content: "WHOOP";
+        display: block;
+        margin: 0 0 17px !important;
+        color: var(--dim) !important;
+        font-family: var(--apollo-font, -apple-system, BlinkMacSystemFont, sans-serif) !important;
+        font-size: 9px !important;
+        font-weight: 650 !important;
+        letter-spacing: .15em !important;
+        line-height: 1.2 !important;
     }
 
     /*

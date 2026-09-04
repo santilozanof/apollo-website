@@ -22319,7 +22319,7 @@ body:has(#settingsView.active) .studio5-menu {
 <link
     id="apollo-mobile-v1-css"
     rel="stylesheet"
-    href="/apollo_mobile_v1.css?v=20260903-18"
+    href="/apollo_mobile_v1.css?v=20260903-19"
 >
 
 
@@ -23413,7 +23413,14 @@ function openApollo() {
         buttons[1].classList.add("active");
     }
 
-    setTimeout(() => apolloInput.focus(), 250);
+    /*
+     * On iPhone, focusing this hidden composer immediately opens the keyboard
+     * and changes the visual viewport mid-transition. Keep the welcome copy
+     * stable until the user intentionally taps the composer.
+     */
+    if (window.matchMedia("(min-width: 761px)").matches) {
+        setTimeout(() => apolloInput.focus(), 250);
+    }
 }
 
 function openHome() {
@@ -77548,5 +77555,5 @@ html.apollo-jarvis-mode
 <link
     id="apollo-mobile-layout-v18-css"
     rel="stylesheet"
-    href="/apollo_mobile_v1.css?v=20260903-18"
+    href="/apollo_mobile_v1.css?v=20260903-19"
 >
