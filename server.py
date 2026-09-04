@@ -12119,7 +12119,18 @@ def apollo_automation_chat_reply(message, client_context):
     if not apollo_automation_candidate(message):
         return None
     tz_name = str((client_context or {}).get("time_zone") or apollo_automation_timezone()).strip()
-    now = datetime.now(ZoneInfo(tz_name)).isoformat()
+    local_now = datetime.now(ZoneInfo(tz_name))
+    # Prefer exact local parsing for unambiguous reminder syntax. Hermes is
+    # still the general intent/management interpreter, but it must not turn a
+    # clear "in 2 minutes" request into an unrelated condition payload.
+    direct_intent = apollo_fallback_automation_intent(message, tz_name, local_now)
+    if direct_intent:
+        try:
+            created = apollo_create_automation(direct_intent, message, tz_name, local_now)
+            return apollo_automation_confirmation(created, message)
+        except ValueError as error:
+            return f"I couldn't create that automation: {error}."
+    now = local_now.isoformat()
     existing = [
         {"id": item["id"], "title": item["title"], "instruction": item["instruction"], "status": item["status"]}
         for item in apollo_automation_engine().list(limit=40)
@@ -12138,7 +12149,7 @@ def apollo_automation_chat_reply(message, client_context):
         interpreted = {}
     operation = str(interpreted.get("operation") or "none").strip().lower()
     if operation == "none":
-        fallback = apollo_fallback_automation_intent(message, tz_name, datetime.now(ZoneInfo(tz_name)))
+        fallback = apollo_fallback_automation_intent(message, tz_name, local_now)
         if fallback:
             interpreted = {"operation": "create", "automation": fallback}
             operation = "create"
@@ -12180,12 +12191,12 @@ def apollo_automation_chat_reply(message, client_context):
     if operation == "create":
         automation = interpreted.get("automation") if isinstance(interpreted.get("automation"), dict) else interpreted
         if not isinstance(automation, dict) or not automation.get("type"):
-            fallback = apollo_fallback_automation_intent(message, tz_name, datetime.now(ZoneInfo(tz_name)))
+            fallback = apollo_fallback_automation_intent(message, tz_name, local_now)
             automation = fallback or {}
         if not automation:
             return "I need a little more timing detail before I can create that automation."
         try:
-            created = apollo_create_automation(automation, message, tz_name, datetime.now(ZoneInfo(tz_name)))
+            created = apollo_create_automation(automation, message, tz_name, local_now)
         except ValueError as error:
             return f"I couldn't create that automation: {error}."
         return apollo_automation_confirmation(created, message)
