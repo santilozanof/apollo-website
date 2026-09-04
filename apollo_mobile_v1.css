@@ -3774,3 +3774,115 @@ and (
         }
     }
 }
+
+/* =========================================================
+   APOLLO HOME V1.9 — SHARED SECTION RHYTHM
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    :root {
+        --home-section-gap: 24px;
+        --home-title-content-gap: 16px;
+        --home-card-padding: 20px;
+        --home-card-radius: 18px;
+        --home-footer-gap: 24px;
+        --home-bottom-clearance: 16px;
+    }
+
+    /* Home owns a compact, token-based ending above the real tab bar. */
+    #homeView {
+        padding-right: var(--mobile-page-padding-x) !important;
+        padding-left: var(--mobile-page-padding-x) !important;
+        padding-bottom: calc(
+            var(--mobile-tabbar-height)
+            + var(--mobile-tabbar-bottom-inset)
+            + var(--home-bottom-clearance)
+        ) !important;
+        scroll-padding-bottom: calc(
+            var(--mobile-tabbar-height)
+            + var(--mobile-tabbar-bottom-inset)
+            + var(--home-bottom-clearance)
+        ) !important;
+    }
+
+    #homeView > .home-section {
+        margin: var(--home-section-gap) 0 0 !important;
+    }
+
+    #homeView .section-label,
+    #homeView .card-name,
+    #homeView .apollo-whoop-box::before {
+        font-family: var(--apollo-font, -apple-system, BlinkMacSystemFont, sans-serif) !important;
+        font-size: 9px !important;
+        font-weight: 650 !important;
+        line-height: 1.2 !important;
+        letter-spacing: .15em !important;
+    }
+
+    #homeView .section-label {
+        margin: 0 0 10px !important;
+    }
+
+    #homeView .ask-box,
+    #homeView .home-card,
+    #homeView .debrief-box,
+    #homeView .apollo-whoop-box {
+        border-radius: var(--home-card-radius) !important;
+    }
+
+    #homeView .home-card,
+    #homeView .debrief-box,
+    #homeView .apollo-whoop-box {
+        padding: var(--home-card-padding) !important;
+    }
+
+    #homeView .home-card {
+        min-height: 0 !important;
+    }
+
+    #homeView .home-card .card-content {
+        flex: 0 0 auto !important;
+        justify-content: flex-start !important;
+        margin-top: var(--home-title-content-gap) !important;
+    }
+
+    #homeView .apollo-whoop-box::before {
+        margin-bottom: var(--home-title-content-gap) !important;
+    }
+
+    #homeView .apollo-whoop-primary {
+        margin-top: var(--home-title-content-gap) !important;
+    }
+
+    #homeView .apollo-whoop-interpretation {
+        margin-top: var(--home-title-content-gap) !important;
+    }
+
+    #homeView .apollo-whoop-secondary {
+        margin-top: var(--home-title-content-gap) !important;
+    }
+
+    #homeView .apollo-whoop-title,
+    #homeView .debrief-title {
+        font-size: 17px !important;
+        font-weight: 600 !important;
+        line-height: 1.2 !important;
+        letter-spacing: -.02em !important;
+    }
+
+    #homeView .home-section--dashboard {
+        gap: 12px !important;
+        padding: 0 !important;
+    }
+
+    #homeView .home-footer {
+        display: block !important;
+        margin: var(--home-footer-gap) 0 0 !important;
+        color: var(--dim) !important;
+        font-size: 9px !important;
+        font-weight: 600 !important;
+        line-height: 1.2 !important;
+        letter-spacing: .12em !important;
+    }
+}

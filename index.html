@@ -6764,7 +6764,7 @@ html[data-theme="light"]
 
     <main class="main">
 
-        <section class="home">
+        <section class="home active" id="homeView">
 
             <header class="header">
 
@@ -6782,7 +6782,7 @@ html[data-theme="light"]
 
             </header>
 
-            <section class="ask">
+            <section class="ask home-section home-section--ask">
 
                 <div class="ask-box">
 
@@ -6818,11 +6818,11 @@ html[data-theme="light"]
             </section>
 
             <section
-                class="apollo-home-whoop"
+                class="apollo-home-whoop home-section home-section--whoop"
                 id="apolloWhoopCard"
             >
 
-                <div class="section-label">
+                <div class="section-label home-section-title">
                     WHOOP
                 </div>
 
@@ -6948,9 +6948,9 @@ html[data-theme="light"]
             </section>
 
 
-            <section class="debrief">
+            <section class="debrief home-section home-section--debrief">
 
-                <div class="section-label">
+                <div class="section-label home-section-title">
                     Today
                 </div>
 
@@ -6975,12 +6975,12 @@ html[data-theme="light"]
 
             </section>
 
-            <section class="dashboard">
+            <section class="dashboard home-section home-section--dashboard">
 
-                <article class="card" data-section="music">
+                <article class="card home-card" data-section="music">
 
                     <div class="card-top">
-                        <div class="card-name">Music</div>
+                        <div class="card-name home-section-title">Music</div>
                         <div class="card-arrow">↗</div>
                     </div>
 
@@ -6998,10 +6998,10 @@ html[data-theme="light"]
 
                 </article>
 
-                <article class="card" data-section="calendar">
+                <article class="card home-card" data-section="calendar">
 
                     <div class="card-top">
-                        <div class="card-name">Calendar</div>
+                        <div class="card-name home-section-title">Calendar</div>
                         <div class="card-arrow">↗</div>
                     </div>
 
@@ -7019,10 +7019,10 @@ html[data-theme="light"]
 
                 </article>
 
-                <article class="card" data-section="tasks">
+                <article class="card home-card" data-section="tasks">
 
                     <div class="card-top">
-                        <div class="card-name">Tasks</div>
+                        <div class="card-name home-section-title">Tasks</div>
                         <div class="card-arrow">↗</div>
                     </div>
 
@@ -7040,10 +7040,10 @@ html[data-theme="light"]
 
                 </article>
 
-                <article class="card" data-section="recent">
+                <article class="card home-card" data-section="recent">
 
                     <div class="card-top">
-                        <div class="card-name">Recent</div>
+                        <div class="card-name home-section-title">Recent</div>
                         <div class="card-arrow">↗</div>
                     </div>
 
@@ -7060,7 +7060,7 @@ html[data-theme="light"]
 
             </section>
 
-            <div class="footer">
+            <div class="footer home-footer">
                 Private system · Apollo
             </div>
 
@@ -12846,6 +12846,26 @@ body.light
             }
 
 
+            event.preventDefault();
+
+            event.stopPropagation();
+
+            event.stopImmediatePropagation();
+
+
+            if (
+                typeof window.apolloNavigate
+                === "function"
+            ) {
+
+                window.apolloNavigate(
+                    destination
+                );
+
+                return;
+            }
+
+
             const openFunction =
                 original[
                     destination
@@ -12858,13 +12878,6 @@ body.light
             ) {
                 return;
             }
-
-
-            event.preventDefault();
-
-            event.stopPropagation();
-
-            event.stopImmediatePropagation();
 
 
             transitionTo(
@@ -22138,178 +22151,13 @@ html.apollo-jarvis-mode .jv10-core-ring.inner::after {
 <!-- APOLLO STUDIO ROUTE ISOLATION V1 -->
 <style id="apollo-studio-route-isolation-v1">
 
-/*
- * Studio is its own destination.
- * Nothing belonging to Studio may appear over another view.
- */
-
-body:has(#apolloView.active) #studioView,
-body:has(#homeView.active) #studioView,
-body:has(#musicView.active) #studioView,
-body:has(#calendarView.active) #studioView,
-body:has(#tasksView.active) #studioView,
-body:has(#settingsView.active) #studioView {
-    display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-}
-
-
-/* Studio UI that may live outside #studioView */
-
-body:has(#apolloView.active) .studio5-transport,
-body:has(#homeView.active) .studio5-transport,
-body:has(#musicView.active) .studio5-transport,
-body:has(#calendarView.active) .studio5-transport,
-body:has(#tasksView.active) .studio5-transport,
-body:has(#settingsView.active) .studio5-transport,
-
-body:has(#apolloView.active) .studio5-modal-backdrop,
-body:has(#homeView.active) .studio5-modal-backdrop,
-body:has(#musicView.active) .studio5-modal-backdrop,
-body:has(#calendarView.active) .studio5-modal-backdrop,
-body:has(#tasksView.active) .studio5-modal-backdrop,
-body:has(#settingsView.active) .studio5-modal-backdrop,
-
-body:has(#apolloView.active) .studio5-menu,
-body:has(#homeView.active) .studio5-menu,
-body:has(#musicView.active) .studio5-menu,
-body:has(#calendarView.active) .studio5-menu,
-body:has(#tasksView.active) .studio5-menu,
-body:has(#settingsView.active) .studio5-menu {
-    display: none !important;
-    pointer-events: none !important;
-}
+/* Route ownership is enforced structurally by apollo-route-state-v2. */
 
 </style>
 
 <script id="apollo-studio-route-isolation-script-v1">
 (() => {
-
-    const studio =
-        document.getElementById(
-            "studioView"
-        );
-
-    if (!studio) {
-        return;
-    }
-
-
-    const otherViewIds = [
-        "homeView",
-        "apolloView",
-        "musicView",
-        "calendarView",
-        "tasksView",
-        "settingsView"
-    ];
-
-
-    const otherViews =
-        otherViewIds
-            .map(
-                id =>
-                    document.getElementById(
-                        id
-                    )
-            )
-            .filter(Boolean);
-
-
-    function closeStudioUI() {
-
-        /*
-         * Studio cannot remain an active page underneath
-         * another Apollo destination.
-         */
-        studio.classList.remove(
-            "active"
-        );
-
-
-        studio.setAttribute(
-            "aria-hidden",
-            "true"
-        );
-
-
-        /*
-         * Close Studio-only floating UI if the user
-         * navigates away with one still open.
-         */
-        document
-            .querySelectorAll(
-                ".studio5-modal-backdrop, .studio5-menu"
-            )
-            .forEach(
-                element => {
-                    element.style.display =
-                        "none";
-                }
-            );
-
-    }
-
-
-    function enforceIsolation() {
-
-        const anotherViewIsActive =
-            otherViews.some(
-                view =>
-                    view.classList.contains(
-                        "active"
-                    )
-            );
-
-
-        if (
-            anotherViewIsActive
-            && studio.classList.contains(
-                "active"
-            )
-        ) {
-            closeStudioUI();
-        }
-
-    }
-
-
-    /*
-     * Watch OTHER pages, not Studio itself.
-     *
-     * That means opening Studio is unaffected.
-     * But the instant Apollo/Home/etc becomes active,
-     * Studio is shut down.
-     */
-    const observer =
-        new MutationObserver(
-            enforceIsolation
-        );
-
-
-    otherViews.forEach(
-        view => {
-
-            observer.observe(
-                view,
-                {
-                    attributes:
-                        true,
-
-                    attributeFilter:
-                        [
-                            "class"
-                        ]
-                }
-            );
-
-        }
-    );
-
-
-    enforceIsolation();
+    /* Replaced by the final route-state coordinator below. */
 
 })();
 </script>
@@ -22319,7 +22167,7 @@ body:has(#settingsView.active) .studio5-menu {
 <link
     id="apollo-mobile-v1-css"
     rel="stylesheet"
-    href="/apollo_mobile_v1.css?v=20260903-19"
+    href="/apollo_mobile_v1.css?v=20260903-20"
 >
 
 
@@ -77545,6 +77393,147 @@ html.apollo-jarvis-mode
 </script>
 
 
+<!-- APOLLO ROUTE STATE V2 -->
+<script id="apollo-route-state-v2">
+(() => {
+
+    const destinations = [
+        "home",
+        "apollo",
+        "music",
+        "calendar",
+        "tasks",
+        "studio",
+        "settings"
+    ];
+
+    const globalNames = {
+        home: "openHome",
+        apollo: "openApollo",
+        music: "openMusic",
+        calendar: "openCalendar",
+        tasks: "openTasks",
+        studio: "openStudio",
+        settings: "openSettings"
+    };
+
+    function views() {
+
+        return {
+            home: document.getElementById("homeView"),
+            apollo: document.getElementById("apolloView"),
+            music: document.getElementById("musicView"),
+            calendar: document.getElementById("calendarView"),
+            tasks: document.getElementById("tasksView"),
+            studio: document.getElementById("studioView"),
+            settings: document.getElementById("settingsView")
+        };
+
+    }
+
+    function closeStudioOverlays() {
+
+        document
+            .querySelectorAll(
+                ".studio5-menu, .studio5-modal-backdrop, .studio5-toast"
+            )
+            .forEach(
+                overlay => overlay.remove()
+            );
+
+    }
+
+    function applyRoute(destination) {
+
+        const routeViews = views();
+
+        for (const name of destinations) {
+
+            const view = routeViews[name];
+
+            if (!view) {
+                continue;
+            }
+
+            const isActive = name === destination;
+
+            view.classList.toggle("active", isActive);
+            view.setAttribute("aria-hidden", String(!isActive));
+
+            if (name === "home") {
+                view.classList.toggle("hidden", !isActive);
+            }
+
+        }
+
+        if (destination !== "studio") {
+            closeStudioOverlays();
+        }
+
+        document.body.dataset.apolloRoute = destination;
+
+    }
+
+    function activeDestination() {
+
+        const routeViews = views();
+
+        for (const name of destinations) {
+
+            if (
+                name !== "home"
+                && routeViews[name]?.classList.contains("active")
+            ) {
+                return name;
+            }
+
+        }
+
+        return "home";
+
+    }
+
+    const featureOpeners =
+        Object.fromEntries(
+            destinations.map(
+                destination => [
+                    destination,
+                    window[globalNames[destination]]
+                ]
+            )
+        );
+
+    function navigate(destination, ...args) {
+
+        const open = featureOpeners[destination];
+
+        if (typeof open !== "function") {
+            return;
+        }
+
+        applyRoute(destination);
+
+        return open.apply(window, args);
+
+    }
+
+    window.apolloNavigate = navigate;
+
+    for (const destination of destinations) {
+
+        const globalName = globalNames[destination];
+
+        window[globalName] =
+            (...args) => navigate(destination, ...args);
+
+    }
+
+    applyRoute(activeDestination());
+
+})();
+</script>
+
+
 <link
     id="apollo-polish-v1-css"
     rel="stylesheet"
@@ -77555,5 +77544,5 @@ html.apollo-jarvis-mode
 <link
     id="apollo-mobile-layout-v18-css"
     rel="stylesheet"
-    href="/apollo_mobile_v1.css?v=20260903-19"
+    href="/apollo_mobile_v1.css?v=20260903-20"
 >
