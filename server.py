@@ -1076,6 +1076,11 @@ def apollo_extract_attachment_context(attachments):
                 "Read every attached image/file directly. Return concise plain "
                 "text facts only: every visible date, destination, person, "
                 "identifier, schedule detail, and any explicitly unknown field. "
+                "For an itinerary or schedule, list every individual item "
+                "separately with its exact printed date and origin/destination. "
+                "Never replace dates or destinations with a count, date range, "
+                "or vague summary. If an item is unreadable, say which item and "
+                "which field is unreadable. "
                 "Do not invent facts or address the user. This note will be used "
                 "for later references such as 'those dates' or 'all of them'."
             )
@@ -11249,8 +11254,28 @@ def apollo_calendar_chat(
         )
 
 
+        # Calendar interpretation is a separate Hermes request, not the
+        # ordinary reconstructed chat history. Keep durable attachment facts
+        # in the clarification state so every later answer has the original
+        # dates and destinations. Older pending records use the facts loaded
+        # for this request as a fallback.
+        pending_attachment_context = str(
+            pending.get("attachment_context")
+            or attachment_context
+            or ""
+        ).strip()
+
+        interpreter_message = combined_message
+
+        if pending_attachment_context:
+            interpreter_message += (
+                "\n\nPERSISTED ATTACHMENT FACTS FOR THIS FOLLOW-UP:\n"
+                + pending_attachment_context
+            )
+
+
         interpreted = calendar_interpret_message(
-            combined_message,
+            interpreter_message,
             client_context,
             last_calendar_event=
                 last_calendar_event
@@ -11271,7 +11296,9 @@ def apollo_calendar_chat(
                 {
                     "stage": "clarify",
                     "original_message":
-                        combined_message
+                        combined_message,
+                    "attachment_context":
+                        pending_attachment_context
                 }
             )
 
@@ -11408,7 +11435,8 @@ def apollo_calendar_chat(
             {
                 "stage": "clarify",
                 "original_message":
-                    user_message
+                    user_message,
+                "attachment_context": attachment_context
             }
         )
 
