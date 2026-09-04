@@ -3306,7 +3306,7 @@ and (
         ) !important;
 
         display: grid !important;
-        grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+        grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
         align-items: center !important;
         overflow: visible !important;
 
@@ -3339,8 +3339,9 @@ and (
         order: initial !important;
     }
 
-    /* Music remains available by direct navigation; it is not a phone tab. */
-    .sidebar .nav .nav-button:nth-child(3) {
+    /* Music and Studio remain direct destinations; neither is a phone tab. */
+    .sidebar .nav .nav-button:nth-child(3),
+    .sidebar .nav .nav-button:nth-child(6) {
         display: none !important;
     }
 
@@ -3514,6 +3515,23 @@ and (
     }
 
     /*
+       Home scrolls independently beneath the fixed tab bar. Reserve enough
+       room for the final WHOOP line/action to clear that bar instead of
+       ending behind it.
+    */
+    .home {
+        padding-bottom: calc(
+            var(--mobile-content-gap)
+            + var(--mobile-tabbar-height)
+            + var(--mobile-tabbar-bottom-inset)
+        ) !important;
+        scroll-padding-bottom: calc(
+            var(--mobile-tabbar-height)
+            + var(--mobile-tabbar-bottom-inset)
+        ) !important;
+    }
+
+    /*
        The generic page-button touch target applies to every settings/task
        button above. These controls have deliberate physical dimensions, so
        keep their boxes independent of that generic minimum height.
@@ -3667,6 +3685,29 @@ and (
     }
 
     #apolloView .apollo-welcome-inner {
+        animation: none !important;
+    }
+
+    /*
+       Apollo previously retained the global page-enter animation plus two
+       fresh-chat animations. Their overlapping transforms made the welcome
+       text jump as the tab opened on iOS. The mobile chat shell is static;
+       only its content changes.
+    */
+    #apolloView.active,
+    #apolloView .apollo-messages,
+    #apolloView .apollo-composer-wrap {
+        animation: none !important;
+        transition: none !important;
+    }
+
+    #apolloView.apollo-new-chat-out .apollo-messages,
+    #apolloView.apollo-new-chat-out .apollo-composer-wrap,
+    #apolloView.apollo-new-chat-in .apollo-welcome-inner,
+    #apolloView.apollo-new-chat-in .apollo-composer,
+    html.apollo-jarvis-mode #apolloView.apollo-new-chat-in .apollo-welcome-inner {
+        opacity: 1 !important;
+        transform: none !important;
         animation: none !important;
     }
 
