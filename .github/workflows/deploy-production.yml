@@ -67,7 +67,10 @@ jobs:
             apt-get update
             DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip
           fi
-          python3 -m pip install --break-system-packages --disable-pip-version-check -r requirements.txt
+          # Do not ask pip to uninstall Debian-managed packages (they have no
+          # pip RECORD metadata). Install Apollo's isolated dependency copies
+          # alongside the operating-system packages instead.
+          python3 -m pip install --break-system-packages --ignore-installed --disable-pip-version-check -r requirements.txt
 
           systemctl restart apollo-backend apollo-web
           systemctl is-active --quiet apollo-backend
