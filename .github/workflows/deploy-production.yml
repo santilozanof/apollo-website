@@ -72,6 +72,65 @@ jobs:
           # alongside the operating-system packages instead.
           python3 -m pip install --break-system-packages --ignore-installed --disable-pip-version-check -r requirements.txt
 
+          # VAPID credentials are production-only secrets. Keep them outside
+          # the checkout so git pulls and future deployments cannot replace
+          # them. Existing valid key pairs are always preserved.
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+          from cryptography.hazmat.primitives import serialization
+          from py_vapid import Vapid
+
+          env_path = Path("/root/.hermes/.env")
+          env_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+          existing_lines = env_path.read_text().splitlines() if env_path.exists() else []
+          values = {}
+          for line in existing_lines:
+              if "=" in line and not line.lstrip().startswith("#"):
+                  key, value = line.split("=", 1)
+                  values[key.strip()] = value.strip().strip('"').strip("'")
+
+          def b64url(value):
+              return base64.urlsafe_b64encode(value).decode().rstrip("=")
+
+          def valid_pair(public_key, private_key):
+              try:
+                  vapid = Vapid.from_string(private_key)
+                  derived = b64url(vapid.public_key.public_bytes(
+                      serialization.Encoding.X962,
+                      serialization.PublicFormat.UncompressedPoint,
+                  ))
+                  return public_key == derived
+              except Exception:
+                  return False
+
+          generated = not valid_pair(
+              values.get("APOLLO_VAPID_PUBLIC_KEY", ""),
+              values.get("APOLLO_VAPID_PRIVATE_KEY", ""),
+          )
+          if generated:
+              vapid = Vapid()
+              vapid.generate_keys()
+              values["APOLLO_VAPID_PRIVATE_KEY"] = b64url(
+                  vapid.private_key.private_numbers().private_value.to_bytes(32, "big")
+              )
+              values["APOLLO_VAPID_PUBLIC_KEY"] = b64url(vapid.public_key.public_bytes(
+                  serialization.Encoding.X962,
+                  serialization.PublicFormat.UncompressedPoint,
+              ))
+          values.setdefault("APOLLO_VAPID_SUBJECT", "https://ubuntu-2gb-hel1-1.tailc5eaaa.ts.net")
+
+          managed = {"APOLLO_VAPID_PUBLIC_KEY", "APOLLO_VAPID_PRIVATE_KEY", "APOLLO_VAPID_SUBJECT"}
+          retained = [line for line in existing_lines if not any(line.startswith(key + "=") for key in managed)]
+          retained.extend(f"{key}={values[key]}" for key in sorted(managed))
+          temporary = env_path.with_suffix(".tmp")
+          temporary.write_text("\n".join(retained) + "\n")
+          os.chmod(temporary, 0o600)
+          os.replace(temporary, env_path)
+          print("Apollo VAPID configuration:", "generated new pair" if generated else "reused existing valid pair")
+          PY
+
           systemctl restart apollo-backend apollo-web
           systemctl is-active --quiet apollo-backend
           systemctl is-active --quiet apollo-web
