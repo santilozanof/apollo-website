@@ -1,0 +1,1885 @@
+/* =========================================================
+   APOLLO OS V1 — DESIGN SYSTEM
+   Calm, precise and spatial. One system for every surface.
+   ========================================================= */
+
+:root {
+    --os-bg: #f1f0ec;
+    --os-canvas: #f7f6f2;
+    --os-paper: #fbfaf7;
+    --os-surface: rgba(255, 255, 255, .64);
+    --os-surface-solid: #f9f8f4;
+    --os-ink: #171716;
+    --os-ink-soft: #373735;
+    --os-muted: #72716c;
+    --os-faint: #9a9992;
+    --os-line: rgba(23, 23, 22, .11);
+    --os-line-strong: rgba(23, 23, 22, .2);
+    --os-inverse: #1b1b1a;
+    --os-inverse-ink: #f6f5f1;
+    --os-positive: #58715e;
+    --os-caution: #8a6a3c;
+    --os-negative: #8a4b46;
+    --os-shadow: 0 18px 56px rgba(31, 30, 27, .09), 0 2px 10px rgba(31, 30, 27, .04);
+    --os-shadow-float: 0 20px 64px rgba(20, 20, 18, .18), 0 2px 8px rgba(20, 20, 18, .08);
+
+    --os-space-1: 4px;
+    --os-space-2: 8px;
+    --os-space-3: 12px;
+    --os-space-4: 16px;
+    --os-space-5: 20px;
+    --os-space-6: 24px;
+    --os-space-7: 32px;
+    --os-space-8: 40px;
+    --os-space-9: 48px;
+    --os-space-10: 64px;
+    --os-radius-control: 10px;
+    --os-radius-surface: 18px;
+    --os-radius-large: 26px;
+    --os-control: 44px;
+    --os-ease: cubic-bezier(.22, 1, .36, 1);
+    --os-ease-snap: cubic-bezier(.2, .8, .2, 1);
+    --os-fast: 120ms;
+    --os-medium: 220ms;
+    --os-slow: 420ms;
+    --os-content: 1280px;
+}
+
+html[data-theme="dark"] {
+    --os-bg: #090909;
+    --os-canvas: #0d0d0c;
+    --os-paper: #121211;
+    --os-surface: rgba(27, 27, 25, .7);
+    --os-surface-solid: #151514;
+    --os-ink: #f1f0eb;
+    --os-ink-soft: #d2d1ca;
+    --os-muted: #92918b;
+    --os-faint: #66655f;
+    --os-line: rgba(244, 243, 237, .1);
+    --os-line-strong: rgba(244, 243, 237, .19);
+    --os-inverse: #efeee9;
+    --os-inverse-ink: #171716;
+    --os-positive: #809d84;
+    --os-caution: #b39669;
+    --os-negative: #af716b;
+    --os-shadow: 0 18px 56px rgba(0, 0, 0, .28), 0 2px 10px rgba(0, 0, 0, .16);
+    --os-shadow-float: 0 20px 64px rgba(0, 0, 0, .5), 0 2px 8px rgba(0, 0, 0, .26);
+}
+
+html.apollo-os-v1,
+html.apollo-os-v1 body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--os-bg) !important;
+    color: var(--os-ink) !important;
+    font-family: Inter, "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+}
+
+.apollo-os-v1 *,
+.apollo-os-v1 *::before,
+.apollo-os-v1 *::after {
+    box-sizing: border-box;
+}
+
+.apollo-os-v1 button,
+.apollo-os-v1 input,
+.apollo-os-v1 textarea,
+.apollo-os-v1 select {
+    font: inherit;
+}
+
+.apollo-os-v1 button {
+    -webkit-tap-highlight-color: transparent;
+}
+
+.apollo-os-v1 button:focus-visible,
+.apollo-os-v1 a:focus-visible,
+.apollo-os-v1 input:focus-visible,
+.apollo-os-v1 textarea:focus-visible,
+.apollo-os-v1 summary:focus-visible,
+.apollo-os-v1 select:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--os-ink) 44%, transparent) !important;
+    outline-offset: 3px !important;
+}
+
+.os-sr-only,
+.os-sr-only:not(:focus):not(:active) {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+}
+
+/* Product shell */
+
+.apollo-os-v1 .app {
+    position: fixed !important;
+    inset: 0 !important;
+    display: block !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    background:
+        radial-gradient(circle at 75% -20%, color-mix(in srgb, var(--os-ink) 4%, transparent), transparent 44%),
+        var(--os-canvas) !important;
+}
+
+.apollo-os-v1 .sidebar {
+    display: none !important;
+}
+
+.apollo-os-v1 .main {
+    position: fixed !important;
+    inset: 0 0 0 84px !important;
+    width: auto !important;
+    height: 100dvh !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    background: transparent !important;
+}
+
+.os-chrome {
+    position: relative;
+    z-index: 5000;
+}
+
+.os-topbar {
+    position: fixed;
+    z-index: 5000;
+    top: 0;
+    right: 0;
+    left: 84px;
+    height: 70px;
+    padding: 0 28px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    pointer-events: none;
+    color: var(--os-ink);
+}
+
+.os-wordmark,
+.os-topbar-end,
+.os-location {
+    pointer-events: auto;
+}
+
+.os-wordmark {
+    width: max-content;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    border: 0;
+    background: transparent;
+    color: var(--os-ink);
+    cursor: pointer;
+}
+
+.os-wordmark-mark {
+    width: 23px;
+    height: 23px;
+    display: grid;
+    place-items: center;
+}
+
+.os-wordmark-mark svg,
+.os-dock-icon svg,
+.os-top-settings svg,
+.os-command svg,
+.os-text-action svg,
+.os-agenda-row > svg,
+.os-signal-row > svg,
+.os-control svg,
+.os-time-row > svg,
+.os-brief-item summary > svg,
+.os-sheet-head button svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.55;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.os-wordmark-name {
+    font-size: 14px;
+    font-weight: 620;
+    letter-spacing: -.01em;
+}
+
+.os-location {
+    min-width: 210px;
+    display: grid;
+    grid-template-columns: auto 34px auto;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 11px;
+}
+
+.os-location-name {
+    color: var(--os-ink);
+    font-weight: 640;
+}
+
+.os-location-context {
+    color: var(--os-faint);
+    font-weight: 480;
+}
+
+.os-location-rule {
+    height: 1px;
+    background: var(--os-line-strong);
+}
+
+.os-topbar-end {
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.os-clock {
+    min-width: 54px;
+    color: var(--os-muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.os-preview-state {
+    padding: 6px 9px;
+    border: 1px solid var(--os-line);
+    border-radius: 999px;
+    color: var(--os-muted);
+    background: var(--os-surface);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.os-top-settings {
+    width: 34px;
+    height: 34px;
+    padding: 8px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--os-muted);
+    cursor: pointer;
+    transition: color var(--os-fast), background var(--os-fast), transform var(--os-fast);
+}
+
+.os-top-settings:hover {
+    background: color-mix(in srgb, var(--os-ink) 6%, transparent);
+    color: var(--os-ink);
+}
+
+.os-top-settings:active {
+    transform: scale(.93);
+}
+
+.os-dock {
+    position: fixed;
+    z-index: 5100;
+    top: 50%;
+    left: 16px;
+    width: 53px;
+    padding: 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    transform: translateY(-50%);
+    border: 1px solid var(--os-line);
+    border-radius: 20px;
+    background: color-mix(in srgb, var(--os-surface-solid) 82%, transparent);
+    box-shadow: var(--os-shadow);
+    backdrop-filter: blur(20px) saturate(1.1);
+    -webkit-backdrop-filter: blur(20px) saturate(1.1);
+}
+
+.os-dock-button {
+    position: relative;
+    width: 39px;
+    height: 39px;
+    min-width: 0;
+    min-height: 0;
+    padding: 10px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 13px;
+    background: transparent;
+    color: var(--os-faint);
+    cursor: pointer;
+    transition: color var(--os-fast), background var(--os-medium), transform var(--os-fast);
+}
+
+.os-dock-button:hover {
+    color: var(--os-ink);
+    background: color-mix(in srgb, var(--os-ink) 6%, transparent);
+}
+
+.os-dock-button:active {
+    transform: scale(.9);
+}
+
+.os-dock-button.is-active {
+    color: var(--os-inverse-ink);
+    background: var(--os-inverse);
+}
+
+.os-dock-icon {
+    width: 19px;
+    height: 19px;
+    display: grid;
+    place-items: center;
+}
+
+.os-dock-label {
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 12px);
+    padding: 6px 8px;
+    border: 1px solid var(--os-line);
+    border-radius: 7px;
+    background: var(--os-surface-solid);
+    box-shadow: var(--os-shadow);
+    color: var(--os-ink);
+    font-size: 10px;
+    font-weight: 590;
+    line-height: 1;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(2px, -50%);
+    transition: opacity var(--os-fast), transform var(--os-fast);
+}
+
+.os-dock-button:hover .os-dock-label,
+.os-dock-button:focus-visible .os-dock-label {
+    opacity: 1;
+    transform: translate(0, -50%);
+}
+
+.os-dock-divider {
+    width: 23px;
+    height: 1px;
+    margin: 4px auto;
+    background: var(--os-line);
+}
+
+.os-more-button {
+    display: none;
+}
+
+.os-more-backdrop,
+.os-more-sheet {
+    display: none;
+}
+
+.os-toast {
+    position: fixed;
+    z-index: 10000;
+    right: 24px;
+    bottom: 24px;
+    max-width: min(360px, calc(100vw - 32px));
+    padding: 12px 15px;
+    border: 1px solid var(--os-line);
+    border-radius: 12px;
+    background: var(--os-inverse);
+    box-shadow: var(--os-shadow-float);
+    color: var(--os-inverse-ink);
+    font-size: 12px;
+    line-height: 1.45;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+    transition: opacity var(--os-medium), transform var(--os-medium) var(--os-ease);
+}
+
+.os-toast.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* View stage */
+
+.apollo-os-v1 .home,
+.apollo-os-v1 #apolloView,
+.apollo-os-v1 #calendarView,
+.apollo-os-v1 #tasksView,
+.apollo-os-v1 #studioView,
+.apollo-os-v1 #musicView,
+.apollo-os-v1 #settingsView,
+.apollo-os-v1 .os-custom-view {
+    position: absolute !important;
+    inset: 70px 0 0 !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    background: transparent !important;
+    color: var(--os-ink) !important;
+}
+
+.apollo-os-v1 .home,
+.apollo-os-v1 .os-custom-view,
+.apollo-os-v1 #tasksView.active,
+.apollo-os-v1 #studioView.active,
+.apollo-os-v1 #musicView.active,
+.apollo-os-v1 #settingsView.active {
+    overflow: auto !important;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--os-line-strong) transparent;
+}
+
+.apollo-os-v1 .home.hidden,
+.apollo-os-v1 .os-custom-view:not(.active) {
+    display: none !important;
+}
+
+.apollo-os-v1 .home:not(.hidden),
+.apollo-os-v1 .os-custom-view.active {
+    display: block !important;
+    animation: os-view-enter var(--os-slow) var(--os-ease) both;
+}
+
+@keyframes os-view-enter {
+    from { opacity: 0; transform: translateY(9px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Now */
+
+.os-home-shell,
+.os-page-shell {
+    width: min(var(--os-content), calc(100% - 72px));
+    margin: 0 auto;
+    padding: 56px 0 84px;
+}
+
+.os-home-intro {
+    max-width: 760px;
+    margin-bottom: 34px;
+}
+
+.os-date-line,
+.os-page-eyebrow {
+    margin-bottom: 13px;
+    color: var(--os-muted);
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.os-home-intro h1,
+.os-page-header h1 {
+    margin: 0;
+    color: var(--os-ink);
+    font-size: clamp(36px, 4.2vw, 56px);
+    font-weight: 480;
+    letter-spacing: -.052em;
+    line-height: .98;
+}
+
+.os-home-intro p,
+.os-page-header p {
+    margin: 15px 0 0;
+    color: var(--os-muted);
+    font-size: 14px;
+    line-height: 1.55;
+}
+
+.os-command {
+    min-height: 66px;
+    margin-bottom: 42px;
+    padding: 9px 10px 9px 18px;
+    display: grid;
+    grid-template-columns: 22px 1fr 46px;
+    align-items: center;
+    gap: 13px;
+    border: 1px solid var(--os-line);
+    border-radius: 20px;
+    background: color-mix(in srgb, var(--os-paper) 82%, transparent);
+    box-shadow: var(--os-shadow);
+    transition: border-color var(--os-medium), box-shadow var(--os-medium), transform var(--os-medium) var(--os-ease);
+}
+
+.os-command:focus-within {
+    border-color: var(--os-line-strong);
+    box-shadow: 0 22px 70px rgba(20, 20, 18, .12);
+    transform: translateY(-1px);
+}
+
+.os-command-mark {
+    width: 19px;
+    height: 19px;
+    color: var(--os-faint);
+}
+
+.os-command textarea {
+    width: 100%;
+    min-width: 0;
+    max-height: 132px;
+    padding: 11px 0;
+    resize: none;
+    overflow-y: auto;
+    border: 0;
+    outline: 0 !important;
+    background: transparent;
+    color: var(--os-ink);
+    font-size: 15px;
+    line-height: 1.45;
+}
+
+.os-command textarea::placeholder {
+    color: var(--os-faint);
+}
+
+.os-command button {
+    width: 46px;
+    height: 46px;
+    padding: 13px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--os-inverse);
+    color: var(--os-inverse-ink);
+    cursor: pointer;
+    transition: transform var(--os-fast), opacity var(--os-fast);
+}
+
+.os-command button:active {
+    transform: scale(.92);
+}
+
+.os-home-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(320px, .75fr);
+    gap: 22px;
+    align-items: stretch;
+}
+
+.os-focus,
+.os-up-next {
+    min-width: 0;
+    border-top: 1px solid var(--os-line-strong);
+}
+
+.os-focus {
+    min-height: 390px;
+    padding: 18px 0 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.os-up-next {
+    padding: 18px 0 0 24px;
+    border-left: 1px solid var(--os-line);
+}
+
+.os-section-line {
+    min-height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    color: var(--os-muted);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.os-section-line button {
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: 0;
+    background: transparent;
+    color: var(--os-muted);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.os-section-line button svg {
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+}
+
+.os-focus-index {
+    font-variant-numeric: tabular-nums;
+}
+
+.os-focus-body {
+    max-width: 750px;
+    margin: auto 0;
+    padding: 48px 5vw 48px 0;
+}
+
+.os-focus-kicker {
+    margin-bottom: 14px;
+    color: var(--os-muted);
+    font-size: 11px;
+    font-weight: 560;
+}
+
+.os-focus-body h2 {
+    margin: 0;
+    color: var(--os-ink);
+    font-size: clamp(29px, 3.4vw, 48px);
+    font-weight: 465;
+    letter-spacing: -.045em;
+    line-height: 1.06;
+    text-wrap: balance;
+}
+
+.os-focus-body p {
+    margin: 18px 0 0;
+    color: var(--os-muted);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.os-focus-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.os-text-action {
+    min-height: 42px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 18px;
+    border: 1px solid var(--os-line);
+    border-radius: var(--os-radius-control);
+    background: transparent;
+    color: var(--os-ink-soft);
+    font-size: 11px;
+    font-weight: 580;
+    cursor: pointer;
+    transition: transform var(--os-fast), background var(--os-fast), border-color var(--os-fast);
+}
+
+.os-text-action:hover {
+    border-color: var(--os-line-strong);
+    background: color-mix(in srgb, var(--os-ink) 4%, transparent);
+}
+
+.os-text-action.is-primary {
+    border-color: var(--os-inverse);
+    background: var(--os-inverse);
+    color: var(--os-inverse-ink);
+}
+
+.os-text-action:active {
+    transform: scale(.97);
+}
+
+.os-text-action svg {
+    width: 15px;
+    height: 15px;
+}
+
+.os-agenda-list {
+    margin-top: 12px;
+}
+
+.os-agenda-row {
+    width: 100%;
+    min-height: 78px;
+    padding: 13px 2px;
+    display: grid;
+    grid-template-columns: 68px minmax(0, 1fr) 16px;
+    align-items: center;
+    gap: 13px;
+    border: 0;
+    border-bottom: 1px solid var(--os-line);
+    background: transparent;
+    color: var(--os-ink);
+    text-align: left;
+    cursor: pointer;
+    transition: padding var(--os-medium) var(--os-ease), background var(--os-fast);
+}
+
+.os-agenda-row:hover {
+    padding-right: 8px;
+    padding-left: 8px;
+    background: color-mix(in srgb, var(--os-ink) 3%, transparent);
+}
+
+.os-agenda-when,
+.os-agenda-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.os-agenda-when strong {
+    color: var(--os-muted);
+    font-size: 10px;
+    font-weight: 620;
+}
+
+.os-agenda-when small,
+.os-agenda-copy small {
+    color: var(--os-faint);
+    font-size: 9px;
+}
+
+.os-agenda-copy b {
+    overflow: hidden;
+    color: var(--os-ink-soft);
+    font-size: 12px;
+    font-weight: 570;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.os-agenda-row > svg,
+.os-signal-row > svg,
+.os-time-row > svg {
+    width: 15px;
+    height: 15px;
+    color: var(--os-faint);
+    transition: transform var(--os-medium) var(--os-ease), color var(--os-fast);
+}
+
+.os-agenda-row:hover > svg,
+.os-signal-row:hover > svg,
+.os-time-row:hover > svg {
+    color: var(--os-ink);
+    transform: translateX(3px);
+}
+
+.os-empty-line {
+    min-height: 180px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    color: var(--os-muted);
+}
+
+.os-empty-line strong {
+    color: var(--os-ink-soft);
+    font-size: 14px;
+    font-weight: 560;
+}
+
+.os-empty-line span {
+    font-size: 11px;
+}
+
+.os-signal-field {
+    margin-top: 70px;
+}
+
+.os-signal-list {
+    margin-top: 12px;
+    border-top: 1px solid var(--os-line-strong);
+}
+
+.os-signal-row {
+    width: 100%;
+    min-height: 86px;
+    padding: 0 4px;
+    display: grid;
+    grid-template-columns: 48px 120px minmax(0, 1fr) 18px;
+    align-items: center;
+    gap: 20px;
+    border: 0;
+    border-bottom: 1px solid var(--os-line);
+    background: transparent;
+    color: var(--os-ink);
+    text-align: left;
+    cursor: pointer;
+    transition: padding var(--os-medium) var(--os-ease), background var(--os-fast);
+}
+
+.os-signal-row:hover {
+    padding: 0 13px;
+    background: color-mix(in srgb, var(--os-ink) 3%, transparent);
+}
+
+.os-signal-index,
+.os-signal-label {
+    color: var(--os-faint);
+    font-size: 9px;
+    font-weight: 620;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.os-signal-copy {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(150px, .65fr);
+    align-items: baseline;
+    gap: 20px;
+}
+
+.os-signal-copy strong {
+    overflow: hidden;
+    color: var(--os-ink-soft);
+    font-size: 13px;
+    font-weight: 575;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.os-signal-copy small {
+    overflow: hidden;
+    color: var(--os-muted);
+    font-size: 10px;
+    line-height: 1.45;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.os-skeleton-row,
+.os-skeleton-signal {
+    height: 72px;
+    border-bottom: 1px solid var(--os-line);
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--os-ink) 4%, transparent), transparent);
+    background-size: 200% 100%;
+    animation: os-shimmer 1.2s linear infinite;
+}
+
+.os-skeleton-row.short { width: 72%; }
+.os-skeleton-signal { height: 86px; }
+
+@keyframes os-shimmer { to { background-position: -200% 0; } }
+
+/* Custom page foundation */
+
+.os-page-header {
+    padding-bottom: 34px;
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 28px;
+    border-bottom: 1px solid var(--os-line-strong);
+}
+
+.os-page-header > div:first-child {
+    max-width: 700px;
+}
+
+.os-page-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.os-control {
+    min-height: var(--os-control);
+    padding: 0 15px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid var(--os-line-strong);
+    border-radius: var(--os-radius-control);
+    background: transparent;
+    color: var(--os-ink-soft);
+    font-size: 11px;
+    font-weight: 590;
+    cursor: pointer;
+    transition: transform var(--os-fast), background var(--os-fast);
+}
+
+.os-control:hover { background: color-mix(in srgb, var(--os-ink) 5%, transparent); }
+.os-control:active { transform: scale(.96); }
+.os-control.is-dark { border-color: var(--os-inverse); background: var(--os-inverse); color: var(--os-inverse-ink); }
+.os-control svg { width: 16px; height: 16px; }
+
+/* Time */
+
+.os-time-layout {
+    display: grid;
+    grid-template-columns: 230px minmax(0, 1fr);
+    gap: 50px;
+    padding-top: 44px;
+}
+
+.os-time-now {
+    position: sticky;
+    top: 30px;
+    align-self: start;
+    padding-top: 14px;
+    border-top: 1px solid var(--os-line-strong);
+}
+
+.os-time-now span {
+    color: var(--os-faint);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.os-time-now strong {
+    display: block;
+    margin-top: 24px;
+    color: var(--os-ink);
+    font-size: 42px;
+    font-weight: 450;
+    letter-spacing: -.05em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.os-time-now p {
+    margin: 14px 0 0;
+    color: var(--os-muted);
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+.os-timeline {
+    min-width: 0;
+}
+
+.os-day-group + .os-day-group {
+    margin-top: 48px;
+}
+
+.os-day-group > header {
+    padding-bottom: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--os-line-strong);
+}
+
+.os-day-group > header span {
+    color: var(--os-ink);
+    font-size: 14px;
+    font-weight: 610;
+}
+
+.os-day-group > header time {
+    color: var(--os-faint);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.os-time-row {
+    width: 100%;
+    min-height: 78px;
+    padding: 12px 5px;
+    display: grid;
+    grid-template-columns: 78px 8px minmax(0, 1fr) 18px;
+    align-items: center;
+    gap: 18px;
+    border: 0;
+    border-bottom: 1px solid var(--os-line);
+    background: transparent;
+    color: var(--os-ink);
+    text-align: left;
+    cursor: pointer;
+    transition: padding var(--os-medium) var(--os-ease), background var(--os-fast);
+}
+
+.os-time-row:hover {
+    padding-right: 13px;
+    padding-left: 13px;
+    background: color-mix(in srgb, var(--os-ink) 3%, transparent);
+}
+
+.os-time-hour {
+    color: var(--os-muted);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+}
+
+.os-time-marker {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--os-ink);
+}
+
+.os-time-marker.task {
+    border: 1px solid var(--os-muted);
+    background: transparent;
+}
+
+.os-time-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.os-time-copy strong {
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 580;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.os-time-copy small {
+    color: var(--os-muted);
+    font-size: 10px;
+}
+
+.os-large-empty {
+    min-height: 340px;
+    padding: 56px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--os-line);
+}
+
+.os-large-empty > span {
+    color: var(--os-faint);
+    font-size: 10px;
+    font-weight: 630;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.os-large-empty > strong {
+    max-width: 580px;
+    margin-bottom: 18px;
+    font-size: 28px;
+    font-weight: 470;
+    letter-spacing: -.035em;
+}
+
+/* Health */
+
+.os-health-hero {
+    min-height: 440px;
+    display: grid;
+    grid-template-columns: minmax(250px, .65fr) minmax(0, 1.35fr);
+    align-items: center;
+    gap: 8vw;
+    border-bottom: 1px solid var(--os-line-strong);
+}
+
+.os-health-score {
+    position: relative;
+    width: 220px;
+    height: 220px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--os-line);
+    border-radius: 50%;
+}
+
+.os-health-score::before,
+.os-health-score::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+}
+
+.os-health-score::before { inset: 12px; border: 1px solid var(--os-line); }
+.os-health-score::after { inset: 27px; border: 1px solid var(--os-line-strong); }
+
+.os-health-score span {
+    position: absolute;
+    top: 62px;
+    color: var(--os-muted);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.os-health-score strong {
+    z-index: 1;
+    display: flex;
+    align-items: baseline;
+    font-size: 60px;
+    font-weight: 430;
+    letter-spacing: -.06em;
+}
+
+.os-health-score strong small { font-size: 17px; font-weight: 500; }
+.os-health-score i { position: absolute; right: 23px; bottom: 45px; width: 8px; height: 8px; border-radius: 50%; background: var(--os-faint); }
+.os-health-shell[data-recovery-state="ready"] .os-health-score i { background: var(--os-positive); }
+.os-health-shell[data-recovery-state="steady"] .os-health-score i { background: var(--os-caution); }
+.os-health-shell[data-recovery-state="rest"] .os-health-score i { background: var(--os-negative); }
+
+.os-health-meaning > span,
+.os-brief-lead > span,
+.os-weather-note > span,
+.os-health-detail > div > span {
+    color: var(--os-faint);
+    font-size: 9px;
+    font-weight: 650;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+}
+
+.os-health-meaning h2 {
+    max-width: 720px;
+    margin: 18px 0 0;
+    font-size: clamp(27px, 3.2vw, 46px);
+    font-weight: 460;
+    letter-spacing: -.045em;
+    line-height: 1.09;
+    text-wrap: balance;
+}
+
+.os-health-meaning p {
+    margin: 18px 0 0;
+    color: var(--os-muted);
+    font-size: 11px;
+}
+
+.os-metric-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border-bottom: 1px solid var(--os-line-strong);
+}
+
+.os-metric-strip > div {
+    min-height: 220px;
+    padding: 28px 28px 28px 0;
+}
+
+.os-metric-strip > div + div {
+    padding-left: 28px;
+    border-left: 1px solid var(--os-line);
+}
+
+.os-metric-strip span {
+    color: var(--os-faint);
+    font-size: 9px;
+    font-weight: 620;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.os-metric-strip strong {
+    display: block;
+    margin-top: 47px;
+    font-size: 38px;
+    font-weight: 450;
+    letter-spacing: -.04em;
+}
+
+.os-metric-strip p {
+    margin: 10px 0 0;
+    color: var(--os-muted);
+    font-size: 11px;
+}
+
+.os-health-detail {
+    padding: 42px 0 0;
+    display: grid;
+    grid-template-columns: minmax(220px, .6fr) minmax(0, 1.4fr);
+    gap: 8vw;
+}
+
+.os-health-detail > div p {
+    max-width: 220px;
+    color: var(--os-muted);
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+.os-health-detail dl { margin: 0; }
+.os-health-detail dl > div { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--os-line); }
+.os-health-detail dt { color: var(--os-muted); font-size: 11px; }
+.os-health-detail dd { margin: 0; font-size: 12px; font-weight: 590; }
+
+/* Briefing */
+
+.os-brief-lead {
+    max-width: 970px;
+    padding: 72px 0 62px;
+}
+
+.os-brief-lead h2 {
+    margin: 20px 0 0;
+    font-family: ui-serif, Georgia, serif;
+    font-size: clamp(32px, 4.4vw, 62px);
+    font-weight: 400;
+    letter-spacing: -.042em;
+    line-height: 1.05;
+    text-wrap: balance;
+}
+
+.os-weather-note {
+    max-width: 640px;
+    margin: 0 0 62px auto;
+    padding: 20px 0 20px 30px;
+    border-left: 1px solid var(--os-line-strong);
+}
+
+.os-weather-note strong {
+    display: block;
+    margin-top: 12px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.os-weather-note p { margin: 7px 0 0; color: var(--os-muted); font-size: 11px; line-height: 1.6; }
+.os-brief-items { border-top: 1px solid var(--os-line-strong); padding-top: 16px; }
+.os-brief-items > .os-section-line { margin-bottom: 4px; }
+
+.os-brief-item {
+    border-bottom: 1px solid var(--os-line);
+}
+
+.os-brief-item summary {
+    min-height: 92px;
+    padding: 18px 4px;
+    display: grid;
+    grid-template-columns: 46px 140px minmax(0, 1fr) 18px;
+    align-items: center;
+    gap: 20px;
+    list-style: none;
+    cursor: pointer;
+    transition: padding var(--os-medium) var(--os-ease), background var(--os-fast);
+}
+
+.os-brief-item summary::-webkit-details-marker { display: none; }
+.os-brief-item summary:hover { padding-right: 12px; padding-left: 12px; background: color-mix(in srgb, var(--os-ink) 3%, transparent); }
+.os-brief-item summary > span,
+.os-brief-item summary > small { color: var(--os-faint); font-size: 9px; font-weight: 620; letter-spacing: .07em; text-transform: uppercase; }
+.os-brief-item summary > strong { font-size: 13px; font-weight: 585; line-height: 1.4; }
+.os-brief-item summary > svg { width: 15px; height: 15px; transition: transform var(--os-medium) var(--os-ease); }
+.os-brief-item[open] summary > svg { transform: rotate(180deg); }
+.os-brief-item > div { max-width: 780px; padding: 0 28px 34px 226px; }
+.os-brief-item > div p { margin: 0; color: var(--os-ink-soft); font-family: ui-serif, Georgia, serif; font-size: 17px; line-height: 1.72; }
+.os-brief-item cite { display: block; margin-top: 16px; color: var(--os-faint); font: normal 9px/1.4 Inter, sans-serif; text-transform: uppercase; letter-spacing: .08em; }
+
+/* Existing Tasks — open list, not card stack */
+
+.apollo-os-v1 #tasksView .apollo-tasks-shell {
+    width: min(1040px, calc(100% - 72px)) !important;
+    max-width: none !important;
+    margin: 0 auto !important;
+    padding: 56px 0 100px !important;
+}
+
+.apollo-os-v1 #tasksView .apollo-tasks-header {
+    min-height: 154px !important;
+    margin: 0 !important;
+    padding: 0 0 34px !important;
+    display: flex !important;
+    align-items: flex-end !important;
+    border-bottom: 1px solid var(--os-line-strong) !important;
+}
+
+.apollo-os-v1 #tasksView .apollo-tasks-eyebrow,
+.apollo-os-v1 #studioView .studio5-eyebrow,
+.apollo-os-v1 #settingsView .apollo-settings-eyebrow,
+.apollo-os-v1 #musicView .apollo-music-eyebrow,
+.apollo-os-v1 #calendarView .apollo-calendar-eyebrow {
+    margin: 0 0 13px !important;
+    color: var(--os-muted) !important;
+    font-size: 10px !important;
+    letter-spacing: .12em !important;
+}
+
+.apollo-os-v1 #tasksView .apollo-tasks-eyebrow { font-size: 0 !important; }
+.apollo-os-v1 #tasksView .apollo-tasks-eyebrow::after { content: "Commitments"; font-size: 10px; }
+
+.apollo-os-v1 #tasksView .apollo-tasks-title,
+.apollo-os-v1 #studioView .studio5-topbar h1,
+.apollo-os-v1 #settingsView .apollo-settings-title,
+.apollo-os-v1 #musicView .apollo-music-title,
+.apollo-os-v1 #calendarView .apollo-week-title {
+    margin: 0 !important;
+    color: var(--os-ink) !important;
+    font-size: clamp(36px, 4.2vw, 56px) !important;
+    font-weight: 480 !important;
+    letter-spacing: -.052em !important;
+    line-height: .98 !important;
+}
+
+.apollo-os-v1 #tasksView .apollo-tasks-subtitle,
+.apollo-os-v1 #studioView .studio5-topbar p,
+.apollo-os-v1 #settingsView .apollo-settings-subtitle {
+    margin-top: 15px !important;
+    color: var(--os-muted) !important;
+    font-size: 13px !important;
+    line-height: 1.55 !important;
+}
+
+.apollo-os-v1 #tasksView .apollo-task-add {
+    min-height: 76px !important;
+    margin: 24px 0 58px !important;
+    padding: 0 !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto auto auto !important;
+    align-items: center !important;
+    gap: 8px !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--os-line-strong) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.apollo-os-v1 #tasksView .apollo-task-input {
+    min-width: 0 !important;
+    height: 54px !important;
+    padding: 0 12px 0 0 !important;
+    border: 0 !important;
+    outline: 0 !important;
+    background: transparent !important;
+    color: var(--os-ink) !important;
+    font-size: 15px !important;
+}
+
+.apollo-os-v1 #tasksView .apollo-task-input::placeholder { color: var(--os-faint) !important; }
+.apollo-os-v1 #tasksView .apollo-date-display,
+.apollo-os-v1 #tasksView .apollo-time-display,
+.apollo-os-v1 #tasksView .apollo-task-add-button {
+    min-width: 82px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    padding: 0 13px !important;
+    border: 1px solid var(--os-line) !important;
+    border-radius: var(--os-radius-control) !important;
+    background: transparent !important;
+    color: var(--os-muted) !important;
+    box-shadow: none !important;
+    font-size: 10px !important;
+}
+
+.apollo-os-v1 #tasksView .apollo-task-add-button {
+    min-width: 68px !important;
+    border-color: var(--os-inverse) !important;
+    background: var(--os-inverse) !important;
+    color: var(--os-inverse-ink) !important;
+}
+
+.apollo-os-v1 #tasksView .apollo-task-section { margin: 0 0 44px !important; padding: 0 !important; border: 0 !important; background: transparent !important; }
+.apollo-os-v1 #tasksView .apollo-task-section-head { min-height: 34px !important; margin: 0 !important; padding: 0 4px 11px !important; border-bottom: 1px solid var(--os-line-strong) !important; }
+.apollo-os-v1 #tasksView .apollo-task-section-title,
+.apollo-os-v1 #tasksView .apollo-task-section-count { color: var(--os-faint) !important; font-size: 9px !important; font-weight: 650 !important; letter-spacing: .11em !important; }
+.apollo-os-v1 #tasksView .apollo-task-list { border: 0 !important; }
+.apollo-os-v1 #tasksView .apollo-task-row { min-height: 72px !important; padding: 10px 4px !important; border-bottom: 1px solid var(--os-line) !important; background: transparent !important; transition: padding var(--os-medium) var(--os-ease), background var(--os-fast) !important; }
+.apollo-os-v1 #tasksView .apollo-task-row:hover { padding-right: 12px !important; padding-left: 12px !important; background: color-mix(in srgb, var(--os-ink) 3%, transparent) !important; }
+.apollo-os-v1 #tasksView .apollo-task-title { color: var(--os-ink-soft) !important; font-size: 13px !important; font-weight: 565 !important; line-height: 1.4 !important; }
+.apollo-os-v1 #tasksView .apollo-task-meta { margin-top: 5px !important; color: var(--os-muted) !important; font-size: 9px !important; }
+.apollo-os-v1 #tasksView .apollo-task-check { width: 21px !important; height: 21px !important; border-color: var(--os-line-strong) !important; }
+.apollo-os-v1 #tasksView .apollo-task-empty { padding: 22px 4px !important; border-bottom: 1px solid var(--os-line) !important; color: var(--os-faint) !important; }
+
+/* Existing Studio — artwork as an editorial shelf */
+
+.apollo-os-v1 #studioView .studio5-shell { width: min(var(--os-content), calc(100% - 72px)) !important; max-width: none !important; margin: 0 auto !important; padding: 56px 0 100px !important; }
+.apollo-os-v1 #studioView .studio5-topbar { min-height: 154px !important; margin: 0 !important; padding: 0 0 34px !important; align-items: flex-end !important; border-bottom: 1px solid var(--os-line-strong) !important; }
+.apollo-os-v1 #studioView .studio5-top-actions { align-items: center !important; }
+.apollo-os-v1 #studioView .studio5-primary,
+.apollo-os-v1 #studioView .studio5-ghost { min-height: 42px !important; padding: 0 14px !important; border-radius: var(--os-radius-control) !important; font-size: 10px !important; }
+.apollo-os-v1 #studioView .studio5-stage { padding: 46px 0 0 !important; overflow: visible !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; }
+.apollo-os-v1 #studioView .studio5-library-head { margin-bottom: 24px !important; padding-bottom: 14px !important; border-bottom: 1px solid var(--os-line-strong) !important; }
+.apollo-os-v1 #studioView .studio5-library-head h2 { font-size: 20px !important; font-weight: 520 !important; letter-spacing: -.03em !important; }
+.apollo-os-v1 #studioView .studio5-project-grid { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)) !important; gap: 34px 18px !important; }
+.apollo-os-v1 #studioView .studio5-project-card { min-width: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; transform: none !important; }
+.apollo-os-v1 #studioView .studio5-project-art { aspect-ratio: 1 !important; border: 1px solid var(--os-line) !important; border-radius: 4px !important; box-shadow: var(--os-shadow) !important; overflow: hidden !important; }
+.apollo-os-v1 #studioView .studio5-project-card:hover .studio5-project-art { transform: translateY(-3px) !important; box-shadow: var(--os-shadow-float) !important; }
+.apollo-os-v1 #studioView .studio5-project-body { padding: 14px 1px 0 !important; }
+.apollo-os-v1 #studioView .studio5-project-title { color: var(--os-ink) !important; font-size: 13px !important; font-weight: 600 !important; }
+.apollo-os-v1 #studioView .studio5-project-meta,
+.apollo-os-v1 #studioView .studio5-project-foot { color: var(--os-muted) !important; font-size: 9px !important; }
+
+/* Existing Calendar week — a precise instrument behind the agenda */
+
+.apollo-os-v1 #calendarView.active { display: block !important; overflow: hidden !important; padding: 0 !important; }
+.apollo-os-v1 #calendarView .apollo-week-header { width: min(var(--os-content), calc(100% - 72px)) !important; min-height: 138px !important; margin: 0 auto !important; padding: 32px 0 22px !important; align-items: flex-end !important; border-bottom: 1px solid var(--os-line-strong) !important; }
+.apollo-os-v1 #calendarView .apollo-week-month { margin-top: 12px !important; color: var(--os-muted) !important; font-size: 11px !important; }
+.apollo-os-v1 #calendarView .apollo-week-controls { gap: 7px !important; }
+.apollo-os-v1 #calendarView .apollo-week-button { min-width: 42px !important; height: 42px !important; border: 1px solid var(--os-line) !important; border-radius: var(--os-radius-control) !important; background: transparent !important; color: var(--os-ink-soft) !important; font-size: 10px !important; box-shadow: none !important; }
+.apollo-os-v1 #calendarView .apollo-week-button:hover { background: color-mix(in srgb, var(--os-ink) 5%, transparent) !important; }
+.apollo-os-v1 #calendarView .apollo-week-shell { position: absolute !important; top: 138px !important; right: 36px !important; bottom: 28px !important; left: 36px !important; width: auto !important; height: auto !important; margin: 0 !important; overflow: hidden !important; border: 1px solid var(--os-line) !important; border-radius: var(--os-radius-surface) !important; background: color-mix(in srgb, var(--os-paper) 58%, transparent) !important; box-shadow: none !important; }
+.apollo-os-v1 #calendarView .apollo-week-day-head { color: var(--os-muted) !important; }
+.apollo-os-v1 #calendarView .apollo-week-day-head.is-today { color: var(--os-ink) !important; }
+.apollo-os-v1 #calendarView .apollo-week-day-number { background: transparent !important; color: inherit !important; }
+.apollo-os-v1 #calendarView .apollo-week-day-head.is-today .apollo-week-day-number { background: var(--os-inverse) !important; color: var(--os-inverse-ink) !important; }
+.apollo-os-v1 #calendarView .apollo-week-event { border-radius: 7px !important; background: color-mix(in srgb, var(--os-ink) 8%, var(--os-paper)) !important; color: var(--os-ink) !important; box-shadow: none !important; }
+
+/* Existing Chat — editorial, intimate, and quiet */
+
+.apollo-os-v1 #apolloView.active { display: block !important; overflow: hidden !important; }
+.apollo-os-v1 #apolloView .apollo-chat-header { top: 0 !important; right: 24px !important; left: 24px !important; width: auto !important; max-width: none !important; min-height: 50px !important; padding: 0 !important; border: 0 !important; background: transparent !important; }
+.apollo-os-v1 #apolloView .apollo-chat-title { color: var(--os-ink) !important; font-size: 12px !important; font-weight: 620 !important; }
+.apollo-os-v1 #apolloView .apollo-messages { position: absolute !important; inset: 46px 0 104px !important; width: auto !important; max-width: none !important; padding: 40px max(36px, calc((100% - 860px) / 2)) 64px !important; overflow-y: auto !important; scroll-padding-bottom: 80px; }
+.apollo-os-v1 #apolloView .apollo-welcome { min-height: 100% !important; display: grid !important; place-items: center !important; }
+.apollo-os-v1 #apolloView .apollo-welcome-mark { width: 36px !important; height: 36px !important; margin-bottom: 24px !important; color: var(--os-faint) !important; }
+.apollo-os-v1 #apolloView .apollo-welcome-title { color: var(--os-ink) !important; font-size: 32px !important; font-weight: 465 !important; letter-spacing: -.045em !important; }
+.apollo-os-v1 #apolloView .apollo-welcome-subtitle { margin-top: 9px !important; color: var(--os-muted) !important; font-size: 12px !important; }
+.apollo-os-v1 #apolloView .apollo-message { width: 100% !important; max-width: none !important; margin: 0 0 42px !important; padding: 0 !important; display: grid !important; grid-template-columns: 58px minmax(0, 1fr) !important; gap: 22px !important; }
+.apollo-os-v1 #apolloView .apollo-message-mark { width: auto !important; height: auto !important; padding-top: 5px !important; color: var(--os-faint) !important; }
+.apollo-os-v1 #apolloView .apollo-message-mark::after { content: "APOLLO"; font-size: 8px; font-weight: 680; letter-spacing: .12em; }
+.apollo-os-v1 #apolloView .apollo-message-mark svg { display: none !important; }
+.apollo-os-v1 #apolloView .apollo-message.user { grid-template-columns: minmax(0, 1fr) !important; padding-left: 22% !important; }
+.apollo-os-v1 #apolloView .apollo-message.user .apollo-message-mark { display: none !important; }
+.apollo-os-v1 #apolloView .apollo-message-body { min-width: 0 !important; max-width: none !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; color: var(--os-ink-soft) !important; box-shadow: none !important; }
+.apollo-os-v1 #apolloView .apollo-message.user .apollo-message-body { padding: 16px 18px !important; border: 1px solid var(--os-line) !important; border-radius: 16px 16px 4px 16px !important; background: color-mix(in srgb, var(--os-ink) 4%, transparent) !important; }
+.apollo-os-v1 #apolloView .apollo-message-text { color: var(--os-ink-soft) !important; font-size: 14px !important; line-height: 1.72 !important; }
+.apollo-os-v1 #apolloView .apollo-message.assistant .apollo-message-text { font-family: ui-serif, Georgia, serif !important; font-size: 16px !important; line-height: 1.72 !important; }
+.apollo-os-v1 #apolloView .apollo-message-actions { margin-top: 12px !important; opacity: 0 !important; transition: opacity var(--os-fast) !important; }
+.apollo-os-v1 #apolloView .apollo-message:hover .apollo-message-actions,
+.apollo-os-v1 #apolloView .apollo-message:focus-within .apollo-message-actions { opacity: 1 !important; }
+.apollo-os-v1 #apolloView .apollo-composer-wrap { position: absolute !important; right: 0 !important; bottom: 0 !important; left: 0 !important; width: auto !important; max-width: none !important; padding: 0 max(28px, calc((100% - 900px) / 2)) 22px !important; background: linear-gradient(to top, var(--os-canvas) 66%, transparent) !important; }
+.apollo-os-v1 #apolloView .apollo-composer { min-height: 64px !important; padding: 8px 9px 8px 12px !important; border: 1px solid var(--os-line-strong) !important; border-radius: 19px !important; background: color-mix(in srgb, var(--os-paper) 88%, transparent) !important; box-shadow: var(--os-shadow) !important; backdrop-filter: blur(18px) !important; }
+.apollo-os-v1 #apolloView .apollo-input { min-height: 42px !important; padding: 10px 7px !important; color: var(--os-ink) !important; font-size: 14px !important; line-height: 1.45 !important; }
+.apollo-os-v1 #apolloView .apollo-send { width: 44px !important; height: 44px !important; border-radius: 13px !important; background: var(--os-inverse) !important; color: var(--os-inverse-ink) !important; }
+.apollo-os-v1 #apolloView .apollo-tools-trigger { width: 42px !important; height: 42px !important; border-radius: 13px !important; color: var(--os-muted) !important; }
+.apollo-os-v1 .apollo-history-panel-inner { border-color: var(--os-line) !important; background: color-mix(in srgb, var(--os-paper) 94%, transparent) !important; box-shadow: var(--os-shadow-float) !important; backdrop-filter: blur(24px) !important; }
+
+/* Existing Settings and Music, brought into the same hierarchy */
+
+.apollo-os-v1 #settingsView .apollo-settings-inner,
+.apollo-os-v1 #musicView .apollo-music-shell { width: min(980px, calc(100% - 72px)) !important; max-width: none !important; margin: 0 auto !important; padding: 56px 0 100px !important; }
+.apollo-os-v1 #settingsView .apollo-settings-section { margin-top: 48px !important; }
+.apollo-os-v1 #settingsView .apollo-settings-section-title { margin: 0 0 12px !important; color: var(--os-faint) !important; font-size: 9px !important; letter-spacing: .12em !important; }
+.apollo-os-v1 #settingsView .apollo-settings-panel { border: 0 !important; border-top: 1px solid var(--os-line-strong) !important; border-radius: 0 !important; background: transparent !important; }
+.apollo-os-v1 #settingsView .apollo-setting-row { min-height: 76px !important; padding: 15px 2px !important; border-bottom: 1px solid var(--os-line) !important; }
+.apollo-os-v1 #settingsView .apollo-setting-row + .apollo-setting-row { border-top: 0 !important; }
+.apollo-os-v1 #settingsView .apollo-setting-name { color: var(--os-ink-soft) !important; font-size: 12px !important; }
+.apollo-os-v1 #settingsView .apollo-setting-description { color: var(--os-muted) !important; }
+
+/* Dialogs and temporary surfaces */
+
+.apollo-os-v1 .apollo-task-modal,
+.apollo-os-v1 .studio5-modal-card,
+.apollo-os-v1 .apollo-event-editor,
+.apollo-os-v1 .apollo-confirm-card {
+    border: 1px solid var(--os-line) !important;
+    border-radius: var(--os-radius-large) !important;
+    background: var(--os-surface-solid) !important;
+    box-shadow: var(--os-shadow-float) !important;
+}
+
+.apollo-os-v1 .apollo-task-modal-backdrop,
+.apollo-os-v1 .studio5-modal-backdrop,
+.apollo-os-v1 .apollo-confirm-backdrop {
+    background: rgba(0, 0, 0, .46) !important;
+    backdrop-filter: blur(10px) !important;
+}
+
+.apollo-os-v1 .apollo-tools-menu,
+.apollo-os-v1 .studio5-menu,
+.apollo-os-v1 .apollo-date-popover,
+.apollo-os-v1 .apollo-time-popover {
+    border: 1px solid var(--os-line) !important;
+    border-radius: 14px !important;
+    background: var(--os-surface-solid) !important;
+    box-shadow: var(--os-shadow-float) !important;
+}
+
+/* Preview is visibly safe without altering production behavior. */
+
+.os-read-only #apolloTaskAdd,
+.os-read-only #apolloWeekAdd,
+.os-read-only #studioView [data-new-project] {
+    opacity: .56;
+}
+
+/* Responsive architecture */
+
+@media (max-width: 980px) {
+    .os-home-grid { grid-template-columns: 1fr; gap: 54px; }
+    .os-up-next { padding-left: 0; border-left: 0; }
+    .os-focus { min-height: 330px; }
+    .os-signal-copy { grid-template-columns: 1fr; gap: 5px; }
+    .apollo-os-v1 #studioView .studio5-project-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+    .os-health-hero { gap: 5vw; }
+}
+
+@media (max-width: 760px) {
+    html.apollo-os-v1 body { padding: 0 !important; }
+
+    .apollo-os-v1 .main { inset: 0 !important; height: 100dvh !important; }
+    .os-topbar { left: 0; height: 56px; padding: max(env(safe-area-inset-top), 0px) 16px 0; grid-template-columns: 1fr auto; }
+    .os-wordmark-name { display: none; }
+    .os-wordmark-mark { width: 21px; height: 21px; }
+    .os-location { display: none; }
+    .os-topbar-end { gap: 9px; }
+    .os-clock { font-size: 10px; }
+    .os-preview-state { max-width: 104px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .os-top-settings { display: none; }
+
+    .os-dock {
+        top: auto;
+        right: max(10px, env(safe-area-inset-right));
+        bottom: max(8px, env(safe-area-inset-bottom));
+        left: max(10px, env(safe-area-inset-left));
+        width: auto;
+        height: 64px;
+        padding: 5px;
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 1px;
+        transform: none;
+        border-radius: 19px;
+        background: color-mix(in srgb, var(--os-surface-solid) 88%, transparent);
+    }
+
+    .os-dock-button { width: 100%; height: 52px; padding: 7px 2px 4px; display: flex; flex-direction: column; gap: 3px; border-radius: 14px; }
+    .os-dock-icon { width: 18px; height: 18px; }
+    .os-dock-label { position: static; padding: 0; border: 0; background: transparent; box-shadow: none; color: inherit; font-size: 8px; font-weight: 560; line-height: 1; opacity: 1; transform: none; }
+    .os-dock-button:hover .os-dock-label,
+    .os-dock-button:focus-visible .os-dock-label { transform: none; }
+    .os-dock-divider,
+    .os-aux-route { display: none !important; }
+    .os-more-button { display: flex; }
+
+    .os-more-backdrop { position: fixed; z-index: 7990; inset: 0; display: block; background: rgba(0, 0, 0, .36); opacity: 0; transition: opacity var(--os-medium); }
+    .os-more-sheet { position: fixed; z-index: 8000; right: 10px; bottom: max(8px, env(safe-area-inset-bottom)); left: 10px; padding: 8px 14px 18px; display: block; border: 1px solid var(--os-line); border-radius: 24px; background: color-mix(in srgb, var(--os-surface-solid) 96%, transparent); box-shadow: var(--os-shadow-float); backdrop-filter: blur(24px); transform: translateY(calc(100% + 24px)); transition: transform var(--os-medium) var(--os-ease); }
+    .os-more-open .os-more-backdrop { opacity: 1; }
+    .os-more-open .os-more-sheet { transform: translateY(0); }
+    .os-sheet-handle { width: 34px; height: 4px; margin: 1px auto 12px; border-radius: 3px; background: var(--os-line-strong); }
+    .os-sheet-head { padding: 7px 2px 16px; display: flex; align-items: start; justify-content: space-between; }
+    .os-sheet-head > div { display: flex; flex-direction: column; gap: 5px; }
+    .os-sheet-head span { color: var(--os-faint); font-size: 9px; font-weight: 650; letter-spacing: .1em; text-transform: uppercase; }
+    .os-sheet-head strong { font-size: 15px; font-weight: 560; }
+    .os-sheet-head button { width: 38px; height: 38px; padding: 10px; border: 0; border-radius: 50%; background: color-mix(in srgb, var(--os-ink) 5%, transparent); color: var(--os-muted); }
+    .os-sheet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .os-sheet-grid .os-dock-button { height: 76px; padding: 12px 4px; gap: 8px; background: color-mix(in srgb, var(--os-ink) 4%, transparent); color: var(--os-ink-soft); }
+    .os-sheet-grid .os-dock-icon { width: 21px; height: 21px; }
+    .os-sheet-grid .os-dock-label { font-size: 9px; }
+
+    .apollo-os-v1 .home,
+    .apollo-os-v1 #apolloView,
+    .apollo-os-v1 #calendarView,
+    .apollo-os-v1 #tasksView,
+    .apollo-os-v1 #studioView,
+    .apollo-os-v1 #musicView,
+    .apollo-os-v1 #settingsView,
+    .apollo-os-v1 .os-custom-view {
+        inset: 56px 0 78px !important;
+    }
+
+    .os-home-shell,
+    .os-page-shell { width: calc(100% - 32px); padding: 28px 0 58px; }
+    .os-home-intro { margin-bottom: 24px; }
+    .os-date-line,
+    .os-page-eyebrow { margin-bottom: 10px; font-size: 9px; }
+    .os-home-intro h1,
+    .os-page-header h1 { font-size: clamp(31px, 10vw, 40px); line-height: 1; }
+    .os-home-intro p,
+    .os-page-header p { margin-top: 11px; font-size: 12px; }
+    .os-command { min-height: 58px; margin-bottom: 40px; padding: 7px 7px 7px 13px; grid-template-columns: 19px 1fr 42px; gap: 9px; border-radius: 17px; }
+    .os-command textarea { padding: 9px 0; font-size: 14px; }
+    .os-command button { width: 42px; height: 42px; padding: 12px; border-radius: 12px; }
+    .os-home-grid { gap: 50px; }
+    .os-focus { min-height: 330px; padding-top: 14px; }
+    .os-focus-body { padding: 45px 0; }
+    .os-focus-body h2 { font-size: clamp(27px, 8.5vw, 38px); }
+    .os-focus-actions { gap: 7px; }
+    .os-text-action { flex: 1 1 auto; justify-content: space-between; }
+    .os-up-next { padding-top: 14px; }
+    .os-agenda-row { min-height: 72px; grid-template-columns: 58px minmax(0, 1fr) 15px; gap: 10px; }
+    .os-agenda-copy b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .os-signal-field { margin-top: 54px; }
+    .os-signal-row { min-height: 82px; grid-template-columns: 28px 76px minmax(0, 1fr) 15px; gap: 10px; }
+    .os-signal-copy { gap: 4px; }
+    .os-signal-copy strong,
+    .os-signal-copy small { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+    .os-page-header { padding-bottom: 26px; align-items: flex-start; flex-direction: column; gap: 20px; }
+    .os-page-actions { width: 100%; justify-content: flex-start; }
+    .os-page-actions .os-control { flex: 1; }
+
+    .os-time-layout { grid-template-columns: 1fr; gap: 42px; padding-top: 30px; }
+    .os-time-now { position: static; display: grid; grid-template-columns: 1fr auto; align-items: end; }
+    .os-time-now strong { margin: 0; font-size: 36px; }
+    .os-time-now p { grid-column: 1 / -1; }
+    .os-day-group + .os-day-group { margin-top: 38px; }
+    .os-time-row { min-height: 76px; grid-template-columns: 62px 6px minmax(0, 1fr) 15px; gap: 11px; }
+    .os-time-copy strong { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+    .os-health-hero { min-height: 0; padding: 54px 0; grid-template-columns: 1fr; gap: 54px; }
+    .os-health-score { width: 176px; height: 176px; margin: 0 auto; }
+    .os-health-score span { top: 48px; }
+    .os-health-score strong { font-size: 50px; }
+    .os-health-meaning h2 { font-size: 28px; }
+    .os-metric-strip { grid-template-columns: 1fr; }
+    .os-metric-strip > div { min-height: 136px; padding: 24px 2px !important; display: grid; grid-template-columns: 1fr auto; align-items: center; }
+    .os-metric-strip > div + div { border-top: 1px solid var(--os-line); border-left: 0; }
+    .os-metric-strip strong { margin: 0; font-size: 30px; }
+    .os-metric-strip p { grid-column: 1 / -1; }
+    .os-health-detail { grid-template-columns: 1fr; gap: 26px; }
+
+    .os-brief-lead { padding: 48px 0 44px; }
+    .os-brief-lead h2 { font-size: 34px; }
+    .os-weather-note { margin: 0 0 48px 0; padding-left: 20px; }
+    .os-brief-item summary { min-height: 88px; grid-template-columns: 28px minmax(0, 1fr) 15px; gap: 10px; }
+    .os-brief-item summary > small { display: none; }
+    .os-brief-item > div { padding: 0 8px 30px 38px; }
+    .os-brief-item > div p { font-size: 16px; line-height: 1.65; }
+
+    .apollo-os-v1 #tasksView .apollo-tasks-shell,
+    .apollo-os-v1 #studioView .studio5-shell,
+    .apollo-os-v1 #settingsView .apollo-settings-inner,
+    .apollo-os-v1 #musicView .apollo-music-shell { width: calc(100% - 32px) !important; padding: 28px 0 58px !important; }
+    .apollo-os-v1 #tasksView .apollo-tasks-header,
+    .apollo-os-v1 #studioView .studio5-topbar { min-height: 116px !important; padding-bottom: 26px !important; align-items: flex-start !important; }
+    .apollo-os-v1 #tasksView .apollo-tasks-title,
+    .apollo-os-v1 #studioView .studio5-topbar h1,
+    .apollo-os-v1 #settingsView .apollo-settings-title,
+    .apollo-os-v1 #musicView .apollo-music-title,
+    .apollo-os-v1 #calendarView .apollo-week-title { font-size: clamp(31px, 10vw, 40px) !important; }
+    .apollo-os-v1 #tasksView .apollo-task-add { min-height: 0 !important; margin: 20px 0 48px !important; padding: 14px 0 20px !important; grid-template-columns: 1fr 1fr !important; }
+    .apollo-os-v1 #tasksView .apollo-task-input { grid-column: 1 / -1 !important; width: 100% !important; }
+    .apollo-os-v1 #tasksView .apollo-date-display,
+    .apollo-os-v1 #tasksView .apollo-time-display { width: 100% !important; }
+    .apollo-os-v1 #tasksView .apollo-task-add-button { grid-column: 1 / -1 !important; width: 100% !important; }
+    .apollo-os-v1 #tasksView .apollo-task-row { min-height: 76px !important; }
+    .apollo-os-v1 #studioView .studio5-topbar { gap: 20px !important; }
+    .apollo-os-v1 #studioView .studio5-top-actions { width: 100% !important; }
+    .apollo-os-v1 #studioView .studio5-top-actions > * { flex: 1 !important; }
+    .apollo-os-v1 #studioView .studio5-stage { padding-top: 34px !important; }
+    .apollo-os-v1 #studioView .studio5-project-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 28px 12px !important; }
+    .apollo-os-v1 #studioView .studio5-project-title { font-size: 12px !important; }
+
+    .apollo-os-v1 #calendarView .apollo-week-header { width: calc(100% - 32px) !important; min-height: 148px !important; padding: 18px 0 18px !important; align-items: flex-start !important; flex-direction: column !important; gap: 16px !important; }
+    .apollo-os-v1 #calendarView .apollo-calendar-eyebrow { display: none !important; }
+    .apollo-os-v1 #calendarView .apollo-week-controls { width: 100% !important; display: grid !important; grid-template-columns: 42px 1fr 42px 42px !important; }
+    .apollo-os-v1 #calendarView .apollo-week-shell { top: 148px !important; right: 12px !important; bottom: 10px !important; left: 12px !important; border-radius: 14px !important; }
+
+    .apollo-os-v1 #apolloView .apollo-chat-header { display: none !important; }
+    .apollo-os-v1 body > #apolloMobileChatHeader { top: 56px !important; right: 16px !important; left: 16px !important; height: 48px !important; border: 0 !important; background: transparent !important; }
+    .apollo-os-v1 #apolloView .apollo-messages { inset: 48px 0 82px !important; padding: 28px 16px 48px !important; }
+    .apollo-os-v1 #apolloView .apollo-welcome-title { font-size: 29px !important; }
+    .apollo-os-v1 #apolloView .apollo-message { margin-bottom: 34px !important; grid-template-columns: 43px minmax(0, 1fr) !important; gap: 11px !important; }
+    .apollo-os-v1 #apolloView .apollo-message.user { padding-left: 14% !important; grid-template-columns: 1fr !important; }
+    .apollo-os-v1 #apolloView .apollo-message-text { font-size: 13px !important; line-height: 1.66 !important; }
+    .apollo-os-v1 #apolloView .apollo-message.assistant .apollo-message-text { font-size: 15px !important; }
+    .apollo-os-v1 #apolloView .apollo-message-actions { opacity: 1 !important; }
+    .apollo-os-v1 #apolloView .apollo-composer-wrap { padding: 0 10px max(8px, env(safe-area-inset-bottom)) !important; }
+    .apollo-os-v1 #apolloView .apollo-composer { min-height: 58px !important; border-radius: 17px !important; }
+    .apollo-os-v1 #apolloView .apollo-send { width: 42px !important; height: 42px !important; }
+
+    .os-toast { right: 16px; bottom: 90px; left: 16px; max-width: none; text-align: center; }
+}
+
+@media (max-width: 360px) {
+    .os-dock { right: 6px; left: 6px; }
+    .os-dock-button { padding-right: 0; padding-left: 0; }
+    .os-dock-label { font-size: 7px; }
+    .os-home-shell,
+    .os-page-shell,
+    .apollo-os-v1 #tasksView .apollo-tasks-shell,
+    .apollo-os-v1 #studioView .studio5-shell,
+    .apollo-os-v1 #settingsView .apollo-settings-inner,
+    .apollo-os-v1 #musicView .apollo-music-shell { width: calc(100% - 24px) !important; }
+    .os-signal-row { grid-template-columns: 24px 62px minmax(0, 1fr) 14px; gap: 8px; }
+    .os-signal-label { font-size: 8px; }
+    .os-text-action { width: 100%; }
+}
+
+/* The legacy mobile layer used a full-height Home canvas. These stronger
+   constraints make every Apollo OS view a real, independently scrollable
+   stage between the top chrome and one-handed dock. */
+@media (max-width: 760px) {
+    html.apollo-os-v1 body .main > .home,
+    html.apollo-os-v1 body .main > #tasksView,
+    html.apollo-os-v1 body .main > #studioView,
+    html.apollo-os-v1 body .main > #musicView,
+    html.apollo-os-v1 body .main > #settingsView,
+    html.apollo-os-v1 body .main > .os-custom-view {
+        top: 56px !important;
+        right: 0 !important;
+        bottom: 78px !important;
+        left: 0 !important;
+        width: auto !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .apollo-os-v1 *,
+    .apollo-os-v1 *::before,
+    .apollo-os-v1 *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}
+
+html[data-reduce-motion="true"].apollo-os-v1 *,
+html[data-reduce-motion="true"].apollo-os-v1 *::before,
+html[data-reduce-motion="true"].apollo-os-v1 *::after,
+html.apollo-reduce-motion.apollo-os-v1 *,
+html.apollo-reduce-motion.apollo-os-v1 *::before,
+html.apollo-reduce-motion.apollo-os-v1 *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+}
+
+/* iPhone finish pass: keep the OS shell as the only mobile chrome. */
+@media (max-width: 760px) {
+    html.apollo-os-v1 body:has(#apolloView.active) #apolloMobileChatHeader,
+    html.apollo-os-v1 #apolloMobileChatHeader,
+    html.apollo-os-v1 #apolloMobileChatHeader.is-visible:not([hidden]),
+    html.apollo-os-v1 #apolloPresence {
+        display: none !important;
+        pointer-events: none !important;
+    }
+
+    html.apollo-os-v1 .home,
+    html.apollo-os-v1 #apolloView,
+    html.apollo-os-v1 #calendarView,
+    html.apollo-os-v1 #tasksView,
+    html.apollo-os-v1 #studioView,
+    html.apollo-os-v1 #musicView,
+    html.apollo-os-v1 #settingsView,
+    html.apollo-os-v1 .os-custom-view {
+        bottom: calc(78px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    html.apollo-os-v1 .os-dock {
+        bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
+        height: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+        padding-bottom: calc(5px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    html.apollo-os-v1 .os-focus {
+        min-height: 270px !important;
+    }
+
+    html.apollo-os-v1 .os-focus-body {
+        padding: 32px 0 28px !important;
+    }
+
+    html.apollo-os-v1 .os-agenda-row,
+    html.apollo-os-v1 .os-time-row,
+    html.apollo-os-v1 .os-signal-row {
+        min-height: 76px !important;
+    }
+
+    html.apollo-os-v1 .os-agenda-copy b,
+    html.apollo-os-v1 .os-time-copy strong,
+    html.apollo-os-v1 .os-signal-copy strong,
+    html.apollo-os-v1 .os-signal-copy small {
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+    }
+
+    html.apollo-os-v1 #apolloView .apollo-messages {
+        inset: 0 0 0 !important;
+        padding: 28px 16px 48px !important;
+        overflow-x: hidden !important;
+    }
+
+    html.apollo-os-v1 #apolloView .apollo-composer-wrap {
+        right: 0 !important;
+        bottom: 10px !important;
+        left: 0 !important;
+        padding: 0 12px !important;
+    }
+
+    html.apollo-os-v1 #apolloView .apollo-composer {
+        min-height: 58px !important;
+        width: 100% !important;
+    }
+
+    html.apollo-os-v1 #apolloView .apollo-input {
+        min-width: 0 !important;
+        min-height: 44px !important;
+        overflow-wrap: anywhere !important;
+    }
+
+    html.apollo-os-v1 #apolloView .apollo-message-body,
+    html.apollo-os-v1 #apolloView .apollo-message-text {
+        max-width: 100% !important;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+    }
+
+    html.apollo-os-v1 #calendarView .apollo-week-event-title {
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+        word-break: break-word !important;
+    }
+
+    html.apollo-os-v1 #calendarView button,
+    html.apollo-os-v1 #tasksView button,
+    html.apollo-os-v1 #musicView button,
+    html.apollo-os-v1 #settingsView button,
+    html.apollo-os-v1 #studioView button,
+    html.apollo-os-v1 .os-control,
+    html.apollo-os-v1 .os-text-action {
+        min-height: 44px !important;
+    }
+
+    html.apollo-os-v1 #tasksView .apollo-task-row {
+        min-height: 64px !important;
+        grid-template-columns: 40px minmax(0, 1fr) 40px !important;
+        gap: 8px !important;
+    }
+
+    html.apollo-os-v1 #tasksView .apollo-task-name,
+    html.apollo-os-v1 #tasksView .apollo-task-meta {
+        min-width: 0 !important;
+        overflow-wrap: anywhere !important;
+        white-space: normal !important;
+    }
+
+    html.apollo-os-v1 #studioView .studio5-project-grid,
+    html.apollo-os-v1 #studioView .studio5-overview-grid,
+    html.apollo-os-v1 #musicView .apollo-music-shell,
+    html.apollo-os-v1 #settingsView .apollo-settings-inner {
+        min-width: 0 !important;
+    }
+
+    html.apollo-os-v1 #studioView .studio5-project-card,
+    html.apollo-os-v1 #studioView .studio5-project-title,
+    html.apollo-os-v1 #musicView *,
+    html.apollo-os-v1 #settingsView * {
+        max-width: 100% !important;
+        overflow-wrap: anywhere !important;
+    }
+
+    html.apollo-os-v1 .studio5-modal-card,
+    html.apollo-os-v1 .apollo-task-modal,
+    html.apollo-os-v1 .apollo-event-editor,
+    html.apollo-os-v1 .apollo-confirm-card {
+        max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
+        overflow-y: auto !important;
+    }
+}

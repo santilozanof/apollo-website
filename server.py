@@ -7648,6 +7648,28 @@ def whoop_rule_based_interpretation(
     )
 
 
+def whoop_interpretation_is_usable(
+    value
+):
+    """Keep transport/provider failures out of the user-facing insight."""
+    text = str(value or "").strip()
+    if not text:
+        return False
+
+    lower = text.lower()
+    blocked_markers = (
+        "api call failed",
+        "http 429",
+        "usage limit",
+        "rate limit",
+        "too many requests",
+        "request failed",
+        "service unavailable",
+        "not authenticated",
+    )
+    return not any(marker in lower for marker in blocked_markers)
+
+
 def whoop_calendar_context():
     """
     Compact upcoming calendar context for WHOOP guidance.
@@ -7867,6 +7889,9 @@ def whoop_smart_interpretation(
         or ""
     ).strip()
 
+    if not whoop_interpretation_is_usable(cached_text):
+        cached_text = ""
+
 
     try:
         cached_at = int(
@@ -8026,6 +8051,11 @@ def whoop_smart_interpretation(
             )
         )
 
+        if not whoop_interpretation_is_usable(interpretation):
+            raise RuntimeError(
+                "WHOOP insight provider returned an unusable response"
+            )
+
     except Exception as exc:
 
         print(
@@ -8038,6 +8068,9 @@ def whoop_smart_interpretation(
                 summary
             )
         )
+
+        if not whoop_interpretation_is_usable(interpretation):
+            interpretation = ""
 
 
     app_state_set(
@@ -8123,13 +8156,23 @@ def whoop_card_payload():
     )
 
 
-    interpretation = (
-        whoop_smart_interpretation(
-            summary,
-            workout,
-            calendar_events
+    try:
+        interpretation = (
+            whoop_smart_interpretation(
+                summary,
+                workout,
+                calendar_events
+            )
         )
-    )
+    except Exception as exc:
+        print(
+            "[Apollo WHOOP] Insight unavailable:",
+            exc
+        )
+        interpretation = whoop_rule_based_interpretation(summary)
+
+    if not whoop_interpretation_is_usable(interpretation):
+        interpretation = ""
 
 
     return {

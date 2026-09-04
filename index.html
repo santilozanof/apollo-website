@@ -17657,6 +17657,30 @@ html[data-theme="light"]
     }
 
 
+    function apolloWhoopInsightText(
+        value
+    ) {
+        const text = String(value || "").trim();
+        if (!text) return "";
+
+        const lower = text.toLowerCase();
+        const blockedMarkers = [
+            "api call failed",
+            "http 429",
+            "usage limit",
+            "rate limit",
+            "too many requests",
+            "request failed",
+            "service unavailable",
+            "not authenticated"
+        ];
+
+        return blockedMarkers.some(marker => lower.includes(marker))
+            ? ""
+            : text;
+    }
+
+
     function apolloWhoopUpdatedLabel() {
 
         const date =
@@ -17734,6 +17758,12 @@ html[data-theme="light"]
                 || {};
 
 
+            const interpretation =
+                apolloWhoopInsightText(
+                    data.interpretation
+                );
+
+
             /*
              * Keep the actual live WHOOP values available
              * for Ask Apollo without exposing them inside
@@ -17759,7 +17789,7 @@ html[data-theme="light"]
                     sleep.total_sleep_hours ?? null,
 
                 interpretation:
-                    data.interpretation || "",
+                    interpretation,
 
                 status:
                     data.status || "ready",
@@ -17787,7 +17817,7 @@ html[data-theme="light"]
 
                 apolloWhoopSetText(
                     "apolloWhoopInterpretation",
-                    data.interpretation
+                    interpretation
                     || (
                         "Your overnight data is still "
                         + "being scored. Apollo will "
@@ -17915,8 +17945,7 @@ html[data-theme="light"]
 
             apolloWhoopSetText(
                 "apolloWhoopInterpretation",
-                data.interpretation
-                || "",
+                interpretation,
                 true
             );
 
@@ -77371,4 +77400,19 @@ html.apollo-jarvis-mode
 </script>
 
 
+<link
+    id="apollo-polish-v1-css"
+    rel="stylesheet"
+    href="/apollo_polish_v1.css?v=20260903-6"
+>
 
+<!-- APOLLO OS — 2026 first-principles interface -->
+<link
+    id="apollo-os-v1-css"
+    rel="stylesheet"
+    href="/apollo_os_v1.css?v=20260903-1"
+>
+<script
+    id="apollo-os-v1-js"
+    src="/apollo_os_v1.js?v=20260903-1"
+></script>
