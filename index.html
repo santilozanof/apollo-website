@@ -22146,7 +22146,7 @@ html.apollo-jarvis-mode .jv10-core-ring.inner::after {
 })();
 </script>
 
-<script id="apollo-studio-v5-loader" src="/studio_v5.js?v=20260818-7"></script>
+<script id="apollo-studio-v5-loader" src="/studio_v5.js?v=20260904-8"></script>
 
 <!-- APOLLO STUDIO ROUTE ISOLATION V1 -->
 <style id="apollo-studio-route-isolation-v1">
@@ -22167,7 +22167,7 @@ html.apollo-jarvis-mode .jv10-core-ring.inner::after {
 <link
     id="apollo-mobile-v1-css"
     rel="stylesheet"
-    href="/apollo_mobile_v1.css?v=20260903-20"
+    href="/apollo_mobile_v1.css?v=20260904-21"
 >
 
 
@@ -28286,6 +28286,174 @@ requestAnimationFrame(() => {
         );
     }
 
+    /*
+     * Timed segments in a single day column share lanes only while
+     * their intervals intersect. Events that merely touch at an end
+     * point intentionally remain independent and use the full width.
+     */
+    function assignCollisionLanes(segments) {
+
+        const ordered =
+            [...segments].sort(
+                (a, b) =>
+                    a.start - b.start
+                    || a.end - b.end
+            );
+
+        const groups = [];
+        let group = [];
+        let groupEnd = -Infinity;
+
+        for (const segment of ordered) {
+
+            if (
+                group.length
+                && segment.start >= groupEnd
+            ) {
+                groups.push(group);
+                group = [];
+                groupEnd = -Infinity;
+            }
+
+            group.push(segment);
+            groupEnd = Math.max(groupEnd, segment.end);
+        }
+
+        if (group.length) {
+            groups.push(group);
+        }
+
+        for (const collisionGroup of groups) {
+
+            const laneEnds = [];
+
+            for (const segment of collisionGroup) {
+
+                let lane = laneEnds.findIndex(
+                    end => end <= segment.start
+                );
+
+                if (lane === -1) {
+                    lane = laneEnds.length;
+                    laneEnds.push(segment.end);
+                } else {
+                    laneEnds[lane] = segment.end;
+                }
+
+                segment.lane = lane;
+            }
+
+            for (const segment of collisionGroup) {
+                segment.laneCount = laneEnds.length;
+            }
+        }
+
+        return ordered;
+    }
+
+    function appendTimedEvent(segment, column) {
+
+        const block =
+            document.createElement("div");
+
+        const titleText =
+            segment.event.summary ||
+            "Untitled event";
+
+        block.className =
+            "apollo-week-event";
+
+        if (segment.laneCount > 2) {
+            block.classList.add(
+                "apollo-week-event-compact"
+            );
+        }
+
+        if (segment.event.id) {
+            block.dataset.eventId =
+                segment.event.id;
+        }
+
+        block.dataset.eventLanes =
+            String(segment.laneCount);
+
+        block.style.top =
+            `${segment.top}px`;
+
+        block.style.height =
+            `${segment.height}px`;
+
+        /*
+         * The small fixed gutter belongs to the column, not the event
+         * duration, so every simultaneous lane stays readable.
+         */
+        block.style.left =
+            `calc(${segment.lane * 100 / segment.laneCount}% + 4px)`;
+
+        block.style.width =
+            `calc(${100 / segment.laneCount}% - 8px)`;
+
+        block.style.right = "auto";
+        block.setAttribute("aria-label", titleText);
+
+        const title =
+            document.createElement("div");
+
+        title.className =
+            "apollo-week-event-title";
+
+        title.textContent = titleText;
+        title.title = titleText;
+        block.appendChild(title);
+
+        if (
+            segment.height >= 38
+            && segment.laneCount < 3
+        ) {
+            const time =
+                document.createElement("div");
+
+            time.className =
+                "apollo-week-event-time";
+
+            if (
+                segment.segmentStart.getTime()
+                === segment.eventStart.getTime()
+            ) {
+                time.textContent =
+                    segment.segmentEnd.getTime()
+                    === segment.eventEnd.getTime()
+                    ? `${formatTime(segment.eventStart)} – ${formatTime(segment.eventEnd)}`
+                    : `${formatTime(segment.eventStart)} →`;
+            } else if (
+                segment.segmentEnd.getTime()
+                === segment.eventEnd.getTime()
+            ) {
+                time.textContent =
+                    `→ ${formatTime(segment.eventEnd)}`;
+            } else {
+                time.textContent = "Continues";
+            }
+
+            block.appendChild(time);
+        }
+
+        if (segment.event.htmlLink) {
+            block.addEventListener(
+                "click",
+                () => {
+                    window.open(
+                        segment.event.htmlLink,
+                        "_blank",
+                        "noopener,noreferrer"
+                    );
+                }
+            );
+        }
+
+        column.appendChild(block);
+    }
+
     function hourLabel(hour) {
         const d = new Date();
         d.setHours(hour, 0, 0, 0);
@@ -28687,6 +28855,11 @@ requestAnimationFrame(() => {
             "apollo-week-grid";
 
         const columns = [];
+        const daySegments =
+            Array.from(
+                { length: 7 },
+                () => []
+            );
         const mobileDateKey = mobileCalendarEnabled()
             ? localDateKey(mobileCalendarDate())
             : "";
@@ -28859,75 +29032,33 @@ requestAnimationFrame(() => {
                         rawHeight - 3
                     );
 
-                const block =
-                    document.createElement("div");
-
-                block.className =
-                    "apollo-week-event";
-
-                if (event.id) {
-                    block.dataset.eventId =
-                        event.id;
-                }
-
-                block.style.top =
-                    `${top}px`;
-
-                block.style.height =
-                    `${height}px`;
-
-                const title =
-                    document.createElement("div");
-
-                title.className =
-                    "apollo-week-event-title";
-
-                title.textContent =
-                    event.summary ||
-                    "Untitled event";
-
-                block.appendChild(title);
-
-                if (height >= 38) {
-                    const time =
-                        document.createElement("div");
-
-                    time.className =
-                        "apollo-week-event-time";
-
-                    if (segmentStart.getTime() === start.getTime()) {
-                        time.textContent =
-                            segmentEnd.getTime() === end.getTime()
-                            ? `${formatTime(start)} – ${formatTime(end)}`
-                            : `${formatTime(start)} →`;
-                    } else if (segmentEnd.getTime() === end.getTime()) {
-                        time.textContent =
-                            `→ ${formatTime(end)}`;
-                    } else {
-                        time.textContent = "Continues";
+                daySegments[dayIndex].push(
+                    {
+                        event,
+                        eventStart: start,
+                        eventEnd: end,
+                        segmentStart,
+                        segmentEnd,
+                        start: clippedStart,
+                        end: clippedEnd,
+                        top,
+                        height
                     }
-
-                    block.appendChild(time);
-                }
-
-                if (event.htmlLink) {
-                    block.addEventListener(
-                        "click",
-                        () => {
-                            window.open(
-                                event.htmlLink,
-                                "_blank",
-                                "noopener,noreferrer"
-                            );
-                        }
-                    );
-                }
-
-                columns[
-                    dayIndex
-                ].appendChild(block);
+                );
             }
         }
+
+        daySegments.forEach(
+            (segments, dayIndex) => {
+                assignCollisionLanes(segments).forEach(
+                    segment =>
+                        appendTimedEvent(
+                            segment,
+                            columns[dayIndex]
+                        )
+                );
+            }
+        );
 
         scroll.appendChild(times);
         scroll.appendChild(grid);
@@ -77544,5 +77675,5 @@ html.apollo-jarvis-mode
 <link
     id="apollo-mobile-layout-v18-css"
     rel="stylesheet"
-    href="/apollo_mobile_v1.css?v=20260903-20"
+    href="/apollo_mobile_v1.css?v=20260904-21"
 >

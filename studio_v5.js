@@ -101,7 +101,6 @@
                     <p>Your music, versions, notes and visual world — organized around the work.</p>
                 </div>
                 <div class="studio5-top-actions">
-                    <button class="studio5-ghost" type="button" data-studio-ask>Ask Apollo</button>
                     <button class="studio5-primary" type="button" data-new-project>${icon("plus")}<span>New Project</span></button>
                 </div>
             </header>
@@ -478,7 +477,6 @@
                     <p>${project.description ? esc(project.description) : "Add a short concept so the project has a point of view."}</p>
                     <div class="studio5-hero-actions">
                         ${firstVersion && playableUrl(firstVersion) ? `<button class="studio5-primary studio5-play-primary" type="button" data-play-version="${firstVersion.id}" data-track-id="${firstTrack.id}">${icon(state.playingVersionId === firstVersion.id && !audio.paused ? "pause" : "play")}<span>${state.playingVersionId === firstVersion.id && !audio.paused ? "Pause" : "Play"}</span></button>` : ""}
-                        <button class="studio5-ghost" type="button" data-project-ask>Ask Apollo</button>
                         <button class="studio5-icon-action" type="button" data-project-menu aria-label="Project actions">${icon("more")}</button>
                     </div>
                 </div>
@@ -1256,31 +1254,6 @@
         });
     }
 
-    function askApollo(project = state.project) {
-        if (project) {
-            window.apolloPendingStudioContext = {
-                project_id: project.id,
-                title: project.title,
-                project_type: project.project_type,
-                status: project.status,
-                description: project.description,
-                tracks: (project.tracks || []).map(track => ({id:track.id,title:track.title,track_number:track.track_number,bpm:track.bpm,musical_key:track.musical_key,versions:(track.versions||[]).map(version => ({id:version.id,label:displayVersionLabel(version),is_primary:Boolean(version.is_current),notes:version.notes}))})),
-                notes: project.notes || [],
-                media: (project.media || []).map(item => ({id:item.id,type:item.media_type,title:item.title,url:item.external_url || item.file_url || null,notes:item.notes || null}))
-            };
-        } else {
-            window.apolloPendingStudioContext = {scope:"studio",projects:state.projects.map(project => ({id:project.id,title:project.title,type:project.project_type,status:project.status}))};
-        }
-        if (typeof window.openApollo === "function") window.openApollo();
-        setTimeout(() => {
-            if (typeof apolloInput !== "undefined" && apolloInput) {
-                apolloInput.value = "";
-                apolloInput.placeholder = project ? `Ask about ${project.title}...` : "Ask Apollo about Studio...";
-                apolloInput.focus();
-            }
-        }, 240);
-    }
-
     stage.addEventListener("click", async event => {
         const button = event.target.closest("button, [data-open-project]");
         if (!button) return;
@@ -1308,7 +1281,6 @@
         if (button.matches("[data-add-media]")) return addMedia();
         if (button.matches("[data-add-link]")) return addLink();
         if (button.matches("[data-edit-note]")) { const note = state.project.notes.find(n => Number(n.id) === Number(button.dataset.editNote)); if (note) editNote(note); return; }
-        if (button.matches("[data-project-ask]")) return askApollo(state.project);
         if (button.matches("[data-project-menu]")) {
             openMenu(button, [
                 {id:"edit",label:"Edit project",run:editProject},
@@ -1350,7 +1322,6 @@
 
     view.addEventListener("click", event => {
         if (event.target.closest("[data-new-project]")) newProject();
-        if (event.target.closest("[data-studio-ask]")) askApollo(state.project);
     });
 
     transportToggle.addEventListener("click", async () => { if (!state.source) return; if (audio.paused) await audio.play().catch(()=>{}); else audio.pause(); syncPlaybackUI(); });

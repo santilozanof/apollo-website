@@ -3886,3 +3886,46 @@ and (
         letter-spacing: .12em !important;
     }
 }
+
+/* =========================================================
+   APOLLO CALENDAR — INTERVAL COLLISION LANES
+   ========================================================= */
+
+.apollo-week-event {
+    min-width: 0;
+}
+
+.apollo-week-event-title,
+.apollo-week-event-time {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@media (max-width: 760px) {
+
+    #calendarView .apollo-week-event {
+        padding: 6px !important;
+        border-radius: 6px !important;
+    }
+
+    #calendarView .apollo-week-event-compact {
+        padding: 4px 5px !important;
+    }
+
+    #calendarView .apollo-week-event-title {
+        font-size: 11px !important;
+        line-height: 1.2 !important;
+        white-space: nowrap !important;
+    }
+
+    #calendarView .apollo-week-event-time {
+        margin-top: 2px !important;
+        font-size: 9px !important;
+    }
+
+    /* Keep the title useful first when three or more lanes share a day. */
+    #calendarView .apollo-week-event-compact .apollo-week-event-time {
+        display: none !important;
+    }
+}
