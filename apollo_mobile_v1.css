@@ -3265,6 +3265,7 @@ and (
         --mobile-page-padding-x: 20px;
         --mobile-header-gap: 10px;
         --mobile-content-gap: 28px;
+        --mobile-chip-gap: 8px;
         --mobile-tabbar-height: 74px;
         --mobile-tabbar-bottom-inset: var(--mobile-safe-bottom);
 
@@ -3305,7 +3306,7 @@ and (
         ) !important;
 
         display: grid !important;
-        grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+        grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
         align-items: center !important;
         overflow: visible !important;
 
@@ -3336,6 +3337,11 @@ and (
     .sidebar .nav .nav-button:nth-child(n),
     .sidebar .sidebar-bottom .nav-button {
         order: initial !important;
+    }
+
+    /* Music remains available by direct navigation; it is not a phone tab. */
+    .sidebar .nav .nav-button:nth-child(3) {
+        display: none !important;
     }
 
     .sidebar .nav-button {
@@ -3507,6 +3513,76 @@ and (
         margin-bottom: 0 !important;
     }
 
+    /*
+       The generic page-button touch target applies to every settings/task
+       button above. These controls have deliberate physical dimensions, so
+       keep their boxes independent of that generic minimum height.
+    */
+    #tasksView .apollo-task-check {
+        box-sizing: border-box !important;
+        width: 22px !important;
+        min-width: 22px !important;
+        max-width: 22px !important;
+        height: 22px !important;
+        min-height: 22px !important;
+        max-height: 22px !important;
+        aspect-ratio: 1 / 1 !important;
+        flex: 0 0 22px !important;
+        align-self: center !important;
+        justify-self: center !important;
+    }
+
+    #settingsView .apollo-setting-control {
+        display: flex !important;
+        align-items: center !important;
+    }
+
+    #settingsView .apollo-setting-control .apollo-toggle {
+        box-sizing: border-box !important;
+        width: 38px !important;
+        min-width: 38px !important;
+        max-width: 38px !important;
+        height: 22px !important;
+        min-height: 22px !important;
+        max-height: 22px !important;
+        aspect-ratio: auto !important;
+        flex: 0 0 38px !important;
+        align-self: flex-start !important;
+        border-radius: 999px !important;
+    }
+
+    /* Home attachments are compact chips, not a clipped horizontal rail. */
+    .home .apollo-home-attachment-tray {
+        display: none !important;
+    }
+
+    .home .apollo-home-attachment-tray.has-items {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        align-items: stretch !important;
+        gap: var(--mobile-chip-gap) !important;
+        max-height: none !important;
+        margin-bottom: var(--mobile-chip-gap) !important;
+        overflow: visible !important;
+        opacity: 1 !important;
+        transform: none !important;
+        pointer-events: auto !important;
+    }
+
+    .home .apollo-home-attachment {
+        min-width: 0 !important;
+        max-width: 100% !important;
+        height: 52px !important;
+        min-height: 52px !important;
+        padding: 8px 30px 8px 8px !important;
+        gap: var(--mobile-chip-gap) !important;
+    }
+
+    .home .apollo-home-attachment.is-image {
+        min-width: 52px !important;
+        padding: 6px 26px 6px 6px !important;
+    }
+
     .apollo-settings-section:first-of-type {
         margin-top: var(--mobile-content-gap) !important;
     }
@@ -3572,6 +3648,26 @@ and (
             + var(--mobile-safe-bottom)
             + 118px
         ) !important;
+    }
+
+    /*
+       iOS resolves dvh after the browser chrome settles. Centering the empty
+       state against lvh starts it at its final, installed-app-safe position.
+    */
+    #apolloView
+    #apolloMessages:not(:has(.apollo-message))
+    .apollo-welcome {
+        min-height: calc(
+            100lvh
+            - var(--mobile-safe-top)
+            - var(--mobile-tabbar-height)
+            - var(--mobile-safe-bottom)
+            - 150px
+        ) !important;
+    }
+
+    #apolloView .apollo-welcome-inner {
+        animation: none !important;
     }
 
     #apolloView.active .apollo-composer-wrap {

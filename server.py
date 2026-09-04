@@ -7819,6 +7819,8 @@ def whoop_generate_interpretation(
             "content": (
                 "You are writing one short WHOOP insight for "
                 "Apollo's personal home dashboard. "
+                "Write in English only, even when calendar event names "
+                "or other supplied context use another language. "
                 "Use ONLY the physiological data and upcoming "
                 "calendar context supplied below. "
                 "Do not browse, search, use tools, inspect files, "
@@ -7890,6 +7892,19 @@ def whoop_smart_interpretation(
     ).strip()
 
     if not whoop_interpretation_is_usable(cached_text):
+        cached_text = ""
+
+
+    # Older cached insights predate the English-only generation contract.
+    # Treat them as stale so a Spanish response cannot survive this update.
+    cached_language = (
+        app_state_get(
+            "whoop_interpretation_language"
+        )
+        or ""
+    ).strip().lower()
+
+    if cached_language != "en":
         cached_text = ""
 
 
@@ -8076,6 +8091,11 @@ def whoop_smart_interpretation(
     app_state_set(
         "whoop_interpretation_text",
         interpretation
+    )
+
+    app_state_set(
+        "whoop_interpretation_language",
+        "en"
     )
 
     app_state_set(
