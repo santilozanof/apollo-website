@@ -43,6 +43,10 @@ CHAT_UPLOAD_DIR.mkdir(
 )
 
 HERMES_URL = "http://127.0.0.1:8642/v1/chat/completions"
+HERMES_GOOGLE_TOKEN_FILE = (
+    Path(os.environ.get("HERMES_HOME", "/root/.hermes"))
+    / "google_token.json"
+)
 
 SPOTIFY_PYTHON = "/usr/local/lib/hermes-agent/venv/bin/python"
 SPOTIFY_TOOL = "/root/spotify_tool.py"
@@ -1675,6 +1679,31 @@ def _apollo_build_hermes_payload(messages, stream=False):
     toolsets = _apollo_choose_hermes_toolsets(
         messages
     )
+
+    if toolsets is None:
+        recent_text = "\n".join(
+            str(item.get("content", ""))
+            for item in messages[-6:]
+            if isinstance(item, dict)
+        ).lower()
+        if any(
+            signal in recent_text
+            for signal in (
+                "calendar",
+                "schedule",
+                "event",
+                "appointment",
+                "meeting",
+                "reminder",
+            )
+        ):
+            try:
+                google_sync_hermes_token()
+            except Exception as exc:
+                print(
+                    "[Apollo Google Auth] Hermes token sync unavailable: "
+                    f"{exc}"
+                )
 
     if toolsets is None:
         tool_label = "FULL"
@@ -8482,6 +8511,59 @@ def google_get_access_token():
         )
 
     return access_token
+
+
+def google_sync_hermes_token():
+    """Expose Apollo's current Calendar OAuth state to Hermes' skill adapter.
+
+    Apollo's database is the source of truth. Hermes' Google Workspace skill
+    accepts the standard authorized-user JSON file, so refresh the Apollo
+    token first and atomically mirror only that short-lived adapter payload.
+    """
+    access_token = google_get_access_token()
+    refresh_token = app_state_get("google_refresh_token")
+    if not refresh_token:
+        raise GoogleCalendarAuthError(
+            "Google Calendar needs to be connected"
+        )
+
+    config = get_google_oauth_config()
+    try:
+        expires_at = int(
+            app_state_get(
+                "google_access_token_expires_at",
+                "0"
+            )
+        )
+    except (TypeError, ValueError):
+        expires_at = 0
+
+    token_payload = {
+        "type": "authorized_user",
+        "token": access_token,
+        "refresh_token": refresh_token,
+        "token_uri": config["token_uri"],
+        "client_id": config["client_id"],
+        "client_secret": config["client_secret"],
+        "scopes": [GOOGLE_CALENDAR_SCOPE],
+    }
+    if expires_at:
+        token_payload["expiry"] = datetime.fromtimestamp(
+            expires_at,
+            timezone.utc
+        ).isoformat().replace("+00:00", "Z")
+
+    token_path = HERMES_GOOGLE_TOKEN_FILE
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = token_path.with_name(
+        token_path.name + ".apollo-tmp"
+    )
+    temporary_path.write_text(
+        json.dumps(token_payload, indent=2) + "\n",
+        encoding="utf-8"
+    )
+    os.chmod(temporary_path, 0o600)
+    os.replace(temporary_path, token_path)
 
 
 def google_calendar_connection_status():
