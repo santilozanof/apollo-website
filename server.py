@@ -10029,6 +10029,11 @@ def canvas_subscription_event_keys(range_start, range_end, requested_zone):
     conn.close()
     keys, uids = set(), set()
     for row in rows:
+        # A Canvas UID is an external identity, not a date-range heuristic.
+        # Keep it even if a stale Google import carries a different date.
+        uid = str(row["uid"] or "").strip()
+        if uid:
+            uids.add(uid)
         try:
             event = {
                 "summary": row["summary"],
@@ -10037,7 +10042,6 @@ def canvas_subscription_event_keys(range_start, range_end, requested_zone):
             }
             if _subscription_event_overlaps(event, range_start, range_end, requested_zone):
                 keys.add(_calendar_event_equivalence_key(event))
-                uids.add(str(row["uid"] or "").strip())
         except (json.JSONDecodeError, KeyError, TypeError):
             continue
     return keys, {uid for uid in uids if uid}
