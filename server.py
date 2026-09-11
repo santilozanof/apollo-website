@@ -13,6 +13,7 @@ import mimetypes
 import shutil
 import hashlib
 import threading
+import tempfile
 from automation_engine import (
     AutomationEngine,
     init_automation_schema,
@@ -5460,25 +5461,187 @@ def spotify_playback_state(data=None, error=None):
     return result
 
 
-def get_now_playing():
-    """Return Spotify playback, retaining auth and request failures distinctly."""
+def spotify_current_with_player_probe():
+    """Run the existing Spotify helper and capture player API facts safely.
+
+    The helper owns the persisted OAuth token and refresh flow, but older
+    versions collapse a 204 response into an empty object.  A tiny, temporary
+    Python import hook sees the helper's already-authorized request, records
+    only safe diagnostics, and compares it with /v1/me/player using that same
+    token.  It never writes, returns, or logs the bearer token.
+    """
+    hook = r'''
+import atexit, json, os, urllib.error, urllib.request
+trace_path = os.environ.get("APOLLO_SPOTIFY_TRACE_FILE")
+state = {"currently_playing": {}, "player": {}, "granted_scopes": []}
+original_urlopen = urllib.request.urlopen
+original_json_load = json.load
+original_json_loads = json.loads
+
+def remember_scopes(value):
+    if isinstance(value, dict) and value.get("access_token") and value.get("scope"):
+        scopes = value.get("scope")
+        state["granted_scopes"] = sorted(str(scopes).split()) if isinstance(scopes, str) else list(scopes or [])
+    return value
+
+def watched_load(*args, **kwargs):
+    return remember_scopes(original_json_load(*args, **kwargs))
+
+def watched_loads(*args, **kwargs):
+    return remember_scopes(original_json_loads(*args, **kwargs))
+
+json.load = watched_load
+json.loads = watched_loads
+
+def request_url(request):
+    return request.full_url if hasattr(request, "full_url") else str(request)
+
+def request_auth(request):
+    if not hasattr(request, "get_header"):
+        return None
+    return request.get_header("Authorization") or request.get_header("authorization")
+
+def response_status(response):
+    return getattr(response, "status", None) or response.getcode()
+
+def player_probe(authorization):
+    if state["player"] or not authorization:
+        return
+    request = urllib.request.Request(
+        "https://api.spotify.com/v1/me/player",
+        headers={"Authorization": authorization},
+    )
     try:
-        # The helper refreshes its persisted access token when it has expired,
-        # then issues Spotify's GET /v1/me/player/currently-playing request.
+        with original_urlopen(request, timeout=20) as response:
+            status = response_status(response)
+            payload = response.read().decode("utf-8", errors="replace")
+            state["player"] = {"status": status}
+            if payload:
+                data = original_json_loads(payload)
+                item = data.get("item") if isinstance(data, dict) else {}
+                device = data.get("device") if isinstance(data, dict) else {}
+                state["player"].update({
+                    "is_playing": data.get("is_playing") if isinstance(data, dict) else None,
+                    "item": item if isinstance(item, dict) else {},
+                    "device": {"name": device.get("name"), "type": device.get("type")} if isinstance(device, dict) else {},
+                })
+    except urllib.error.HTTPError as error:
+        state["player"] = {"status": error.code, "error": error.read().decode("utf-8", errors="replace")[:500]}
+    except Exception as error:
+        state["player"] = {"error": str(error)}
+
+def traced_urlopen(request, *args, **kwargs):
+    url = request_url(request)
+    is_current = "/v1/me/player/currently-playing" in url
+    try:
+        response = original_urlopen(request, *args, **kwargs)
+        if is_current:
+            state["currently_playing"] = {"status": response_status(response)}
+            player_probe(request_auth(request))
+        return response
+    except urllib.error.HTTPError as error:
+        if is_current:
+            state["currently_playing"] = {"status": error.code, "error": error.read().decode("utf-8", errors="replace")[:500]}
+            player_probe(request_auth(request))
+        raise
+
+urllib.request.urlopen = traced_urlopen
+
+try:
+    import requests
+    original_request = requests.sessions.Session.request
+    def traced_request(session, method, url, **kwargs):
+        is_current = "/v1/me/player/currently-playing" in str(url)
+        response = original_request(session, method, url, **kwargs)
+        if is_current:
+            state["currently_playing"] = {"status": response.status_code}
+            headers = kwargs.get("headers") or {}
+            player_probe(headers.get("Authorization") or headers.get("authorization"))
+        return response
+    requests.sessions.Session.request = traced_request
+except Exception:
+    pass
+
+def write_trace():
+    if trace_path:
+        with open(trace_path, "w", encoding="utf-8") as output:
+            json.dump(state, output)
+atexit.register(write_trace)
+'''
+    with tempfile.TemporaryDirectory(prefix="apollo-spotify-probe-") as directory:
+        directory_path = Path(directory)
+        trace_path = directory_path / "trace.json"
+        (directory_path / "sitecustomize.py").write_text(hook, encoding="utf-8")
+        environment = dict(os.environ)
+        environment["APOLLO_SPOTIFY_TRACE_FILE"] = str(trace_path)
+        environment["PYTHONPATH"] = directory + os.pathsep + environment.get("PYTHONPATH", "")
         result = subprocess.run(
             [SPOTIFY_PYTHON, SPOTIFY_TOOL, "current"],
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=25,
+            env=environment,
         )
+        try:
+            diagnostics = json.loads(trace_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            diagnostics = {"currently_playing": {}, "player": {}, "granted_scopes": []}
+    return result, diagnostics
+
+
+def spotify_player_result(diagnostics):
+    """Convert the independent /me/player response into Apollo playback data."""
+    player = (diagnostics or {}).get("player") or {}
+    item = player.get("item") if isinstance(player.get("item"), dict) else {}
+    if player.get("status") != 200 or not item:
+        return None
+    artists = ", ".join(
+        str(artist.get("name") or "").strip()
+        for artist in item.get("artists") or []
+        if isinstance(artist, dict)
+    ).strip() or None
+    album = item.get("album") if isinstance(item.get("album"), dict) else {}
+    images = album.get("images") if isinstance(album.get("images"), list) else []
+    device = player.get("device") if isinstance(player.get("device"), dict) else {}
+    return {
+        "playing": bool(player.get("is_playing")),
+        "title": item.get("name"),
+        "artists": artists,
+        "album": album.get("name"),
+        "artwork": (images[0] or {}).get("url") if images and isinstance(images[0], dict) else None,
+        "progress_ms": 0,
+        "duration_ms": item.get("duration_ms") or 0,
+        "device": device.get("name"),
+        "device_type": device.get("type"),
+        "track_id": item.get("id"),
+    }
+
+
+def get_now_playing():
+    """Return Spotify playback, retaining auth and request failures distinctly."""
+    try:
+        result, diagnostics = spotify_current_with_player_probe()
         if result.returncode != 0:
-            return spotify_playback_state(
+            playback = spotify_playback_state(
                 error=result.stderr.strip() or result.stdout.strip()
             )
-        output = result.stdout.strip()
-        if not output:
-            return spotify_playback_state({})
-        return spotify_playback_state(json.loads(output))
+        else:
+            output = result.stdout.strip()
+            helper_data = json.loads(output) if output else {}
+            # A 204 from currently-playing is not decisive: Spotify returns a
+            # full /me/player object for paused and some active-device states.
+            playback = spotify_playback_state(helper_data)
+            player_data = spotify_player_result(diagnostics)
+            if player_data:
+                playback = spotify_playback_state(player_data)
+        playback["spotify_diagnostics"] = diagnostics
+        print(
+            "[Apollo Spotify] "
+            f"scopes={diagnostics.get('granted_scopes', [])} "
+            f"currently_playing={diagnostics.get('currently_playing', {}).get('status')} "
+            f"player={diagnostics.get('player', {}).get('status')}"
+        )
+        return playback
     except Exception as error:
         print(f"[Apollo] Spotify error: {error}")
         return spotify_playback_state(error=error)
