@@ -11,6 +11,8 @@ import secrets
 import time
 import mimetypes
 import shutil
+import hashlib
+import threading
 from automation_engine import (
     AutomationEngine,
     init_automation_schema,
@@ -135,6 +137,95 @@ def init_db():
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         )
+    """)
+
+    # Calendar subscriptions are intentionally independent of Google OAuth.
+    # The feed URL is backend-only: API responses expose status, never it.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS calendar_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL DEFAULT 'ical',
+            feed_url TEXT NOT NULL,
+            display_name TEXT,
+            active INTEGER NOT NULL DEFAULT 1,
+            sync_interval_seconds INTEGER NOT NULL DEFAULT 900,
+            last_synced_at TEXT,
+            last_sync_attempt_at TEXT,
+            last_error TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS calendar_subscription_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subscription_id INTEGER NOT NULL,
+            event_key TEXT NOT NULL,
+            uid TEXT NOT NULL,
+            recurrence_id TEXT,
+            summary TEXT,
+            start_json TEXT NOT NULL,
+            end_json TEXT NOT NULL,
+            due_json TEXT,
+            description TEXT,
+            location TEXT,
+            calendar_name TEXT,
+            html_link TEXT,
+            ical_status TEXT,
+            completion_state TEXT NOT NULL DEFAULT 'unknown',
+            completion_source TEXT,
+            raw_hash TEXT,
+            active INTEGER NOT NULL DEFAULT 1,
+            deleted_at TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(subscription_id, event_key),
+            FOREIGN KEY(subscription_id) REFERENCES calendar_subscriptions(id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_calendar_subscription_events_active
+        ON calendar_subscription_events(subscription_id, active)
+    """)
+
+    # Migrate the first Canvas implementation to a canonical UID key. SQLite
+    # treats NULL values as distinct in unique indexes, so recurrence IDs use
+    # an empty string when absent. Keep the newest representation of any old
+    # duplicate before enforcing the database-level invariant.
+    subscription_event_columns = {
+        row["name"]
+        for row in conn.execute(
+            "PRAGMA table_info(calendar_subscription_events)"
+        ).fetchall()
+    }
+    if "ical_status" not in subscription_event_columns:
+        conn.execute("ALTER TABLE calendar_subscription_events ADD COLUMN ical_status TEXT")
+    if "completion_state" not in subscription_event_columns:
+        conn.execute("ALTER TABLE calendar_subscription_events ADD COLUMN completion_state TEXT NOT NULL DEFAULT 'unknown'")
+    if "completion_source" not in subscription_event_columns:
+        conn.execute("ALTER TABLE calendar_subscription_events ADD COLUMN completion_source TEXT")
+    conn.execute("UPDATE calendar_subscription_events SET recurrence_id = '' WHERE recurrence_id IS NULL")
+    duplicate_rows = conn.execute("""
+        SELECT subscription_id, uid, recurrence_id, GROUP_CONCAT(id) AS ids
+        FROM calendar_subscription_events
+        GROUP BY subscription_id, uid, recurrence_id
+        HAVING COUNT(*) > 1
+    """).fetchall()
+    for duplicate in duplicate_rows:
+        rows = conn.execute("""
+            SELECT id FROM calendar_subscription_events
+            WHERE subscription_id = ? AND uid = ? AND recurrence_id = ?
+            ORDER BY updated_at DESC, id DESC
+        """, (duplicate["subscription_id"], duplicate["uid"], duplicate["recurrence_id"])).fetchall()
+        conn.executemany(
+            "DELETE FROM calendar_subscription_events WHERE id = ?",
+            [(row["id"],) for row in rows[1:]],
+        )
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_subscription_events_uid_recurrence
+        ON calendar_subscription_events(subscription_id, uid, recurrence_id)
     """)
 
     conn.execute("""
@@ -2043,7 +2134,7 @@ def apollo_context_calendar(
     for event in (
         events
         or []
-    )[:100]:
+    ):
 
         if not isinstance(
             event,
@@ -2071,6 +2162,9 @@ def apollo_context_calendar(
         compact.append({
             "id":
                 event.get("id"),
+
+            "calendarId":
+                event.get("calendarId"),
 
             "summary":
                 event.get("summary"),
@@ -5297,58 +5391,97 @@ def wip_upload_finish(
     )
 
 
-def get_now_playing():
-    """
-    Return rich Spotify playback state for Apollo Music.
-    """
+def spotify_playback_state(data=None, error=None):
+    """Normalize Spotify's current-playback result without hiding failures.
 
+    ``spotify_tool.py current`` is the owner of Spotify OAuth and refreshes an
+    expired access token from its stored refresh token before it makes the
+    currently-playing request.  Apollo deliberately retains the tool's
+    structured result, then adds a stable state for every outcome the Home
+    card needs to distinguish.
+    """
+    empty = {
+        "playing": False,
+        "title": None,
+        "artists": None,
+        "playback_state": "idle",
+        "connection_state": "connected",
+    }
+    if error:
+        message = str(error).strip() or "Spotify unavailable"
+        lowered = message.casefold()
+        reconnect_markers = (
+            "invalid_grant",
+            "refresh token",
+            "not authenticated",
+            "not authorized",
+            "authorization expired",
+            "authentication expired",
+            "reconnect",
+        )
+        is_reconnect = any(marker in lowered for marker in reconnect_markers)
+        return {
+            **empty,
+            "playback_state": "disconnected" if is_reconnect else "error",
+            "connection_state": "disconnected" if is_reconnect else "error",
+            "error": message,
+        }
+
+    if not isinstance(data, dict):
+        return {
+            **empty,
+            "playback_state": "error",
+            "connection_state": "error",
+            "error": "Invalid Spotify response",
+        }
+
+    # The helper supports both its compact Apollo result and Spotify's native
+    # currently-playing payload.  Keeping an item that Spotify returned while
+    # is_playing is false is important: that is paused, not "nothing playing".
+    item = data.get("item") if isinstance(data.get("item"), dict) else {}
+    title = data.get("title") or item.get("name")
+    artists = data.get("artists")
+    if not artists and item.get("artists"):
+        artists = ", ".join(
+            str(artist.get("name") or "").strip()
+            for artist in item["artists"]
+            if isinstance(artist, dict)
+        ).strip() or None
+    playing = data.get("playing")
+    if playing is None:
+        playing = data.get("is_playing")
+    playing = bool(playing)
+
+    result = {**data, **empty, "title": title, "artists": artists, "playing": playing}
+    if title:
+        result["playback_state"] = "playing" if playing else "paused"
+    elif data.get("paused") or data.get("is_paused"):
+        result["playback_state"] = "paused"
+    return result
+
+
+def get_now_playing():
+    """Return Spotify playback, retaining auth and request failures distinctly."""
     try:
+        # The helper refreshes its persisted access token when it has expired,
+        # then issues Spotify's GET /v1/me/player/currently-playing request.
         result = subprocess.run(
-            [
-                SPOTIFY_PYTHON,
-                SPOTIFY_TOOL,
-                "current"
-            ],
+            [SPOTIFY_PYTHON, SPOTIFY_TOOL, "current"],
             capture_output=True,
             text=True,
-            timeout=15
+            timeout=15,
         )
-
         if result.returncode != 0:
-            error = result.stderr.strip()
-
-            return {
-                "playing": False,
-                "title": None,
-                "artists": None,
-                "error": error or "Spotify unavailable"
-            }
-
+            return spotify_playback_state(
+                error=result.stderr.strip() or result.stdout.strip()
+            )
         output = result.stdout.strip()
-
         if not output:
-            return {
-                "playing": False,
-                "title": None,
-                "artists": None
-            }
-
-        data = json.loads(output)
-
-        if not isinstance(data, dict):
-            raise ValueError("Invalid Spotify response")
-
-        return data
-
+            return spotify_playback_state({})
+        return spotify_playback_state(json.loads(output))
     except Exception as error:
         print(f"[Apollo] Spotify error: {error}")
-
-        return {
-            "playing": False,
-            "title": None,
-            "artists": None,
-            "error": str(error)
-        }
+        return spotify_playback_state(error=error)
 
 
 def get_spotify_recent_contexts():
@@ -8252,6 +8385,10 @@ class GoogleCalendarAuthError(RuntimeError):
     """Calendar credentials need browser-based reconnection."""
 
 
+class GoogleCalendarReadOnlyError(RuntimeError):
+    """The account is connected but this individual calendar is not writable."""
+
+
 def app_state_get(key, default=None):
     conn = db()
 
@@ -8644,10 +8781,19 @@ def google_sync_hermes_token():
 
 
 def google_calendar_connection_status():
-    """Report usable Calendar credentials, refreshing when necessary."""
+    """Report backend-owned Calendar capability, refreshing when necessary.
+
+    Apollo requests the full Google Calendar scope, which covers both reads
+    and writes. A successfully refreshed token therefore makes both
+    capabilities available to every chat; it is not a Hermes/session flag.
+    Google remains the final authority: a later API rejection is reported
+    from that real request rather than guessed here.
+    """
     if not app_state_get("google_refresh_token"):
         return {
             "connected": False,
+            "can_read": False,
+            "can_write": False,
             "reconnect": True,
             "error": "Google Calendar is not connected"
         }
@@ -8657,18 +8803,24 @@ def google_calendar_connection_status():
     except GoogleCalendarAuthError as error:
         return {
             "connected": False,
+            "can_read": False,
+            "can_write": False,
             "reconnect": True,
             "error": str(error)
         }
     except Exception as error:
         return {
             "connected": False,
+            "can_read": False,
+            "can_write": False,
             "reconnect": False,
             "error": str(error)
         }
 
     return {
         "connected": True,
+        "can_read": True,
+        "can_write": True,
         "reconnect": False,
         "error": None
     }
@@ -8703,6 +8855,27 @@ def google_calendar_request_raw(request_factory, operation):
                     "it in Apollo Settings"
                 )
 
+            # A subscribed calendar (for example Canvas) can be readable
+            # through a valid Google connection while rejecting writes. Keep
+            # that distinct from an OAuth disconnect.
+            if (
+                exc.code == 403
+                and str(operation).upper() in {"POST", "PATCH", "DELETE"}
+                and any(
+                    marker in body.lower()
+                    for marker in (
+                        "forbidden",
+                        "insufficientpermissions",
+                        "accessdenied",
+                        "not organizer",
+                    )
+                )
+            ):
+                raise GoogleCalendarReadOnlyError(
+                    "This subscribed calendar is read-only; Google Calendar "
+                    "is still connected."
+                )
+
             raise RuntimeError(
                 f"Google Calendar {operation} failed: "
                 f"{exc.code} {body}"
@@ -8713,108 +8886,708 @@ def google_calendar_request_raw(request_factory, operation):
     )
 
 
-def google_calendar_events(days=7, start_date=None):
-    if start_date:
-        try:
-            tz_name = app_state_get(
-                "time_zone",
-                "UTC"
+def google_calendar_visible_ids():
+    """Return every visible calendar Apollo can read, including primary."""
+    calendar_ids = ["primary"]
+    page_token = None
+
+    while True:
+        params = {"maxResults": "250"}
+        if page_token:
+            params["pageToken"] = page_token
+
+        url = (
+            "https://www.googleapis.com/calendar/v3/users/me/calendarList?"
+            + urllib.parse.urlencode(params)
+        )
+
+        raw = google_calendar_request_raw(
+            lambda token: urllib.request.Request(
+                url,
+                headers={"Authorization": f"Bearer {token}"}
+            ),
+            "list calendars"
+        )
+        data = json.loads(raw.decode("utf-8"))
+
+        for calendar in data.get("items", []):
+            calendar_id = str(calendar.get("id") or "").strip()
+            if calendar_id and not calendar.get("hidden"):
+                calendar_ids.append(calendar_id)
+
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+
+    return list(dict.fromkeys(calendar_ids))
+
+
+def normalize_google_calendar_event(event, calendar_id):
+    """Keep only the event fields Apollo's read and edit flows need."""
+    return {
+        "id": event.get("id"),
+        "calendarId": calendar_id,
+        "summary": event.get("summary", "(No title)"),
+        "start": event.get("start"),
+        "end": event.get("end"),
+        "location": event.get("location"),
+        "description": event.get("description"),
+        "status": event.get("status"),
+        "htmlLink": event.get("htmlLink"),
+        "recurringEventId": event.get("recurringEventId"),
+        "originalStartTime": event.get("originalStartTime"),
+        "recurrence": event.get("recurrence"),
+    }
+
+
+def fetch_calendar_events(
+    calendar_ids,
+    time_min,
+    time_max,
+    query=None,
+    fetch_all_pages=True
+):
+    """Fetch normalized events for every requested calendar and page."""
+    events = []
+    seen = set()
+
+    for calendar_id in calendar_ids or ["primary"]:
+        calendar_id = str(calendar_id or "primary").strip() or "primary"
+        page_token = None
+        page_number = 0
+
+        while True:
+            page_number += 1
+            params = {
+                "timeMin": time_min,
+                "timeMax": time_max,
+                "singleEvents": "true",
+                "orderBy": "startTime",
+                "maxResults": "250",
+            }
+
+            if query:
+                params["q"] = str(query)
+            if page_token:
+                params["pageToken"] = page_token
+
+            url = (
+                "https://www.googleapis.com/calendar/v3/calendars/"
+                + urllib.parse.quote(calendar_id, safe="")
+                + "/events?"
+                + urllib.parse.urlencode(params)
             )
 
-            tz = ZoneInfo(tz_name)
+            try:
+                raw = google_calendar_request_raw(
+                    lambda token: urllib.request.Request(
+                        url,
+                        headers={"Authorization": f"Bearer {token}"}
+                    ),
+                    f"retrieve events for {calendar_id}"
+                )
+                data = json.loads(raw.decode("utf-8"))
+            except GoogleCalendarAuthError:
+                raise
+            except Exception as error:
+                raise RuntimeError(
+                    f"Google Calendar retrieval failed for {calendar_id}: {error}"
+                )
 
+            page_items = data.get("items", [])
+            print(
+                "[Apollo Calendar Search] "
+                f"calendar={calendar_id} page={page_number} "
+                f"events_received={len(page_items)} "
+                f"next_page_token={'yes' if data.get('nextPageToken') else 'no'}"
+            )
+
+            for item in page_items:
+                event = normalize_google_calendar_event(item, calendar_id)
+                event_id = str(event.get("id") or "").strip()
+                key = f"{calendar_id}:{event_id}"
+                if event_id and key not in seen:
+                    events.append(event)
+                    seen.add(key)
+
+            page_token = data.get("nextPageToken")
+            if not fetch_all_pages or not page_token:
+                break
+
+    events.sort(
+        key=lambda event: str(
+            (event.get("start") or {}).get("dateTime")
+            or (event.get("start") or {}).get("date")
+            or ""
+        )
+    )
+
+    return events
+
+
+def google_calendar_events(
+    days=7,
+    start_date=None,
+    end_date=None,
+    time_zone=None,
+    calendar_ids=None,
+    query=None
+):
+    tz = None
+
+    if start_date:
+        try:
+            tz_name = str(
+                time_zone
+                or app_state_get("time_zone", "UTC")
+            ).strip()
+            tz = ZoneInfo(tz_name)
             local_start = datetime.strptime(
                 start_date,
                 "%Y-%m-%d"
-            ).replace(
-                tzinfo=tz
-            )
-
-            range_start = local_start.astimezone(
-                timezone.utc
-            )
-
+            ).replace(tzinfo=tz)
+            range_start = local_start.astimezone(timezone.utc)
         except Exception:
-            raise RuntimeError(
-                "Invalid calendar start date"
-            )
-
+            raise RuntimeError("Invalid calendar start date")
     else:
-        range_start = datetime.now(
-            timezone.utc
-        )
+        range_start = datetime.now(timezone.utc)
 
-    time_min = (
-        range_start.isoformat()
-        .replace("+00:00", "Z")
+    if end_date:
+        try:
+            if tz is None:
+                tz_name = str(
+                    time_zone
+                    or app_state_get("time_zone", "UTC")
+                ).strip()
+                tz = ZoneInfo(tz_name)
+            range_end = datetime.strptime(
+                end_date,
+                "%Y-%m-%d"
+            ).replace(tzinfo=tz).astimezone(timezone.utc)
+        except Exception:
+            raise RuntimeError("Invalid calendar end date")
+    elif start_date and tz is not None:
+        range_end = (local_start + timedelta(days=days)).astimezone(timezone.utc)
+    else:
+        range_end = range_start + timedelta(days=days)
+
+    if range_end <= range_start:
+        raise RuntimeError("Calendar end date must be after start date")
+
+    time_min = range_start.isoformat().replace("+00:00", "Z")
+    time_max = range_end.isoformat().replace("+00:00", "Z")
+    if calendar_ids is None:
+        target_calendars = google_calendar_visible_ids()
+    elif isinstance(calendar_ids, str):
+        target_calendars = [calendar_ids]
+    else:
+        target_calendars = list(calendar_ids)
+
+    print(
+        "[Apollo Calendar Search] "
+        f"from={start_date or time_min} to={end_date or time_max} "
+        f"calendars={len(target_calendars)}"
     )
 
-    time_max = (
-        (range_start + timedelta(days=days))
-        .isoformat()
-        .replace("+00:00", "Z")
+    events = fetch_calendar_events(
+        target_calendars,
+        time_min,
+        time_max,
+        query=query,
+        fetch_all_pages=True
     )
 
-    params = urllib.parse.urlencode({
-        "timeMin": time_min,
-        "timeMax": time_max,
-        "singleEvents": "true",
-        "orderBy": "startTime",
-        "maxResults": "100",
-    })
-
-    url = (
-        "https://www.googleapis.com/calendar/v3/"
-        "calendars/primary/events?"
-        + params
+    print(
+        "[Apollo Calendar Search] "
+        f"total_raw_events={len(events)}"
     )
-
-    raw = google_calendar_request_raw(
-        lambda token: urllib.request.Request(
-            url,
-            headers={
-                "Authorization": f"Bearer {token}"
-            }
-        ),
-        "request"
-    )
-
-    data = json.loads(raw.decode("utf-8"))
-
-    events = []
-
-    for item in data.get("items", []):
-        events.append({
-            "id": item.get("id"),
-            "summary": item.get(
-                "summary",
-                "(No title)"
-            ),
-            "start": item.get("start"),
-            "end": item.get("end"),
-            "location": item.get("location"),
-            "description": item.get(
-                "description"
-            ),
-            "status": item.get("status"),
-            "htmlLink": item.get(
-                "htmlLink"
-            ),
-            "recurringEventId":
-                item.get(
-                    "recurringEventId"
-                ),
-            "originalStartTime":
-                item.get(
-                    "originalStartTime"
-                ),
-            "recurrence":
-                item.get(
-                    "recurrence"
-                ),
-        })
-
     return events
+
+
+
+# ─────────────────────────────
+# CALENDAR SUBSCRIPTIONS (iCal / Canvas)
+# ─────────────────────────────
+
+ICAL_SYNC_INTERVAL_SECONDS = 15 * 60
+ICAL_MAX_FEED_BYTES = 5 * 1024 * 1024
+
+
+def _calendar_now_iso():
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _ical_unescape(value):
+    return str(value or "").replace("\\N", "\n").replace("\\n", "\n").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
+
+
+def _ical_properties(payload):
+    """Parse unfolded iCalendar content without making a frontend parser trust a secret feed URL."""
+    text = payload.decode("utf-8-sig", errors="replace")
+    lines = []
+    for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if line.startswith((" ", "\t")) and lines:
+            lines[-1] += line[1:]
+        else:
+            lines.append(line)
+
+    events, current = [], None
+    for line in lines:
+        upper = line.upper()
+        if upper == "BEGIN:VEVENT":
+            current = {}
+            continue
+        if upper == "END:VEVENT":
+            if current is not None:
+                events.append(current)
+            current = None
+            continue
+        if current is None or ":" not in line:
+            continue
+        head, value = line.split(":", 1)
+        parts = head.split(";")
+        name = parts[0].upper()
+        params = {}
+        for part in parts[1:]:
+            if "=" in part:
+                key, parameter_value = part.split("=", 1)
+                params[key.upper()] = parameter_value.strip('"')
+        current.setdefault(name, []).append((params, _ical_unescape(value)))
+    return events
+
+
+def _ical_value(properties, *names):
+    for name in names:
+        values = properties.get(name.upper()) or []
+        if values:
+            return values[0]
+    return ({}, "")
+
+
+def _ical_datetime(params, value, fallback_zone):
+    """Convert an ICS DATE or DATE-TIME to Apollo's existing Google-like shape."""
+    value = str(value or "").strip()
+    if not value:
+        return None
+    value_type = str(params.get("VALUE", "")).upper()
+    if value_type == "DATE" or re.fullmatch(r"\d{8}", value):
+        try:
+            return {"date": datetime.strptime(value[:8], "%Y%m%d").date().isoformat()}
+        except ValueError:
+            return None
+
+    compact = value
+    if "." in compact:
+        compact = compact.split(".", 1)[0] + ("Z" if compact.endswith("Z") else "")
+    try:
+        if compact.endswith("Z"):
+            parsed = datetime.strptime(compact, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+            zone_name = "UTC"
+        else:
+            parsed = datetime.strptime(compact, "%Y%m%dT%H%M%S")
+            zone_name = str(params.get("TZID") or fallback_zone or "UTC")
+            try:
+                parsed = parsed.replace(tzinfo=ZoneInfo(zone_name))
+            except Exception:
+                zone_name = str(fallback_zone or "UTC")
+                parsed = parsed.replace(tzinfo=ZoneInfo(zone_name))
+        return {
+            "dateTime": parsed.isoformat(),
+            "timeZone": zone_name,
+        }
+    except (ValueError, TypeError):
+        return None
+
+
+def _ical_end(start, end):
+    if end:
+        return end
+    if start and start.get("date"):
+        date_value = datetime.strptime(start["date"], "%Y-%m-%d").date() + timedelta(days=1)
+        return {"date": date_value.isoformat()}
+    if start and start.get("dateTime"):
+        return {
+            "dateTime": (datetime.fromisoformat(start["dateTime"]) + timedelta(hours=1)).isoformat(),
+            "timeZone": start.get("timeZone", "UTC"),
+        }
+    return None
+
+
+def _ical_completion_state(properties):
+    """Only accept explicit Canvas completion fields; never infer from prose."""
+    for name in (
+        "X-CANVAS-SUBMISSION-STATUS",
+        "X-CANVAS-ASSIGNMENT-STATUS",
+        "X-CANVAS-WORKFLOW-STATE",
+    ):
+        value = _ical_value(properties, name)[1].strip().lower()
+        if value in {"submitted", "complete", "completed"}:
+            return "completed", name
+    return "unknown", None
+
+
+def _ical_event_records(payload, fallback_zone="UTC"):
+    records = []
+    for properties in _ical_properties(payload):
+        uid = _ical_value(properties, "UID")[1].strip()
+        start_params, start_value = _ical_value(properties, "DTSTART")
+        start = _ical_datetime(start_params, start_value, fallback_zone)
+        if not uid or not start:
+            continue
+        recurrence_params, recurrence_value = _ical_value(properties, "RECURRENCE-ID")
+        recurrence = _ical_datetime(recurrence_params, recurrence_value, fallback_zone)
+        recurrence_id = json.dumps(recurrence, sort_keys=True) if recurrence else ""
+        end_params, end_value = _ical_value(properties, "DTEND")
+        end = _ical_end(start, _ical_datetime(end_params, end_value, fallback_zone))
+        if not end:
+            continue
+        due_params, due_value = _ical_value(properties, "DUE")
+        due = _ical_datetime(due_params, due_value, fallback_zone)
+        summary = _ical_value(properties, "SUMMARY")[1].strip() or "(No title)"
+        description = _ical_value(properties, "DESCRIPTION")[1].strip() or None
+        location = _ical_value(properties, "LOCATION")[1].strip() or None
+        calendar_name = _ical_value(
+            properties,
+            "X-CANVAS-CALENDAR-NAME",
+            "X-WR-CALNAME",
+            "X-CALENDAR-NAME",
+            "CATEGORIES",
+        )[1].strip() or None
+        html_link = _ical_value(properties, "URL")[1].strip() or None
+        if not html_link and description:
+            match = re.search(r"https?://[^\s<>]+", description)
+            html_link = match.group(0).rstrip(".,)") if match else None
+        event_key = uid + ("::" + recurrence_id if recurrence_id else "")
+        ical_status = _ical_value(properties, "STATUS")[1].strip().upper() or None
+        completion_state, completion_source = _ical_completion_state(properties)
+        records.append({
+            "event_key": event_key,
+            "uid": uid,
+            "recurrence_id": recurrence_id,
+            "summary": summary,
+            "start": start,
+            "end": end,
+            "due": due,
+            "description": description,
+            "location": location,
+            "calendar_name": calendar_name,
+            "html_link": html_link,
+            "ical_status": ical_status,
+            "completion_state": completion_state,
+            "completion_source": completion_source,
+        })
+    return records
+
+
+def _subscription_event_id(subscription_id, event_key):
+    digest = hashlib.sha256(event_key.encode("utf-8")).hexdigest()[:24]
+    return f"ical:{subscription_id}:{digest}"
+
+
+def calendar_subscription_status(provider="canvas"):
+    conn = db()
+    row = conn.execute("""
+        SELECT id, provider, display_name, active, last_synced_at,
+               last_sync_attempt_at, last_error
+        FROM calendar_subscriptions
+        WHERE provider = ? AND active = 1
+        ORDER BY id DESC LIMIT 1
+    """, (provider,)).fetchone()
+    conn.close()
+    if not row:
+        return {"connected": False, "provider": provider, "last_synced_at": None, "last_error": None}
+    return {
+        "connected": True,
+        "provider": row["provider"],
+        "display_name": row["display_name"] or "Canvas Calendar",
+        "last_synced_at": row["last_synced_at"],
+        "last_sync_attempt_at": row["last_sync_attempt_at"],
+        "last_error": row["last_error"],
+    }
+
+
+def calendar_subscription_connect(feed_url, provider="canvas", display_name=None):
+    parsed = urllib.parse.urlparse(str(feed_url or "").strip())
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ValueError("Enter a valid HTTPS iCal calendar feed URL.")
+    conn = db()
+    conn.execute("UPDATE calendar_subscriptions SET active = 0, updated_at = CURRENT_TIMESTAMP WHERE provider = ?", (provider,))
+    cursor = conn.execute("""
+        INSERT INTO calendar_subscriptions (provider, feed_url, display_name, sync_interval_seconds)
+        VALUES (?, ?, ?, ?)
+    """, (provider, parsed.geturl(), display_name or "Canvas Calendar", ICAL_SYNC_INTERVAL_SECONDS))
+    conn.commit()
+    subscription_id = cursor.lastrowid
+    conn.close()
+    try:
+        calendar_subscription_sync(subscription_id, force=True)
+    except Exception:
+        # The saved connection remains visible with its backend-only error.
+        pass
+    return calendar_subscription_status(provider)
+
+
+def calendar_subscription_disconnect(provider="canvas"):
+    conn = db()
+    rows = conn.execute("SELECT id FROM calendar_subscriptions WHERE provider = ? AND active = 1", (provider,)).fetchall()
+    for row in rows:
+        conn.execute("DELETE FROM calendar_subscription_events WHERE subscription_id = ?", (row["id"],))
+    conn.execute("DELETE FROM calendar_subscriptions WHERE provider = ?", (provider,))
+    conn.commit()
+    conn.close()
+    return {"connected": False, "provider": provider}
+
+
+def calendar_subscription_sync(subscription_id, force=False, fallback_zone=None):
+    conn = db()
+    subscription = conn.execute("SELECT * FROM calendar_subscriptions WHERE id = ? AND active = 1", (subscription_id,)).fetchone()
+    if not subscription:
+        conn.close()
+        return {"synced": False, "reason": "not connected"}
+    last_attempt = subscription["last_sync_attempt_at"]
+    interval = int(subscription["sync_interval_seconds"] or ICAL_SYNC_INTERVAL_SECONDS)
+    if not force and last_attempt:
+        try:
+            elapsed = time.time() - datetime.fromisoformat(last_attempt.replace("Z", "+00:00")).timestamp()
+            if elapsed < interval:
+                conn.close()
+                return {"synced": False, "reason": "not due"}
+        except ValueError:
+            pass
+    feed_url = subscription["feed_url"]
+    conn.execute("UPDATE calendar_subscriptions SET last_sync_attempt_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (_calendar_now_iso(), subscription_id))
+    conn.commit()
+    conn.close()
+
+    try:
+        request = urllib.request.Request(feed_url, headers={"Accept": "text/calendar, text/plain;q=0.9", "User-Agent": "Apollo Calendar Sync/1.0"})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = response.read(ICAL_MAX_FEED_BYTES + 1)
+        if len(payload) > ICAL_MAX_FEED_BYTES:
+            raise RuntimeError("Calendar feed is too large to sync")
+        records = _ical_event_records(payload, fallback_zone or app_state_get("time_zone", "UTC"))
+    except Exception as error:
+        conn = db()
+        conn.execute("UPDATE calendar_subscriptions SET last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (str(error)[:500], subscription_id))
+        conn.commit()
+        conn.close()
+        raise RuntimeError("Canvas calendar sync failed: " + str(error))
+
+    conn = db()
+    seen = set()
+    for record in records:
+        seen.add(record["event_key"])
+        raw_hash = hashlib.sha256(json.dumps(record, sort_keys=True).encode("utf-8")).hexdigest()
+        deleted_by_source = record["ical_status"] == "CANCELLED"
+        conn.execute("""
+            INSERT INTO calendar_subscription_events (
+                subscription_id, event_key, uid, recurrence_id, summary,
+                start_json, end_json, due_json, description, location,
+                calendar_name, html_link, ical_status, completion_state,
+                completion_source, raw_hash, active, deleted_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(subscription_id, uid, recurrence_id) DO UPDATE SET
+                event_key=excluded.event_key, summary=excluded.summary,
+                start_json=excluded.start_json,
+                end_json=excluded.end_json, due_json=excluded.due_json,
+                description=excluded.description, location=excluded.location,
+                calendar_name=excluded.calendar_name, html_link=excluded.html_link,
+                ical_status=excluded.ical_status,
+                completion_state=excluded.completion_state,
+                completion_source=excluded.completion_source,
+                raw_hash=excluded.raw_hash, active=excluded.active,
+                deleted_at=excluded.deleted_at,
+                updated_at=CURRENT_TIMESTAMP
+        """, (
+            subscription_id, record["event_key"], record["uid"], record["recurrence_id"], record["summary"],
+            json.dumps(record["start"]), json.dumps(record["end"]), json.dumps(record["due"]) if record["due"] else None,
+            record["description"], record["location"], record["calendar_name"], record["html_link"],
+            record["ical_status"], record["completion_state"], record["completion_source"], raw_hash,
+            0 if deleted_by_source else 1,
+            _calendar_now_iso() if deleted_by_source else None,
+        ))
+    existing = conn.execute("SELECT event_key FROM calendar_subscription_events WHERE subscription_id = ? AND active = 1", (subscription_id,)).fetchall()
+    missing = [row["event_key"] for row in existing if row["event_key"] not in seen]
+    if missing:
+        conn.executemany("UPDATE calendar_subscription_events SET active = 0, deleted_at = ?, updated_at = CURRENT_TIMESTAMP WHERE subscription_id = ? AND event_key = ?", [(_calendar_now_iso(), subscription_id, event_key) for event_key in missing])
+    conn.execute("UPDATE calendar_subscriptions SET last_synced_at = ?, last_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (_calendar_now_iso(), subscription_id))
+    conn.commit()
+    conn.close()
+    return {"synced": True, "events": len(records)}
+
+
+def calendar_subscription_sync_due(fallback_zone=None):
+    conn = db()
+    rows = conn.execute("SELECT id FROM calendar_subscriptions WHERE active = 1").fetchall()
+    conn.close()
+    results = []
+    for row in rows:
+        try:
+            results.append(calendar_subscription_sync(row["id"], fallback_zone=fallback_zone))
+        except Exception as error:
+            print("[Apollo iCal]", error)
+    return results
+
+
+def _subscription_event_overlaps(event, range_start, range_end, requested_zone):
+    start = event["start"]
+    if start.get("date"):
+        return range_start.date().isoformat() <= start["date"] < range_end.date().isoformat()
+    try:
+        start_at = datetime.fromisoformat(start["dateTime"]).astimezone(timezone.utc)
+        return range_start <= start_at < range_end
+    except (KeyError, ValueError):
+        return False
+
+
+def calendar_subscription_events(range_start, range_end, requested_zone):
+    # A request gets fresh data when the regular worker has not run yet; a
+    # failed feed only affects Canvas, never the Google result below.
+    calendar_subscription_sync_due(requested_zone)
+    conn = db()
+    rows = conn.execute("""
+        SELECT e.*, s.provider, s.display_name
+        FROM calendar_subscription_events e
+        JOIN calendar_subscriptions s ON s.id = e.subscription_id
+        WHERE e.active = 1 AND s.active = 1
+        ORDER BY e.updated_at DESC, e.id DESC
+    """).fetchall()
+    conn.close()
+    events = []
+    seen_uids = set()
+    for row in rows:
+        try:
+            start, end = json.loads(row["start_json"]), json.loads(row["end_json"])
+            if not _subscription_event_overlaps({"start": start}, range_start, range_end, requested_zone):
+                continue
+            uid_key = (row["subscription_id"], row["uid"], row["recurrence_id"] or "")
+            if uid_key in seen_uids:
+                continue
+            seen_uids.add(uid_key)
+            events.append({
+                "id": _subscription_event_id(row["subscription_id"], row["event_key"]),
+                "calendarId": f"ical:{row['subscription_id']}",
+                "summary": row["summary"] or "(No title)",
+                "start": start,
+                "end": end,
+                "due": json.loads(row["due_json"]) if row["due_json"] else None,
+                "dueDate": json.loads(row["due_json"]) if row["due_json"] else None,
+                "location": row["location"],
+                "description": row["description"],
+                "calendarName": row["calendar_name"] or row["display_name"],
+                "htmlLink": row["html_link"],
+                "sourceEventUid": row["uid"],
+                "recurrenceId": row["recurrence_id"] or None,
+                "source": row["provider"],
+                "sourceLabel": "Canvas" if row["provider"] == "canvas" else "iCal",
+                "readOnly": True,
+                "status": row["ical_status"] or "confirmed",
+                "completionState": row["completion_state"] or "unknown",
+                "completionSource": row["completion_source"],
+            })
+        except (json.JSONDecodeError, KeyError, TypeError):
+            continue
+    return events
+
+
+def _calendar_event_equivalence_key(event):
+    """A source-independent identity used only to suppress the same iCal feed via Google."""
+    def canonical_time(value):
+        value = value or {}
+        if value.get("date"):
+            return "date:" + str(value["date"])
+        date_time = str(value.get("dateTime") or "")
+        if not date_time:
+            return ""
+        try:
+            normalized = datetime.fromisoformat(date_time.replace("Z", "+00:00"))
+            if normalized.tzinfo:
+                normalized = normalized.astimezone(timezone.utc)
+            return "datetime:" + normalized.isoformat()
+        except ValueError:
+            return "datetime:" + date_time
+    start = canonical_time(event.get("start"))
+    end = canonical_time(event.get("end"))
+    title = re.sub(r"\s+", " ", str(event.get("summary") or "").strip()).casefold()
+    return title, start, end
+
+
+def merge_calendar_event_sources(google_events, subscription_events):
+    """Return each logical event once, preferring Apollo's canonical Canvas record."""
+    canvas_keys = {
+        _calendar_event_equivalence_key(event)
+        for event in subscription_events
+        if event.get("source") == "canvas"
+    }
+    merged = []
+    seen_google_ids = set()
+    for event in google_events:
+        calendar_id = str(event.get("calendarId") or "")
+        # This is the Google calendar ID Canvas uses when the same private
+        # iCal URL was previously imported into Google Calendar. Apollo now
+        # owns that feed directly, so its richer canonical record wins.
+        if (
+            "@import.calendar.google.com" in calendar_id.lower()
+            and _calendar_event_equivalence_key(event) in canvas_keys
+        ):
+            continue
+        google_id = str(event.get("id") or "")
+        if google_id and google_id in seen_google_ids:
+            continue
+        if google_id:
+            seen_google_ids.add(google_id)
+        merged.append(event)
+    merged.extend(subscription_events)
+    return merged
+
+
+def apollo_calendar_events(days=7, start_date=None, end_date=None, time_zone=None):
+    """Merge independently-failable Google and iCal sources into Apollo's event model."""
+    tz_name = str(time_zone or app_state_get("time_zone", "UTC")).strip() or "UTC"
+    try:
+        zone = ZoneInfo(tz_name)
+    except Exception:
+        zone = timezone.utc
+    if start_date:
+        range_start = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=zone).astimezone(timezone.utc)
+    else:
+        range_start = datetime.now(timezone.utc)
+    if end_date:
+        range_end = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=zone).astimezone(timezone.utc)
+    elif start_date:
+        range_end = (range_start.astimezone(zone) + timedelta(days=days)).astimezone(timezone.utc)
+    else:
+        range_end = range_start + timedelta(days=days)
+
+    google_events, subscription_events, errors = [], [], {}
+    try:
+        google_events = google_calendar_events(days, start_date=start_date, end_date=end_date, time_zone=tz_name)
+    except Exception as error:
+        errors["google"] = str(error)
+    try:
+        subscription_events = calendar_subscription_events(range_start, range_end, tz_name)
+    except Exception as error:
+        errors["subscriptions"] = str(error)
+
+    events = merge_calendar_event_sources(google_events, subscription_events)
+
+    def sort_key(event):
+        value = (event.get("start") or {}).get("dateTime") or (event.get("start") or {}).get("date") or "9999-12-31"
+        return value
+    return sorted(events, key=sort_key), errors
+
+
+class CalendarSubscriptionSyncWorker:
+    def __init__(self):
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="apollo-ical-sync", daemon=True)
+
+    def start(self):
+        self._thread.start()
+
+    def _run(self):
+        while not self._stop.wait(60):
+            calendar_subscription_sync_due()
 
 
 
@@ -8824,11 +9597,17 @@ def google_calendar_events(days=7, start_date=None):
 def google_calendar_api_request(
     method,
     event_id=None,
-    body=None
+    body=None,
+    calendar_id="primary"
 ):
     base = (
         "https://www.googleapis.com/calendar/v3/"
-        "calendars/primary/events"
+        "calendars/"
+        + urllib.parse.quote(
+            str(calendar_id or "primary"),
+            safe=""
+        )
+        + "/events"
     )
 
     if event_id:
@@ -9110,13 +9889,14 @@ def build_google_event_body(
     return body
 
 
-def clean_google_event(event):
+def clean_google_event(event, calendar_id="primary"):
     if not event:
         return None
 
     return {
         "id":
             event.get("id"),
+        "calendarId": calendar_id,
         "summary":
             event.get(
                 "summary",
@@ -9153,7 +9933,8 @@ def clean_google_event(event):
 # APOLLO CALENDAR RECURRENCE V1
 
 def google_calendar_get_event(
-    event_id
+    event_id,
+    calendar_id="primary"
 ):
     if not event_id:
         raise ValueError(
@@ -9162,7 +9943,8 @@ def google_calendar_get_event(
 
     return google_calendar_api_request(
         "GET",
-        event_id=event_id
+        event_id=event_id,
+        calendar_id=calendar_id
     )
 
 
@@ -9236,11 +10018,13 @@ def google_calendar_create_event(data):
 
     event = google_calendar_api_request(
         "POST",
-        body=body
+        body=body,
+        calendar_id=data.get("calendar_id", "primary")
     )
 
     return clean_google_event(
-        event
+        event,
+        data.get("calendar_id", "primary")
     )
 
 
@@ -9248,12 +10032,19 @@ def google_calendar_update_event(
     event_id,
     data,
     scope="single",
-    series_id=None
+    series_id=None,
+    calendar_id=None
 ):
     if not event_id:
         raise ValueError(
             "Event ID is required"
         )
+
+    calendar_id = str(
+        calendar_id
+        or data.get("calendar_id")
+        or "primary"
+    ).strip() or "primary"
 
     if scope == "series":
 
@@ -9264,7 +10055,8 @@ def google_calendar_update_event(
 
         parent = (
             google_calendar_get_event(
-                target_id
+                target_id,
+                calendar_id=calendar_id
             )
         )
 
@@ -9346,7 +10138,8 @@ def google_calendar_update_event(
             parent
             if scope == "series"
             else google_calendar_get_event(
-                target_id
+                target_id,
+                calendar_id=calendar_id
             )
         )
 
@@ -9366,18 +10159,21 @@ def google_calendar_update_event(
     event = google_calendar_api_request(
         "PATCH",
         event_id=target_id,
-        body=body
+        body=body,
+        calendar_id=calendar_id
     )
 
     return clean_google_event(
-        event
+        event,
+        calendar_id
     )
 
 
 def google_calendar_delete_event(
     event_id,
     scope="single",
-    series_id=None
+    series_id=None,
+    calendar_id=None
 ):
     if not event_id:
         raise ValueError(
@@ -9395,7 +10191,8 @@ def google_calendar_delete_event(
 
     google_calendar_api_request(
         "DELETE",
-        event_id=target_id
+        event_id=target_id,
+        calendar_id=calendar_id or "primary"
     )
 
     return True
@@ -10355,7 +11152,8 @@ def calendar_chat_events(
     try:
         events = google_calendar_events(
             days=90,
-            start_date=today
+            start_date=today,
+            time_zone=time_zone
         )
     except Exception as error:
         print(
@@ -10367,15 +11165,35 @@ def calendar_chat_events(
     compact = []
 
     for event in events:
+        start_local = calendar_event_datetime_in_timezone(
+            event,
+            time_zone,
+            "start"
+        )
+        end_local = calendar_event_datetime_in_timezone(
+            event,
+            time_zone,
+            "end"
+        )
         compact.append({
             "id":
                 event.get("id"),
+            "calendarId":
+                event.get("calendarId"),
             "summary":
                 event.get("summary"),
             "start":
                 event.get("start"),
             "end":
                 event.get("end"),
+            # Interpreter-facing values. Preserve Google's raw fields above,
+            # but reason about the user's actual local clock time.
+            "start_user_local":
+                start_local.isoformat() if start_local else None,
+            "end_user_local":
+                end_local.isoformat() if end_local else None,
+            "user_time_zone":
+                time_zone,
             "location":
                 event.get("location"),
             "recurringEventId":
@@ -10424,6 +11242,23 @@ def calendar_interpret_message(
     events = calendar_chat_events(
         time_zone
     )
+
+    # This is account/backend state, never inferred from the number of events
+    # present in model context. The deterministic bulk route bypasses Hermes
+    # altogether; this status keeps the remaining interpreter-only paths from
+    # inventing per-chat Calendar permissions.
+    capability_reader = globals().get("google_calendar_connection_status")
+    calendar_capability = {
+        "connected": None,
+        "can_read": None,
+        "can_write": None,
+        "error": None,
+    }
+    if callable(capability_reader):
+        try:
+            calendar_capability = capability_reader()
+        except Exception as error:
+            calendar_capability["error"] = str(error)
 
     prompt = [
         {
@@ -10489,6 +11324,21 @@ For UPDATE:
   }
 }
 
+For a BULK UPDATE of independent events:
+{
+  "intent": "update",
+  "reply": null,
+  "confirmation": "Shift 23 class events before October 3 eight hours later?",
+  "action": {
+    "event_ids": ["REAL EVENT ID", "ANOTHER REAL EVENT ID"],
+    "range_start": "YYYY-MM-DD",
+    "range_end_exclusive": "YYYY-MM-DD",
+    "match_terms": ["class name or school identifier"],
+    "transformation": {"type": "shift_hours", "hours": 8},
+    "target_label": "class"
+  }
+}
+
 For DELETE:
 {
   "intent": "delete",
@@ -10520,7 +11370,16 @@ Rules:
    - if they explicitly said all/every/the series, scope = "series" and series_id = recurringEventId
    - otherwise scope = null and series_id = recurringEventId
 
-7. If multiple supplied events plausibly match an update/delete request, do NOT guess. Return:
+7. When the user clearly asks for all/every/multiple events and gives a
+shared filter plus a transformation, return the BULK UPDATE shape. Multiple
+independent events are a valid single user request: do NOT ask them to pick
+one event and do NOT require a recurring series. Include every matching real
+event ID supplied to you, a date range with an exclusive end date, and concise
+match_terms. For phrases such as "before October 3", range_end_exclusive is
+October 3 itself. Preserve all fields not named by the transformation.
+
+8. If multiple supplied events plausibly match a request that targets only one
+event, do NOT guess. Return:
 {
   "intent": "clarify",
   "reply": "Which Gym event do you mean — Tuesday or Thursday?",
@@ -10528,13 +11387,14 @@ Rules:
   "action": null
 }
 
-8. If no supplied event matches an update/delete request, return clarify instead of inventing one.
+9. If no supplied event matches an update/delete request, return clarify instead of inventing one.
 
-9. For query answers, only state events actually present in the supplied data.
+10. For query answers, only state events actually present in the supplied data.
 
-10. Keep confirmation/reply concise and natural.
+11. Keep confirmation/reply concise and natural. A bulk edit needs at most one
+confirmation; after the user confirms it, the batch must execute.
 
-11. You may receive last_calendar_event. This is the REAL Google Calendar
+12. You may receive last_calendar_event. This is the REAL Google Calendar
 event most recently created or edited by Apollo in this chat.
 
 If the user says things like:
@@ -10549,10 +11409,13 @@ and the reference reasonably points to last_calendar_event, use that real
 event as the target. Do not claim the event was not created if
 last_calendar_event says it exists.
 
-12. Never infer Google Calendar state merely from assistant conversation
-text. The supplied event objects are authoritative.
+13. Never infer Google Calendar state merely from assistant conversation
+text. The supplied event objects are authoritative. You may use explicit
+conversation facts (for example, that a Paris trip starts October 3 or that
+the user already approved an eight-hour shift) to resolve the user's intended
+date range and transformation.
 
-13. The message may include a section headed "PERSISTED ATTACHMENT FACTS".
+14. The message may include a section headed "PERSISTED ATTACHMENT FACTS".
 Those are durable facts from files the user already uploaded. Treat every
 relevant date and destination there as available source material, including
 on a later clarification turn. Do not say the attachment or its facts are
@@ -10570,6 +11433,8 @@ required field is unreadable.
                         time_zone,
                     "default_event_duration_minutes":
                         default_duration_minutes,
+                    "calendar_capability":
+                        calendar_capability,
                     "message":
                         user_message,
                     "last_calendar_event":
@@ -10633,6 +11498,474 @@ def calendar_find_event(
     return None
 
 
+def calendar_is_batch_action(action):
+    """Return whether one interpreted command targets multiple events."""
+    if not isinstance(action, dict):
+        return False
+
+    return bool(
+        isinstance(action.get("event_ids"), list)
+        or isinstance(action.get("transformation"), dict)
+        or action.get("range_start")
+        or action.get("range_end_exclusive")
+    )
+
+
+def calendar_event_date_in_timezone(event, time_zone):
+    """Return an event's start date in the requester's calendar timezone."""
+    start = event.get("start") if isinstance(event, dict) else {}
+    start = start if isinstance(start, dict) else {}
+    if start.get("date") and not start.get("dateTime"):
+        return str(start["date"])
+
+    value = calendar_event_datetime_in_timezone(event, time_zone)
+    return value.date().isoformat() if value else None
+
+
+def calendar_event_datetime_in_timezone(event, time_zone, field="start"):
+    """Interpret Google event time in its source zone, then convert for Apollo."""
+    event_time = event.get(field) if isinstance(event, dict) else {}
+    event_time = event_time if isinstance(event_time, dict) else {}
+
+    if event_time.get("date") and not event_time.get("dateTime"):
+        return None
+
+    raw = str(event_time.get("dateTime") or "").strip()
+    if not raw:
+        return None
+
+    try:
+        value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        source_zone = ZoneInfo(event_time.get("timeZone") or "UTC")
+        user_zone = ZoneInfo(time_zone or event_time.get("timeZone") or "UTC")
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=source_zone)
+        return value.astimezone(user_zone)
+    except Exception:
+        return None
+
+
+def calendar_event_matches_terms(event, terms):
+    """Match a compact, interpreter-supplied class/school description."""
+    normalized = [
+        str(term).strip().lower()
+        for term in (terms or [])
+        if str(term).strip()
+    ]
+
+    if not normalized:
+        return False
+
+    haystack = " ".join([
+        str(event.get("summary") or ""),
+        str(event.get("location") or ""),
+        str(event.get("description") or ""),
+    ]).lower()
+
+    return any(term in haystack for term in normalized)
+
+
+def calendar_batch_terms(action):
+    action = action if isinstance(action, dict) else {}
+    filter_data = action.get("event_filter")
+    filter_data = filter_data if isinstance(filter_data, dict) else {}
+
+    values = (
+        action.get("match_terms")
+        or filter_data.get("terms")
+        or filter_data.get("keywords")
+        or []
+    )
+
+    return values if isinstance(values, list) else [values]
+
+
+def calendar_server_request_date(client_context):
+    """Return the requester's local date without relying on model context."""
+    local_time, time_zone = calendar_context_now(client_context or {})
+
+    try:
+        parsed = datetime.fromisoformat(
+            str(local_time).replace("Z", "+00:00")
+        )
+        zone = ZoneInfo(time_zone)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=zone)
+        return parsed.astimezone(zone).date()
+    except Exception:
+        try:
+            return datetime.now(ZoneInfo(time_zone)).date()
+        except Exception:
+            return datetime.now(timezone.utc).date()
+
+
+def calendar_server_dates_in_text(text, default_year):
+    """Extract explicit ISO or English calendar dates with source positions."""
+    value = str(text or "")
+    dates = []
+
+    for match in re.finditer(r"\b(20\d{2})-(\d{2})-(\d{2})\b", value):
+        try:
+            dates.append((match.start(), datetime.strptime(
+                match.group(0), "%Y-%m-%d"
+            ).date()))
+        except ValueError:
+            pass
+
+    month_names = (
+        "january|february|march|april|may|june|july|august|"
+        "september|october|november|december"
+    )
+    pattern = re.compile(
+        rf"\b({month_names})\s+(\d{{1,2}})(?:,?\s*(20\d{{2}}))?\b",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(value):
+        try:
+            year = int(match.group(3) or default_year)
+            parsed = datetime.strptime(
+                f"{match.group(1)} {match.group(2)} {year}",
+                "%B %d %Y",
+            ).date()
+            dates.append((match.start(), parsed))
+        except ValueError:
+            pass
+
+    return sorted(dates, key=lambda item: item[0])
+
+
+def calendar_server_batch_action(
+    user_message,
+    conversation_context="",
+    attachment_context="",
+    client_context=None,
+):
+    """Recognize an unambiguous class-time correction before Hermes runs.
+
+    This deliberately produces a *filter*, never a list of event IDs. The
+    resolver owns event discovery so a model/context limit cannot decide which
+    real Google events are updated.
+    """
+    message = str(user_message or "")
+    message_lower = message.lower()
+    history = "\n".join([
+        str(conversation_context or ""),
+        str(attachment_context or ""),
+    ])
+    corpus = "\n".join([message, history])
+    corpus_lower = corpus.lower()
+
+    is_class_batch = bool(re.search(
+        r"\b(all|every|my)\s+(?:of\s+my\s+)?classes?\b",
+        message_lower,
+    ))
+    is_change = bool(re.search(
+        r"\b(change|shift|move|convert|adjust|correct|update)\b",
+        message_lower,
+    ))
+    if not (is_class_batch and is_change):
+        return None
+
+    europe_time = bool(re.search(r"\b(?:europe|paris)\s+time\b", corpus_lower))
+    if not europe_time:
+        return None
+
+    # A timezone label is not a request to move an already-correct event.
+    # Only an explicit literal offset in the current command can create a
+    # shift action; prior conversational timezone language is read context.
+    explicit_shift = bool(re.search(
+        r"(?:\+\s*8\s*(?:hours?|hrs?)|eight\s+hours?)",
+        message_lower,
+    ))
+    if not explicit_shift:
+        return None
+
+    request_date = calendar_server_request_date(client_context)
+    dates = calendar_server_dates_in_text(corpus, request_date.year)
+    end_date = None
+
+    # A direct "before October 3" wins over an itinerary reference.
+    before_match = re.search(
+        r"\bbefore\s+((?:20\d{2}-\d{2}-\d{2})|(?:january|february|march|"
+        r"april|may|june|july|august|september|october|november|december)\s+"
+        r"\d{1,2}(?:,?\s*20\d{2})?)",
+        corpus_lower,
+    )
+    if before_match:
+        direct_dates = calendar_server_dates_in_text(
+            before_match.group(1), request_date.year
+        )
+        if direct_dates:
+            end_date = direct_dates[0][1]
+
+    if end_date is None and "paris" in corpus_lower:
+        paris_at = corpus_lower.find("paris")
+        nearby = [
+            candidate for position, candidate in dates
+            if abs(position - paris_at) <= 120
+        ]
+        if nearby:
+            end_date = nearby[-1]
+
+    if end_date is None or end_date <= request_date:
+        return None
+
+    approval_text = "\n".join([message, str(conversation_context or "")]).lower()
+    approved = bool(re.search(
+        r"\b(already\s+)?(confirmed|approved|go\s+ahead|do\s+it)\b",
+        approval_text,
+    ))
+
+    return {
+        "range_start": request_date.isoformat(),
+        "range_end_exclusive": end_date.isoformat(),
+        "event_filter": {
+            "type": "class",
+            "terms": ["class", "course", "lecture", "seminar", "school", "university", "campus"],
+        },
+        "transformation": {"type": "shift_hours", "hours": 8},
+        "target_label": "class",
+        "approved": approved,
+    }
+
+
+def calendar_resolve_batch_events(
+    action,
+    initial_events=None,
+    time_zone="UTC"
+):
+    """Search the complete requested range and return only safe batch targets."""
+    if not isinstance(action, dict):
+        raise ValueError("Invalid batch calendar action")
+
+    start_date = str(action.get("range_start") or "").strip() or None
+    end_date = str(action.get("range_end_exclusive") or "").strip() or None
+    zone_name = str(action.get("time_zone") or time_zone or "UTC").strip()
+
+    if start_date and end_date:
+        events = google_calendar_events(
+            start_date=start_date,
+            end_date=end_date,
+            time_zone=zone_name
+        )
+    else:
+        events = list(initial_events or [])
+
+    event_ids = {
+        str(event_id).strip()
+        for event_id in action.get("event_ids", [])
+        if str(event_id).strip()
+    }
+    terms = calendar_batch_terms(action)
+    matched = []
+    seen_ids = set()
+
+    print(
+        "[Apollo Calendar Search] "
+        f"resolve_from={start_date or 'initial_context'} "
+        f"resolve_to={end_date or 'initial_context'} "
+        f"raw_events={len(events)}"
+    )
+
+    for event in events:
+        event_id = str(event.get("id") or "").strip()
+        event_key = (
+            str(event.get("calendarId") or "primary").strip(),
+            event_id,
+        )
+        if not event_id or event_key in seen_ids:
+            continue
+
+        event_date = calendar_event_date_in_timezone(event, zone_name)
+        if start_date and (not event_date or event_date < start_date):
+            continue
+        if end_date and (not event_date or event_date >= end_date):
+            continue
+
+        # Explicit IDs are authoritative. Terms are the fallback for broad
+        # requests whose full date range was not in the interpreter's first
+        # context window.
+        if event_ids:
+            matches = event_id in event_ids
+        else:
+            matches = calendar_event_matches_terms(event, terms)
+
+        if matches:
+            matched.append(event)
+            seen_ids.add(event_key)
+
+    print(
+        "[Apollo Calendar Search] "
+        f"class_candidates={len(matched)} "
+        f"events_selected_for_update={len(matched)}"
+    )
+
+    return matched
+
+
+def calendar_shift_event_payload(event, hours, fallback_time_zone="UTC"):
+    """Build a PATCH payload that shifts a timed event by an exact duration."""
+    try:
+        offset = float(hours)
+    except (TypeError, ValueError):
+        raise ValueError("Calendar shift must be a number of hours")
+
+    if offset == 0:
+        raise ValueError("Calendar shift cannot be zero hours")
+
+    start = event.get("start") if isinstance(event, dict) else {}
+    end = event.get("end") if isinstance(event, dict) else {}
+    start = start if isinstance(start, dict) else {}
+    end = end if isinstance(end, dict) else {}
+
+    if not start.get("dateTime") or not end.get("dateTime"):
+        raise ValueError("All-day events cannot be shifted by hours")
+
+    zone_name = str(
+        start.get("timeZone")
+        or end.get("timeZone")
+        or fallback_time_zone
+        or "UTC"
+    ).strip()
+
+    try:
+        zone = ZoneInfo(zone_name)
+        start_value = datetime.fromisoformat(
+            str(start["dateTime"]).replace("Z", "+00:00")
+        )
+        end_value = datetime.fromisoformat(
+            str(end["dateTime"]).replace("Z", "+00:00")
+        )
+
+        if start_value.tzinfo is None:
+            start_value = start_value.replace(tzinfo=zone)
+        if end_value.tzinfo is None:
+            end_value = end_value.replace(tzinfo=zone)
+
+        # Shift instants in UTC, then render in the event's own IANA zone.
+        # This preserves the exact duration through DST transitions.
+        delta = timedelta(hours=offset)
+        shifted_start = (
+            start_value.astimezone(timezone.utc) + delta
+        ).astimezone(zone)
+        shifted_end = (
+            end_value.astimezone(timezone.utc) + delta
+        ).astimezone(zone)
+    except Exception as error:
+        raise ValueError(f"Invalid calendar event time: {error}")
+
+    if shifted_end <= shifted_start:
+        raise ValueError("Calendar shift would create an invalid event range")
+
+    return {
+        "start": shifted_start.isoformat(),
+        "end": shifted_end.isoformat(),
+        "time_zone": zone_name,
+    }
+
+
+def batch_update_calendar_events(events, transformation, fallback_time_zone="UTC"):
+    """Apply one safe transformation to independent events, retaining failures."""
+    transformation = transformation if isinstance(transformation, dict) else {}
+    kind = str(transformation.get("type") or "").strip().lower()
+
+    if kind != "shift_hours":
+        raise ValueError("Unsupported calendar batch transformation")
+
+    successes = []
+    failures = []
+
+    for event in events:
+        title = str(event.get("summary") or "Untitled event")
+        try:
+            payload = calendar_shift_event_payload(
+                event,
+                transformation.get("hours"),
+                fallback_time_zone
+            )
+            updated = google_calendar_update_event(
+                event.get("id"),
+                payload,
+                scope="single",
+                calendar_id=event.get("calendarId")
+            )
+            successes.append(updated or event)
+        except GoogleCalendarReadOnlyError as error:
+            failures.append({
+                "id": event.get("id"),
+                "title": title,
+                "error": str(error),
+                "read_only": True,
+            })
+        except Exception as error:
+            failures.append({
+                "id": event.get("id"),
+                "title": title,
+                "error": str(error),
+            })
+
+    print(
+        "[Apollo Calendar Search] "
+        f"updates_succeeded={len(successes)} updates_failed={len(failures)}"
+    )
+
+    return {
+        "updated": successes,
+        "failed": failures,
+    }
+
+
+def calendar_batch_result_summary(
+    result,
+    transformation,
+    range_end_exclusive=None,
+    target_label="class"
+):
+    updated = len(result.get("updated") or [])
+    failures = result.get("failed") or []
+    hours = transformation.get("hours") if isinstance(transformation, dict) else None
+    try:
+        amount_value = float(hours)
+    except (TypeError, ValueError):
+        amount_value = 0
+    direction = "later" if amount_value >= 0 else "earlier"
+    amount = abs(amount_value)
+    amount_text = str(int(amount)) if amount.is_integer() else str(amount)
+    range_text = (
+        f" before {range_end_exclusive}"
+        if range_end_exclusive else ""
+    )
+
+    message = (
+        f"Done — shifted {updated} {target_label} event"
+        f"{'s' if updated != 1 else ''}{range_text} "
+        f"{amount_text} hour{'s' if amount != 1 else ''} {direction}."
+    )
+
+    if failures:
+        read_only_count = sum(
+            1 for item in failures if item.get("read_only")
+        )
+        details = "; ".join(
+            f"{item['title']}: {item['error']}"
+            for item in failures[:3]
+        )
+        message += (
+            f" {len(failures)} event"
+            f"{'s' if len(failures) != 1 else ''} could not be changed"
+            f" ({details})."
+        )
+        if read_only_count:
+            message += (
+                f" {read_only_count} event"
+                f"{'s are' if read_only_count != 1 else ' is'} on a "
+                "read-only subscribed calendar; your Google Calendar "
+                "connection remains active."
+            )
+
+    return message
+
+
 # =========================================================
 # APOLLO RECURRING CONTEXT FIX V5
 # =========================================================
@@ -10640,7 +11973,8 @@ def calendar_find_event(
 def calendar_prepare_action(
     chat_id,
     interpreted,
-    last_calendar_event=None
+    last_calendar_event=None,
+    client_context=None
 ):
     intent = interpreted.get(
         "intent"
@@ -10663,6 +11997,110 @@ def calendar_prepare_action(
         "_events",
         []
     )
+
+    # A user-level bulk instruction can target many independent Google
+    # events. Resolve and retain the complete set once, then the pending
+    # confirmation can fan out without reopening the one-event flow below.
+    if (
+        intent == "update"
+        and calendar_is_batch_action(action)
+    ):
+        _, request_time_zone = calendar_context_now(
+            client_context or {}
+        )
+        action["time_zone"] = str(
+            action.get("time_zone")
+            or request_time_zone
+            or "UTC"
+        ).strip()
+
+        try:
+            batch_events = calendar_resolve_batch_events(
+                action,
+                initial_events=events,
+                time_zone=action["time_zone"]
+            )
+        except GoogleCalendarAuthError:
+            return (
+                "Your Google Calendar connection needs to be reconnected. "
+                "Open Settings and choose Reconnect."
+            )
+        except Exception as error:
+            print(
+                "[Apollo Calendar Chat] "
+                f"Batch resolution failed: {error}"
+            )
+            return "I couldn't search the full calendar range for that change."
+
+        if not batch_events:
+            return (
+                "I couldn't find any matching calendar events in that range, "
+                "so I left everything unchanged."
+            )
+
+        transformation = action.get("transformation")
+        if not isinstance(transformation, dict):
+            return "I need the exact change to apply to those events."
+
+        try:
+            shift_hours = float(transformation.get("hours"))
+        except (TypeError, ValueError):
+            return "I need the exact number of hours to shift those events."
+
+        if (
+            str(transformation.get("type") or "").strip().lower()
+            != "shift_hours"
+            or not shift_hours
+        ):
+            return "I need the exact change to apply to those events."
+
+        action["batch_events"] = batch_events
+        action["event_ids"] = [
+            event.get("id")
+            for event in batch_events
+            if event.get("id")
+        ]
+
+        # The deterministic server route reaches this point only when the
+        # user already approved this exact filter and transformation. A newly
+        # fetched page must not reset that approval or create another prompt.
+        if action.get("approved") is True:
+            try:
+                return calendar_execute_pending(
+                    {"intent": "update", "action": action},
+                    chat_id=chat_id
+                )
+            except GoogleCalendarAuthError:
+                return (
+                    "Your Google Calendar connection needs to be reconnected. "
+                    "Open Settings and choose Reconnect."
+                )
+            except Exception as error:
+                print(
+                    "[Apollo Calendar Chat] "
+                    f"Approved batch execution failed: {error}"
+                )
+                return "I couldn't complete that calendar change."
+
+        confirmation = interpreted.get("confirmation") or (
+            f"Shift {len(batch_events)} "
+            f"{action.get('target_label') or 'matching'} event"
+            f"{'s' if len(batch_events) != 1 else ''} "
+            f"{abs(shift_hours):g} hours "
+            f"{'later' if shift_hours >= 0 else 'earlier'}?"
+        )
+
+        calendar_pending_set(
+            chat_id,
+            {
+                "stage": "confirm",
+                "intent": "update",
+                "action": action,
+                "confirmation": confirmation,
+            }
+        )
+
+        return confirmation
 
     if intent in (
         "update",
@@ -10701,6 +12139,12 @@ def calendar_prepare_action(
                 "I couldn't safely match that to a real "
                 "calendar event. Which event do you mean?"
             )
+
+        action["calendar_id"] = (
+            action.get("calendar_id")
+            or existing.get("calendarId")
+            or "primary"
+        )
 
         recurring_id = existing.get(
             "recurringEventId"
@@ -10880,6 +12324,26 @@ def calendar_execute_pending(
         )
 
     if intent == "update":
+        if isinstance(action.get("batch_events"), list):
+            result = batch_update_calendar_events(
+                action.get("batch_events"),
+                action.get("transformation"),
+                action.get("time_zone")
+            )
+
+            if chat_id is not None and result.get("updated"):
+                calendar_last_event_set(
+                    chat_id,
+                    result["updated"][-1]
+                )
+
+            return calendar_batch_result_summary(
+                result,
+                action.get("transformation"),
+                action.get("range_end_exclusive"),
+                action.get("target_label") or "class"
+            )
+
         event_id = action.pop(
             "event_id",
             ""
@@ -10895,6 +12359,11 @@ def calendar_execute_pending(
             None
         )
 
+        calendar_id = action.pop(
+            "calendar_id",
+            None
+        )
+
         # Remove fields that mean "unchanged".
         action = {
             key: value
@@ -10906,7 +12375,8 @@ def calendar_execute_pending(
             event_id,
             action,
             scope=scope,
-            series_id=series_id
+            series_id=series_id,
+            calendar_id=calendar_id
         )
 
         if chat_id is not None:
@@ -10954,7 +12424,8 @@ def calendar_execute_pending(
         google_calendar_delete_event(
             event_id,
             scope=scope,
-            series_id=series_id
+            series_id=series_id,
+            calendar_id=action.get("calendar_id")
         )
 
         if chat_id is not None:
@@ -11477,7 +12948,8 @@ def apollo_calendar_chat(
     chat_id,
     user_message,
     client_context,
-    attachment_context=""
+    attachment_context="",
+    conversation_context=""
 ):
     attachment_context = str(attachment_context or "").strip()
     calendar_message = user_message
@@ -11486,6 +12958,13 @@ def apollo_calendar_chat(
         calendar_message += (
             "\n\nPERSISTED ATTACHMENT FACTS FOR THIS FOLLOW-UP:\n"
             + attachment_context
+        )
+
+    conversation_context = str(conversation_context or "").strip()
+    if conversation_context:
+        calendar_message += (
+            "\n\nRECENT CONVERSATION FACTS:\n"
+            + conversation_context
         )
     last_calendar_event = (
         calendar_last_event_get(
@@ -11602,7 +13081,8 @@ def apollo_calendar_chat(
                 chat_id,
                 interpreted,
                 last_calendar_event=
-                    last_calendar_event
+                    last_calendar_event,
+                client_context=client_context
             )
 
 
@@ -11636,6 +13116,33 @@ def apollo_calendar_chat(
 
     if pending_reply is not None:
         return pending_reply
+
+
+    # Bulk class corrections are resolved entirely by the calendar backend.
+    # In particular, do this before calendar_interpret_message so Hermes never
+    # receives a long event list and cannot accidentally turn its context
+    # window into an execution limit.
+    server_batch_builder = globals().get("calendar_server_batch_action")
+    if callable(server_batch_builder):
+        server_batch_action = server_batch_builder(
+            user_message,
+            conversation_context=conversation_context,
+            attachment_context=attachment_context,
+            client_context=client_context,
+        )
+        if server_batch_action:
+            return calendar_prepare_action(
+                chat_id,
+                {
+                    "intent": "update",
+                    "reply": None,
+                    "confirmation": None,
+                    "action": server_batch_action,
+                    "_events": [],
+                },
+                last_calendar_event=last_calendar_event,
+                client_context=client_context,
+            )
 
 
     # Avoid slowing every normal Apollo message.
@@ -11714,7 +13221,7 @@ def apollo_calendar_chat(
             {
                 "stage": "clarify",
                 "original_message":
-                    user_message,
+                    calendar_message,
                 "attachment_context": attachment_context
             }
         )
@@ -11735,7 +13242,8 @@ def apollo_calendar_chat(
             chat_id,
             interpreted,
             last_calendar_event=
-                last_calendar_event
+                last_calendar_event,
+            client_context=client_context
         )
 
 
@@ -15029,6 +16537,10 @@ class ApolloHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if route == "/api/calendar/subscriptions/canvas/status":
+            json_response(self, calendar_subscription_status("canvas"))
+            return
+
         if route == "/api/google/connect":
 
             try:
@@ -15436,37 +16948,40 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 )[0]
             )
 
-            try:
-                events = (
-                    google_calendar_events(
-                        days,
-                        start_date=start_date
-                    )
-                )
+            end_date = (
+                query.get(
+                    "end",
+                    [None]
+                )[0]
+            )
 
-            except RuntimeError as exc:
+            time_zone = (
+                query.get(
+                    "time_zone",
+                    [None]
+                )[0]
+            )
 
-                status = (
-                    401
-                    if "not connected"
-                    in str(exc).lower()
-                    else 500
-                )
+            events, source_errors = apollo_calendar_events(
+                days,
+                start_date=start_date,
+                end_date=end_date,
+                time_zone=time_zone
+            )
 
-                json_response(
-                    self,
-                    {
-                        "error": str(exc)
-                    },
-                    status
-                )
+            # A Canvas outage is isolated to Canvas. If no source can return
+            # events, retain the existing connection error semantics.
+            if not events and source_errors.get("google") and not calendar_subscription_status("canvas").get("connected"):
+                error_text = source_errors["google"]
+                json_response(self, {"error": error_text}, 401 if "not connected" in error_text.lower() else 500)
                 return
 
             json_response(
                 self,
                 {
                     "events": events,
-                    "days": days
+                    "days": days,
+                    "source_errors": source_errors
                 }
             )
             return
@@ -16720,6 +18235,42 @@ class ApolloHandler(BaseHTTPRequestHandler):
         # GOOGLE CALENDAR WRITE
         # ─────────────────────────────
 
+        if self.path == "/api/calendar/subscriptions/canvas/connect":
+            try:
+                data = read_json(self)
+                status = calendar_subscription_connect(
+                    data.get("feed_url"),
+                    provider="canvas",
+                    display_name="Canvas Calendar",
+                )
+                json_response(self, status, 201)
+            except ValueError as exc:
+                json_response(self, {"error": str(exc)}, 400)
+            except Exception as exc:
+                json_response(self, {"error": str(exc)}, 500)
+            return
+
+        if self.path == "/api/calendar/subscriptions/canvas/refresh":
+            try:
+                conn = db()
+                row = conn.execute("SELECT id FROM calendar_subscriptions WHERE provider = 'canvas' AND active = 1 ORDER BY id DESC LIMIT 1").fetchone()
+                conn.close()
+                if not row:
+                    raise ValueError("Canvas Calendar is not connected")
+                calendar_subscription_sync(row["id"], force=True)
+                json_response(self, calendar_subscription_status("canvas"))
+            except ValueError as exc:
+                json_response(self, {"error": str(exc)}, 400)
+            except Exception as exc:
+                # Persisted sync status gives Settings a useful recovery state.
+                json_response(self, {"error": str(exc), "status": calendar_subscription_status("canvas")}, 502)
+            return
+
+        if self.path == "/api/calendar/subscriptions/canvas/disconnect":
+            calendar_subscription_disconnect("canvas")
+            json_response(self, calendar_subscription_status("canvas"))
+            return
+
         # ─────────────────────────────
         # TASKS
         # ─────────────────────────────
@@ -16889,12 +18440,25 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     )
                 ).strip() or None
 
+                calendar_id = str(
+                    data.pop(
+                        "calendar_id",
+                        "primary"
+                    )
+                ).strip() or "primary"
+
+                if calendar_id.startswith("ical:"):
+                    raise GoogleCalendarReadOnlyError(
+                        "Canvas events are read-only in Apollo. Open the event in Canvas to make changes."
+                    )
+
                 event = (
                     google_calendar_update_event(
                         event_id,
                         data,
                         scope=scope,
-                        series_id=series_id
+                        series_id=series_id,
+                        calendar_id=calendar_id
                     )
                 )
 
@@ -16953,10 +18517,23 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     )
                 ).strip() or None
 
+                calendar_id = str(
+                    data.get(
+                        "calendar_id",
+                        "primary"
+                    )
+                ).strip() or "primary"
+
+                if calendar_id.startswith("ical:"):
+                    raise GoogleCalendarReadOnlyError(
+                        "Canvas events are read-only in Apollo. Open the event in Canvas to make changes."
+                    )
+
                 google_calendar_delete_event(
                     event_id,
                     scope=scope,
-                    series_id=series_id
+                    series_id=series_id,
+                    calendar_id=calendar_id
                 )
 
                 json_response(
@@ -19058,13 +20635,25 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
             try:
 
+                # Calendar interpretation normally receives only the current
+                # turn. Preserve recent user-stated scheduling facts as well,
+                # so a confirmed follow-up can reuse dates, destinations, and
+                # offsets without re-asking for them.
+                calendar_conversation_context = "\n\n".join(
+                    str(message.get("content") or "")
+                    for message in messages[-16:-1]
+                    if message.get("role") == "user"
+                )[-20000:]
+
                 calendar_reply = (
                     apollo_calendar_chat(
                         chat_id,
                         user_message,
                         client_context,
                         attachment_context=
-                            recent_attachment_context
+                            recent_attachment_context,
+                        conversation_context=
+                            calendar_conversation_context
                     )
                 )
 
@@ -19570,6 +21159,12 @@ if __name__ == "__main__":
         default_provider=apollo_default_notification_rules,
     )
     AUTOMATION_ENGINE.start()
+
+    # iCal subscriptions are polled in-process, so Canvas stays current even
+    # while the calendar UI is closed. Individual failures are recorded by the
+    # subscription and never stop Apollo's existing automation worker.
+    CALENDAR_SUBSCRIPTION_WORKER = CalendarSubscriptionSyncWorker()
+    CALENDAR_SUBSCRIPTION_WORKER.start()
 
     server = ThreadingHTTPServer(
         ("127.0.0.1", 8765),

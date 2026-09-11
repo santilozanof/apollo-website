@@ -310,8 +310,31 @@ class AttachmentContextTests(unittest.TestCase):
             status(),
             {
                 "connected": False,
+                "can_read": False,
+                "can_write": False,
                 "reconnect": True,
                 "error": "authorization expired",
+            },
+        )
+
+    def test_google_status_exposes_shared_read_and_write_capability(self):
+        namespace = {
+            "GoogleCalendarAuthError": RuntimeError,
+            "app_state_get": lambda key, default=None: (
+                "saved-refresh" if key == "google_refresh_token" else default
+            ),
+            "google_get_access_token": lambda: "usable-access-token",
+        }
+        status = load_function("google_calendar_connection_status", namespace)
+
+        self.assertEqual(
+            status(),
+            {
+                "connected": True,
+                "can_read": True,
+                "can_write": True,
+                "reconnect": False,
+                "error": None,
             },
         )
 

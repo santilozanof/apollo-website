@@ -394,7 +394,7 @@
         home.classList.add("is-loading");
         const requests = {
             tasks: "/api/tasks",
-            calendar: "/api/calendar/events?days=7",
+            calendar: `/api/calendar/events?days=7&time_zone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")}`,
             health: "/api/whoop/summary",
             briefing: `/api/debrief?time_zone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")}`,
             studio: "/api/studio/projects",
@@ -548,13 +548,16 @@
         const latestProject = n.projects.slice().sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")))[0];
         const briefItems = Array.isArray(n.brief?.parsed?.items) ? n.brief.parsed.items : [];
         const musicTitle = n.music?.title || n.music?.item?.name;
+        const musicDisconnected = n.music?.connection_state === "disconnected";
+        const musicFailed = n.music?.connection_state === "error";
+        const musicPaused = n.music?.playback_state === "paused";
 
         const signalRows = [
             {route: "health", index: "01", label: "Body", title: recoveryText, note: whoopInsightText(n.health?.interpretation) || "See the context behind today’s numbers."},
             {route: "tasks", index: "02", label: "Commitments", title: `${n.activeTasks.length} open ${n.activeTasks.length === 1 ? "task" : "tasks"}`, note: n.overdue.length ? `${n.overdue.length} past due` : "Nothing overdue"},
             {route: "studio", index: "03", label: "Studio", title: latestProject?.title || "Your creative work", note: latestProject ? `${n.projects.length} active ${n.projects.length === 1 ? "project" : "projects"}` : "No projects yet"},
             {route: "brief", index: "04", label: "Briefing", title: briefItems[0]?.headline || (n.brief ? "Your Daily Briefing is ready" : "No briefing yet"), note: n.brief ? `${briefItems.length} signals today` : "Apollo will surface one when ready"},
-            {route: "music", index: "05", label: "Listening", title: musicTitle || "Nothing playing", note: musicTitle ? (n.music?.artists || "Spotify") : "Your music stays close"}
+            {route: "music", index: "05", label: "Listening", title: musicDisconnected ? "Reconnect Spotify" : (musicFailed ? "Spotify unavailable" : (musicTitle || "Nothing playing")), note: musicDisconnected ? "Spotify authentication has expired." : (musicFailed ? (n.music?.error || "Spotify could not be reached.") : (musicTitle ? `${musicPaused ? "Paused · " : ""}${n.music?.artists || "Spotify"}` : "Your music stays close"))}
         ];
         signals.innerHTML = signalRows.map(item => `
             <button class="os-signal-row" type="button" data-os-route="${item.route}">

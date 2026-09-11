@@ -27792,7 +27792,10 @@ requestAnimationFrame(() => {
         daysContainer.innerHTML = "";
 
         try {
-            const response = await fetch("/api/calendar/events?days=7", {
+            const timeZone = Intl.DateTimeFormat()
+                .resolvedOptions()
+                .timeZone || "UTC";
+            const response = await fetch(`/api/calendar/events?days=7&time_zone=${encodeURIComponent(timeZone)}`, {
                 cache: "no-store"
             });
 
@@ -28218,24 +28221,22 @@ requestAnimationFrame(() => {
         ).format(date);
     }
 
+    function calendarTimeZone() {
+        try {
+            return Intl.DateTimeFormat()
+                .resolvedOptions()
+                .timeZone || "UTC";
+        } catch (_) {
+            return "UTC";
+        }
+    }
+
     function eventStart(event) {
         if (!event.start) return null;
 
         if (event.start.dateTime) {
-            const match = event.start.dateTime.match(
-                /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/
-            );
-
-            if (match) {
-                return new Date(
-                    Number(match[1]),
-                    Number(match[2]) - 1,
-                    Number(match[3]),
-                    Number(match[4]),
-                    Number(match[5]),
-                    Number(match[6] || 0)
-                );
-            }
+            const date = new Date(event.start.dateTime);
+            return Number.isNaN(date.getTime()) ? null : date;
         }
 
         if (event.start.date) {
@@ -28253,20 +28254,8 @@ requestAnimationFrame(() => {
         if (!event.end) return null;
 
         if (event.end.dateTime) {
-            const match = event.end.dateTime.match(
-                /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/
-            );
-
-            if (match) {
-                return new Date(
-                    Number(match[1]),
-                    Number(match[2]) - 1,
-                    Number(match[3]),
-                    Number(match[4]),
-                    Number(match[5]),
-                    Number(match[6] || 0)
-                );
-            }
+            const date = new Date(event.end.dateTime);
+            return Number.isNaN(date.getTime()) ? null : date;
         }
 
         if (event.end.date) {
@@ -28365,6 +28354,10 @@ requestAnimationFrame(() => {
         block.className =
             "apollo-week-event";
 
+        if (segment.event.completionState === "completed") {
+            block.classList.add("apollo-week-event-completed");
+        }
+
         if (segment.laneCount > 2) {
             block.classList.add(
                 "apollo-week-event-compact"
@@ -28407,6 +28400,15 @@ requestAnimationFrame(() => {
         title.textContent = titleText;
         title.title = titleText;
         block.appendChild(title);
+
+        if (segment.event.sourceLabel) {
+            const source = document.createElement("span");
+            source.className = "apollo-calendar-source";
+            source.textContent = [segment.event.sourceLabel, segment.event.calendarName]
+                .filter(Boolean).join(" · ");
+            source.title = `${segment.event.sourceLabel} event · read only`;
+            block.appendChild(source);
+        }
 
         if (
             segment.height >= 38
@@ -28453,6 +28455,33 @@ requestAnimationFrame(() => {
             );
         }
 
+        column.appendChild(block);
+    }
+
+    function appendAllDayEvent(event, column, index) {
+        const block = document.createElement("div");
+        block.className = "apollo-week-event apollo-week-all-day";
+        if (event.completionState === "completed") {
+            block.classList.add("apollo-week-event-completed");
+        }
+        if (event.id) block.dataset.eventId = event.id;
+        block.style.top = `${7 + index * 25}px`;
+        block.style.height = "21px";
+        block.style.left = "4px";
+        block.style.right = "4px";
+        block.style.width = "auto";
+        block.textContent = event.summary || "Untitled event";
+        block.title = event.summary || "Untitled event";
+        if (event.sourceLabel) {
+            const source = document.createElement("span");
+            source.className = "apollo-calendar-source";
+            source.textContent = [event.sourceLabel, event.calendarName]
+                .filter(Boolean).join(" · ");
+            block.appendChild(source);
+        }
+        if (event.htmlLink) {
+            block.addEventListener("click", () => window.open(event.htmlLink, "_blank", "noopener,noreferrer"));
+        }
         column.appendChild(block);
     }
 
@@ -28925,6 +28954,15 @@ requestAnimationFrame(() => {
         for (const event of events) {
 
             if (isAllDay(event)) {
+                const start = eventStart(event);
+                const end = eventEnd(event) || (start && addDays(start, 1));
+                if (!start || !end) continue;
+                for (const column of columns) {
+                    const day = parseLocalDateKey(column.dataset.date);
+                    if (day && day >= start && day < end) {
+                        appendAllDayEvent(event, column, column.querySelectorAll(".apollo-week-all-day").length);
+                    }
+                }
                 continue;
             }
 
@@ -29795,10 +29833,17 @@ requestAnimationFrame(() => {
                         "date-only"
                     );
 
+                    const allDayOffset =
+                        column.querySelectorAll(
+                            ".apollo-week-all-day"
+                        ).length
+                        * 25;
+
 
                     block.style.top =
                         `${
                             8
+                            + allDayOffset
                             + index * 48
                         }px`;
 
@@ -29995,7 +30040,7 @@ requestAnimationFrame(() => {
             ] =
                 await Promise.all([
                     fetch(
-                        `/api/calendar/events?days=7&start=${localDateKey(weekStart)}`,
+                        `/api/calendar/events?days=7&start=${localDateKey(weekStart)}&time_zone=${encodeURIComponent(calendarTimeZone())}`,
                         {
                             cache:
                                 "no-store"
@@ -30110,7 +30155,7 @@ requestAnimationFrame(() => {
 
             const response =
                 await fetch(
-                    `/api/calendar/events?days=1&start=${today}`,
+                    `/api/calendar/events?days=1&start=${today}&time_zone=${encodeURIComponent(calendarTimeZone())}`,
                     {
                         cache: "no-store"
                     }
@@ -31701,6 +31746,7 @@ requestAnimationFrame(() => {
 
 
     let editingEventId = null;
+    let editingCalendarId = "primary";
 
 
     function pad(value) {
@@ -31741,21 +31787,28 @@ requestAnimationFrame(() => {
             return null;
         }
 
-        const match =
-            String(value).match(
-                /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/
-            );
+        const date = new Date(value);
 
-        if (!match) {
+        if (Number.isNaN(date.getTime())) {
             return null;
         }
 
         return {
-            date:
-                `${match[1]}-${match[2]}-${match[3]}`,
-            time:
-                `${match[4]}:${match[5]}`
+            date: dateKey(date),
+            time: timeKey(date)
         };
+    }
+
+
+    function calendarTimeZone() {
+
+        try {
+            return Intl.DateTimeFormat()
+                .resolvedOptions()
+                .timeZone || "UTC";
+        } catch (_) {
+            return "UTC";
+        }
     }
 
 
@@ -31766,6 +31819,7 @@ requestAnimationFrame(() => {
         );
 
         editingEventId = null;
+        editingCalendarId = "primary";
         errorElement.textContent = "";
     }
 
@@ -31776,6 +31830,7 @@ requestAnimationFrame(() => {
     ) {
 
         editingEventId = null;
+        editingCalendarId = "primary";
 
         heading.textContent =
             "New event";
@@ -31849,6 +31904,9 @@ requestAnimationFrame(() => {
 
         editingEventId =
             event.id;
+
+        editingCalendarId =
+            event.calendarId || "primary";
 
         heading.textContent =
             "Edit event";
@@ -32046,6 +32104,8 @@ requestAnimationFrame(() => {
                 startDateTime,
             end:
                 endDateTime,
+            time_zone:
+                calendarTimeZone(),
             location:
                 locationInput.value.trim(),
             description:
@@ -32058,6 +32118,9 @@ requestAnimationFrame(() => {
 
                 payload.event_id =
                     editingEventId;
+
+                payload.calendar_id =
+                    editingCalendarId;
 
                 await apiPost(
                     "/api/calendar/events/update",
@@ -32120,7 +32183,9 @@ requestAnimationFrame(() => {
                 "/api/calendar/events/delete",
                 {
                     event_id:
-                        editingEventId
+                        editingEventId,
+                    calendar_id:
+                        editingCalendarId
                 }
             );
 
@@ -32173,14 +32238,18 @@ requestAnimationFrame(() => {
                         instanceof Map
                 ) {
 
+                    const calendarEvent = window.apolloCalendarEventMap.get(id);
                     event.preventDefault();
                     event.stopPropagation();
 
-                    openEditEditor(
-                        window
-                            .apolloCalendarEventMap
-                            .get(id)
-                    );
+                    if (calendarEvent?.readOnly) {
+                        if (calendarEvent.htmlLink) {
+                            window.open(calendarEvent.htmlLink, "_blank", "noopener,noreferrer");
+                        }
+                        return;
+                    }
+
+                    openEditEditor(calendarEvent);
 
                     return;
                 }
@@ -36471,6 +36540,45 @@ html[data-theme="light"] #calendarView {
     gap: 12px;
 }
 
+.apollo-canvas-connection {
+    display: flex;
+    align-items: flex-end;
+    flex-direction: column;
+    gap: 8px;
+    min-width: min(360px, 100%);
+}
+
+.apollo-canvas-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 7px;
+    width: 100%;
+}
+
+/* Later global Settings rules make connection action groups flex; preserve
+   the HTML hidden state so disconnected Canvas controls cannot appear active. */
+.apollo-canvas-actions[hidden] {
+    display: none !important;
+}
+
+.apollo-canvas-feed-input {
+    flex: 1 1 220px;
+    min-width: 0;
+    height: 30px;
+    padding: 0 9px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    outline: none;
+    background: var(--control-bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 11px;
+}
+
+.apollo-connection-danger {
+    color: #bf5a5a;
+}
+
 
 .apollo-google-connect {
     padding: 6px 9px;
@@ -36486,6 +36594,41 @@ html[data-theme="light"] #calendarView {
 
 .apollo-google-connect:hover {
     background: var(--control-bg);
+}
+
+.apollo-calendar-source {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 4px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    opacity: .58;
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    line-height: 1.2;
+    text-transform: uppercase;
+    vertical-align: 1px;
+}
+
+.apollo-week-all-day {
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 10px;
+    line-height: 1;
+}
+
+.apollo-week-event-completed {
+    opacity: .52;
+}
+
+.apollo-week-event-completed .apollo-week-event-title,
+.apollo-week-event-completed.apollo-week-all-day {
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
 }
 
 
@@ -36534,6 +36677,11 @@ html.apollo-reduce-motion *::after {
 
 
     .apollo-setting-select {
+        width: 100%;
+    }
+
+    .apollo-canvas-connection {
+        align-items: stretch;
         width: 100%;
     }
 }
@@ -36846,6 +36994,28 @@ html.apollo-reduce-motion *::after {
 
                     </div>
 
+                    <div class="apollo-setting-row apollo-canvas-setting-row">
+                        <div class="apollo-setting-copy">
+                            <div class="apollo-setting-name">Canvas Calendar</div>
+                            <div class="apollo-setting-description" id="apolloCanvasDescription">
+                                Paste your private Canvas iCal feed URL. Canvas events stay read-only in Apollo.
+                            </div>
+                        </div>
+                        <div class="apollo-canvas-connection">
+                            <div class="apollo-connection-status" id="apolloCanvasStatus">
+                                <span class="apollo-connection-dot"></span><span>Not connected</span>
+                            </div>
+                            <div class="apollo-canvas-actions" id="apolloCanvasConnectForm">
+                                <input class="apollo-canvas-feed-input" id="apolloCanvasFeedUrl" type="url" autocomplete="off" placeholder="https://…/calendar.ics" aria-label="Canvas iCal calendar feed URL">
+                                <button class="apollo-google-connect" id="apolloCanvasConnect" type="button">Connect</button>
+                            </div>
+                            <div class="apollo-canvas-actions" id="apolloCanvasConnectedActions" hidden>
+                                <button class="apollo-google-connect" id="apolloCanvasRefresh" type="button">Refresh now</button>
+                                <button class="apollo-google-connect apollo-connection-danger" id="apolloCanvasDisconnect" type="button">Disconnect</button>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
 
             </section>
@@ -37028,6 +37198,14 @@ html.apollo-reduce-motion *::after {
     main.appendChild(
         settingsView
     );
+
+    // Keep the Canvas controls beside the existing Google connection without
+    // introducing a separate calendar settings screen.
+    const canvasConnectionRow = settingsView.querySelector(".apollo-canvas-setting-row");
+    const connectionsPanel = settingsView.querySelector("#apolloGoogleStatus")?.closest(".apollo-settings-panel");
+    if (canvasConnectionRow && connectionsPanel) {
+        connectionsPanel.appendChild(canvasConnectionRow);
+    }
 
 
     /* ================================================
@@ -37440,6 +37618,100 @@ html.apollo-reduce-motion *::after {
        GOOGLE STATUS
        ================================================ */
 
+    function canvasStatusText(data) {
+        if (!data.connected) return "Not connected";
+        if (data.last_error) return "Sync error";
+        if (!data.last_synced_at) return "Connected · syncing…";
+        const synced = new Date(data.last_synced_at);
+        if (Number.isNaN(synced.getTime())) return "Connected";
+        return `Connected · last synced ${synced.toLocaleString([], {month: "short", day: "numeric", hour: "numeric", minute: "2-digit"})}`;
+    }
+
+    async function loadCanvasConnectionStatus() {
+        const status = document.getElementById("apolloCanvasStatus");
+        const description = document.getElementById("apolloCanvasDescription");
+        const form = document.getElementById("apolloCanvasConnectForm");
+        const actions = document.getElementById("apolloCanvasConnectedActions");
+        if (!status || !description || !form || !actions) return;
+        try {
+            const response = await fetch("/api/calendar/subscriptions/canvas/status", {cache: "no-store"});
+            const data = await response.json();
+            const connected = Boolean(data.connected);
+            status.classList.toggle("connected", connected && !data.last_error);
+            status.querySelector("span:last-child").textContent = canvasStatusText(data);
+            description.textContent = data.last_error
+                ? `Canvas sync error: ${data.last_error}`
+                : (connected
+                    ? "Canvas events are read-only in Apollo and are never copied into Google Calendar."
+                    : "Paste your private Canvas iCal feed URL. Canvas events stay read-only in Apollo.");
+            form.hidden = connected;
+            actions.hidden = !connected;
+        } catch (error) {
+            status.querySelector("span:last-child").textContent = "Unavailable";
+            status.classList.remove("connected");
+        }
+    }
+
+    async function canvasRequest(path, body) {
+        const response = await fetch(path, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: body ? JSON.stringify(body) : "{}"
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Canvas Calendar request failed");
+        return data;
+    }
+
+    document.getElementById("apolloCanvasConnect")?.addEventListener("click", async () => {
+        const input = document.getElementById("apolloCanvasFeedUrl");
+        const button = document.getElementById("apolloCanvasConnect");
+        const feedUrl = input?.value.trim();
+        if (!feedUrl) return input?.focus();
+        button.disabled = true;
+        try {
+            await canvasRequest("/api/calendar/subscriptions/canvas/connect", {feed_url: feedUrl});
+            input.value = "";
+            await loadCanvasConnectionStatus();
+            window.apolloLoadCalendar?.();
+            window.apolloLoadHomeCalendar?.();
+        } catch (error) {
+            const description = document.getElementById("apolloCanvasDescription");
+            if (description) description.textContent = error.message;
+        } finally {
+            button.disabled = false;
+        }
+    });
+
+    document.getElementById("apolloCanvasRefresh")?.addEventListener("click", async () => {
+        const button = document.getElementById("apolloCanvasRefresh");
+        button.disabled = true;
+        try {
+            await canvasRequest("/api/calendar/subscriptions/canvas/refresh");
+            window.apolloLoadCalendar?.();
+            window.apolloLoadHomeCalendar?.();
+        } catch (error) {
+            const description = document.getElementById("apolloCanvasDescription");
+            if (description) description.textContent = error.message;
+        } finally {
+            button.disabled = false;
+            await loadCanvasConnectionStatus();
+        }
+    });
+
+    document.getElementById("apolloCanvasDisconnect")?.addEventListener("click", async () => {
+        const button = document.getElementById("apolloCanvasDisconnect");
+        button.disabled = true;
+        try {
+            await canvasRequest("/api/calendar/subscriptions/canvas/disconnect");
+            await loadCanvasConnectionStatus();
+            window.apolloLoadCalendar?.();
+            window.apolloLoadHomeCalendar?.();
+        } finally {
+            button.disabled = false;
+        }
+    });
+
     async function loadConnectionStatus() {
 
         const element =
@@ -37449,6 +37721,7 @@ html.apollo-reduce-motion *::after {
 
 
         if (!element) {
+            loadCanvasConnectionStatus();
             return;
         }
 
@@ -37540,6 +37813,8 @@ html.apollo-reduce-motion *::after {
                 reconnect.hidden = false;
             }
         }
+
+        loadCanvasConnectionStatus();
     }
 
 
@@ -40664,6 +40939,46 @@ html[data-theme="light"]
     function renderHome(
         data
     ) {
+
+        if (
+            data.connection_state
+            === "disconnected"
+        ) {
+
+            homeContent.className = "card-content";
+
+            homeContent.innerHTML = `
+                <div class="card-main">
+                    Reconnect Spotify
+                </div>
+
+                <div class="card-secondary">
+                    Spotify authentication has expired
+                </div>
+            `;
+
+            return;
+        }
+
+        if (
+            data.connection_state
+            === "error"
+        ) {
+
+            homeContent.className = "card-content";
+
+            homeContent.innerHTML = `
+                <div class="card-main">
+                    Spotify unavailable
+                </div>
+
+                <div class="card-secondary">
+                    ${escapeHTML(data.error || "Could not load Spotify")}
+                </div>
+            `;
+
+            return;
+        }
 
         if (!data.title) {
 
@@ -64159,7 +64474,13 @@ html.apollo-reduce-motion.apollo-jarvis-mode
 
             const data =
                 await getJSON(
-                    "/api/calendar/events?days=7"
+                    "/api/calendar/events?days=7&time_zone="
+                    + encodeURIComponent(
+                        Intl.DateTimeFormat()
+                            .resolvedOptions()
+                            .timeZone
+                        || "UTC"
+                    )
                 );
 
 
@@ -77093,9 +77414,8 @@ html.apollo-jarvis-mode
 
 
     /*
-     * Prevent an already-empty fresh chat from
-     * repeatedly generating another empty fresh chat
-     * every ten minutes.
+     * Prevent an expired, already-cleared view from
+     * being refreshed repeatedly while the user is away.
      */
     let idleResetAlreadyPerformed =
         false;
@@ -77252,20 +77572,25 @@ html.apollo-jarvis-mode
 
 
             /*
-             * Use Apollo's EXISTING fresh-chat function.
-             * This keeps the expired conversation saved
-             * in History and resets the current view.
+             * Refresh only the visible chat. Do not create a
+             * persisted conversation just because the user was
+             * away, otherwise History fills with empty "New Chat"
+             * entries.
+             *
+             * Keep the current chat id and stale timestamp intact.
+             * The next message will use Apollo's existing stale-chat
+             * path to create a new conversation containing that
+             * message, rather than leaving an empty conversation.
              */
-            await apolloStartFreshChatForActivity();
+            apolloMessages.innerHTML = "";
+            apolloResetMessageViewport();
 
+            apolloWelcome.style.display =
+                "flex";
 
-            /*
-             * apolloStartFreshChatForActivity() calls
-             * apolloTouchChatActivity(), which resets our
-             * guard. Put it back after the automatic reset.
-             */
-            idleResetAlreadyPerformed =
-                true;
+            apolloMessages.appendChild(
+                apolloWelcome
+            );
 
 
             window.apolloPendingWhoopContext =
