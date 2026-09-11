@@ -5474,11 +5474,15 @@ def spotify_current_with_player_probe():
 import atexit, json, os, re, subprocess, urllib.error, urllib.request
 trace_path = os.environ.get("APOLLO_SPOTIFY_TRACE_FILE")
 state = {"currently_playing": {}, "player": {}, "granted_scopes": [], "helper_requests": []}
+latest_authorization = None
 original_urlopen = urllib.request.urlopen
 original_json_load = json.load
 original_json_loads = json.loads
 
 def remember_scopes(value):
+    global latest_authorization
+    if isinstance(value, dict) and value.get("access_token"):
+        latest_authorization = "Bearer " + str(value["access_token"])
     if isinstance(value, dict) and value.get("access_token") and value.get("scope"):
         scopes = value.get("scope")
         state["granted_scopes"] = sorted(str(scopes).split()) if isinstance(scopes, str) else list(scopes or [])
@@ -5607,6 +5611,10 @@ subprocess.run = traced_subprocess_run
 
 def write_trace():
     if trace_path:
+        # Run after the helper has completed its own refresh flow so the
+        # comparison always uses its final access token, not a stale cache.
+        currently_playing_probe(latest_authorization)
+        player_probe(latest_authorization)
         with open(trace_path, "w", encoding="utf-8") as output:
             json.dump(state, output)
 atexit.register(write_trace)
