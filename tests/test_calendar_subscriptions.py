@@ -83,6 +83,23 @@ END:VCALENDAR\r
         merged = self.merger()([normal_google, google_import], [], {canvas_key})
         self.assertEqual(merged, [normal_google])
 
+    def test_google_import_with_canvas_uid_is_excluded_even_after_due_date_changes(self):
+        google_import = {
+            "id": "google-copy", "calendarId": "feed@import.calendar.google.com",
+            "iCalUID": "assignment-42", "summary": "Essay",
+            "start": {"dateTime": "2026-09-16T21:59:00Z"},
+            "end": {"dateTime": "2026-09-16T21:59:00Z"},
+        }
+        normal_google = {
+            "id": "class", "calendarId": "primary", "summary": "Class",
+            "start": {"dateTime": "2026-09-14T09:00:00Z"},
+            "end": {"dateTime": "2026-09-14T10:00:00Z"},
+        }
+        self.assertEqual(
+            self.merger()([normal_google, google_import], [], set(), {"assignment-42"}),
+            [normal_google],
+        )
+
     def test_canvas_dedupe_never_removes_normal_google_events(self):
         """Only the imported Google Canvas feed may yield to Apollo's copy."""
         start = {"dateTime": "2026-09-10T06:59:00Z"}

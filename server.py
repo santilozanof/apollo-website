@@ -9331,6 +9331,7 @@ def normalize_google_calendar_event(event, calendar_id):
         "description": event.get("description"),
         "status": event.get("status"),
         "htmlLink": event.get("htmlLink"),
+        "iCalUID": event.get("iCalUID"),
         "recurringEventId": event.get("recurringEventId"),
         "originalStartTime": event.get("originalStartTime"),
         "recurrence": event.get("recurrence"),
@@ -10017,7 +10018,7 @@ def canvas_subscription_event_keys(range_start, range_end, requested_zone):
         WHERE e.active = 1 AND s.active = 1 AND s.provider = 'canvas'
     """).fetchall()
     conn.close()
-    keys = set()
+    keys, uids = set(), set()
     for row in rows:
         try:
             event = {
@@ -10027,9 +10028,10 @@ def canvas_subscription_event_keys(range_start, range_end, requested_zone):
             }
             if _subscription_event_overlaps(event, range_start, range_end, requested_zone):
                 keys.add(_calendar_event_equivalence_key(event))
+                uids.add(str(row["uid"] or "").strip())
         except (json.JSONDecodeError, KeyError, TypeError):
             continue
-    return keys
+    return keys, {uid for uid in uids if uid}
 
 
 def _calendar_event_equivalence_key(event):
@@ -10054,13 +10056,14 @@ def _calendar_event_equivalence_key(event):
     return title, start, end
 
 
-def merge_calendar_event_sources(google_events, subscription_events, canvas_keys=None):
+def merge_calendar_event_sources(google_events, subscription_events, canvas_keys=None, canvas_uids=None):
     """Return calendar events while suppressing only imported Canvas copies."""
     canvas_keys = set(canvas_keys or ()) | {
         _calendar_event_equivalence_key(event)
         for event in subscription_events
         if event.get("source") == "canvas"
     }
+    canvas_uids = {str(uid).strip() for uid in (canvas_uids or ()) if str(uid).strip()}
     merged = []
     seen_google_ids = set()
     for event in google_events:
@@ -10070,7 +10073,10 @@ def merge_calendar_event_sources(google_events, subscription_events, canvas_keys
         # owns that feed directly, so its richer canonical record wins.
         if (
             "@import.calendar.google.com" in calendar_id.lower()
-            and _calendar_event_equivalence_key(event) in canvas_keys
+            and (
+                str(event.get("iCalUID") or "").strip() in canvas_uids
+                or _calendar_event_equivalence_key(event) in canvas_keys
+            )
         ):
             continue
         google_id = str(event.get("id") or "")
@@ -10101,18 +10107,18 @@ def apollo_calendar_events(days=7, start_date=None, end_date=None, time_zone=Non
     else:
         range_end = range_start + timedelta(days=days)
 
-    google_events, subscription_events, canvas_keys, errors = [], [], set(), {}
+    google_events, subscription_events, canvas_keys, canvas_uids, errors = [], [], set(), set(), {}
     try:
         google_events = google_calendar_events(days, start_date=start_date, end_date=end_date, time_zone=tz_name)
     except Exception as error:
         errors["google"] = str(error)
     try:
         subscription_events = calendar_subscription_events(range_start, range_end, tz_name)
-        canvas_keys = canvas_subscription_event_keys(range_start, range_end, tz_name)
+        canvas_keys, canvas_uids = canvas_subscription_event_keys(range_start, range_end, tz_name)
     except Exception as error:
         errors["subscriptions"] = str(error)
 
-    events = merge_calendar_event_sources(google_events, subscription_events, canvas_keys)
+    events = merge_calendar_event_sources(google_events, subscription_events, canvas_keys, canvas_uids)
 
     def sort_key(event):
         value = (event.get("start") or {}).get("dateTime") or (event.get("start") or {}).get("date") or "9999-12-31"
@@ -10457,6 +10463,8 @@ def clean_google_event(event, calendar_id="primary"):
             event.get("status"),
         "htmlLink":
             event.get("htmlLink"),
+        "iCalUID":
+            event.get("iCalUID"),
         "recurringEventId":
             event.get(
                 "recurringEventId"
