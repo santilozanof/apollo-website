@@ -5471,9 +5471,9 @@ def spotify_current_with_player_probe():
     token.  It never writes, returns, or logs the bearer token.
     """
     hook = r'''
-import atexit, json, os, urllib.error, urllib.request
+import atexit, json, os, re, subprocess, urllib.error, urllib.request
 trace_path = os.environ.get("APOLLO_SPOTIFY_TRACE_FILE")
-state = {"currently_playing": {}, "player": {}, "granted_scopes": []}
+state = {"currently_playing": {}, "player": {}, "granted_scopes": [], "helper_requests": []}
 original_urlopen = urllib.request.urlopen
 original_json_load = json.load
 original_json_loads = json.loads
@@ -5530,6 +5530,30 @@ def player_probe(authorization):
     except Exception as error:
         state["player"] = {"error": str(error)}
 
+def currently_playing_probe(authorization):
+    if state["currently_playing"] or not authorization:
+        return
+    request = urllib.request.Request(
+        "https://api.spotify.com/v1/me/player/currently-playing",
+        headers={"Authorization": authorization},
+    )
+    try:
+        with original_urlopen(request, timeout=20) as response:
+            status = response_status(response)
+            payload = response.read().decode("utf-8", errors="replace")
+            state["currently_playing"] = {"status": status}
+            if payload:
+                data = original_json_loads(payload)
+                item = data.get("item") if isinstance(data, dict) else {}
+                state["currently_playing"].update({
+                    "is_playing": data.get("is_playing") if isinstance(data, dict) else None,
+                    "item": item if isinstance(item, dict) else {},
+                })
+    except urllib.error.HTTPError as error:
+        state["currently_playing"] = {"status": error.code, "error": error.read().decode("utf-8", errors="replace")[:500]}
+    except Exception as error:
+        state["currently_playing"] = {"error": str(error)}
+
 def traced_urlopen(request, *args, **kwargs):
     url = request_url(request)
     is_current = "/v1/me/player/currently-playing" in url
@@ -5561,6 +5585,25 @@ try:
     requests.sessions.Session.request = traced_request
 except Exception:
     pass
+
+# Some versions of the standalone helper delegate transport to a subprocess
+# (for example curl), bypassing urllib and requests above. Capture just the
+# endpoint path, obtain the existing bearer header in-process, and make the
+# two read-only comparison requests ourselves. Tokens are never persisted.
+original_subprocess_run = subprocess.run
+def traced_subprocess_run(args, *positional, **keyword):
+    values = [str(value) for value in (args if isinstance(args, (list, tuple)) else [args])]
+    command = " ".join(values)
+    if "api.spotify.com" in command:
+        paths = re.findall(r"https?://api\.spotify\.com([^\s'\"]+)", command)
+        state["helper_requests"].extend({"path": path.split("?", 1)[0]} for path in paths)
+        match = re.search(r"Bearer\s+([A-Za-z0-9._~-]+)", command, re.I)
+        if match:
+            authorization = "Bearer " + match.group(1)
+            currently_playing_probe(authorization)
+            player_probe(authorization)
+    return original_subprocess_run(args, *positional, **keyword)
+subprocess.run = traced_subprocess_run
 
 def write_trace():
     if trace_path:
