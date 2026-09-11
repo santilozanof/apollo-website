@@ -10099,7 +10099,7 @@ def merge_calendar_event_sources(google_events, subscription_events, canvas_keys
 
 
 def apollo_calendar_events(days=7, start_date=None, end_date=None, time_zone=None):
-    """Merge independently-failable Google and iCal sources into Apollo's event model."""
+    """Return Google Calendar events only; tasks belong exclusively to Tasks."""
     tz_name = str(time_zone or app_state_get("time_zone", "UTC")).strip() or "UTC"
     try:
         zone = ZoneInfo(tz_name)
@@ -10116,18 +10116,20 @@ def apollo_calendar_events(days=7, start_date=None, end_date=None, time_zone=Non
     else:
         range_end = range_start + timedelta(days=days)
 
-    google_events, subscription_events, canvas_keys, canvas_uids, errors = [], [], set(), set(), {}
+    google_events, canvas_keys, canvas_uids, errors = [], set(), set(), {}
     try:
         google_events = google_calendar_events(days, start_date=start_date, end_date=end_date, time_zone=tz_name)
     except Exception as error:
         errors["google"] = str(error)
     try:
-        subscription_events = calendar_subscription_events(range_start, range_end, tz_name)
         canvas_keys, canvas_uids = canvas_subscription_event_keys(range_start, range_end, tz_name)
     except Exception as error:
         errors["subscriptions"] = str(error)
 
-    events = merge_calendar_event_sources(google_events, subscription_events, canvas_keys, canvas_uids)
+    # Canvas's private Google import is excluded by its external identity,
+    # while all primary/ordinary Google calendars remain intact. No task
+    # source is ever merged into this response.
+    events = merge_calendar_event_sources(google_events, [], canvas_keys, canvas_uids)
 
     def sort_key(event):
         value = (event.get("start") or {}).get("dateTime") or (event.get("start") or {}).get("date") or "9999-12-31"

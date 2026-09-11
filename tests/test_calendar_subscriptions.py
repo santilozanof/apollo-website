@@ -100,6 +100,38 @@ END:VCALENDAR\r
             [normal_google],
         )
 
+    def test_calendar_pipeline_is_google_only_and_never_reads_tasks(self):
+        google_event = {
+            "id": "google-class", "calendarId": "primary", "summary": "Physics",
+            "start": {"dateTime": "2026-09-15T09:00:00+00:00"},
+            "end": {"dateTime": "2026-09-15T10:00:00+00:00"},
+        }
+        imported_canvas_copy = {
+            "id": "canvas-google-copy", "calendarId": "canvas@import.calendar.google.com",
+            "iCalUID": "event-assignment-42", "summary": "Vectors Act 1",
+            "start": {"date": "2026-09-15"}, "end": {"date": "2026-09-16"},
+        }
+        namespace = {
+            "datetime": datetime,
+            "timedelta": timedelta,
+            "timezone": timezone,
+            "ZoneInfo": ZoneInfo,
+            "app_state_get": lambda *_args, **_kwargs: "UTC",
+            "google_calendar_events": lambda *_args, **_kwargs: [google_event, imported_canvas_copy],
+            "canvas_subscription_event_keys": lambda *_args, **_kwargs: (set(), {"event-assignment-42"}),
+            "get_tasks": lambda: self.fail("Calendar must never read Tasks"),
+            "json": json,
+            "re": re,
+        }
+        load_function("_calendar_event_equivalence_key", namespace)
+        load_function("merge_calendar_event_sources", namespace)
+        calendar_events = load_function("apollo_calendar_events", namespace)
+
+        events, errors = calendar_events(days=1, start_date="2026-09-15", time_zone="UTC")
+
+        self.assertEqual(errors, {})
+        self.assertEqual(events, [google_event])
+
     def test_canvas_dedupe_never_removes_normal_google_events(self):
         """Only the imported Google Canvas feed may yield to Apollo's copy."""
         start = {"dateTime": "2026-09-10T06:59:00Z"}

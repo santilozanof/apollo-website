@@ -532,8 +532,7 @@
         }
 
         const timeline = [
-            ...n.upcomingEvents.slice(0, 4).map(event => ({type: "Event", title: event.summary || "Untitled event", date: event._date, allDay: Boolean(event.start?.date)})),
-            ...n.datedTasks.filter(task => task._date && task._date >= new Date(n.now.getTime() - 86400000)).slice(0, 4).map(task => ({type: "Task", title: task.title || "Untitled task", date: task._date}))
+            ...n.upcomingEvents.slice(0, 4).map(event => ({type: "Event", title: event.summary || "Untitled event", date: event._date, allDay: Boolean(event.start?.date)}))
         ].sort((a, b) => a.date - b.date).slice(0, 4);
 
         agenda.innerHTML = timeline.length ? timeline.map(item => `

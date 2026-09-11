@@ -30036,21 +30036,13 @@ requestAnimationFrame(() => {
 
         try {
 
-            const [
-                response,
-                tasks
-            ] =
-                await Promise.all([
-                    fetch(
-                        `/api/calendar/events?days=7&start=${localDateKey(weekStart)}&time_zone=${encodeURIComponent(calendarTimeZone())}`,
-                        {
-                            cache:
-                                "no-store"
-                        }
-                    ),
-
-                    apolloCalendarLoadTasks()
-                ]);
+            const response = await fetch(
+                `/api/calendar/events?days=7&start=${localDateKey(weekStart)}&time_zone=${encodeURIComponent(calendarTimeZone())}`,
+                {
+                    cache:
+                        "no-store"
+                }
+            );
 
 
             const data =
@@ -30072,12 +30064,6 @@ requestAnimationFrame(() => {
                     ? data.events
                     : []
             );
-
-
-            apolloCalendarRenderTasks(
-                tasks
-            );
-
 
             /*
              * Opening Calendar should land in the useful part
