@@ -203,6 +203,12 @@ END:VCALENDAR\r
                     "UTC",
                 )
                 self.assertEqual(calendar_events, [])
+                _canvas_keys, canvas_uids = module.canvas_subscription_event_keys(
+                    datetime(2026, 9, 14, tzinfo=timezone.utc),
+                    datetime(2026, 9, 17, tzinfo=timezone.utc),
+                    "UTC",
+                )
+                self.assertEqual(canvas_uids, {"assignment-42"})
 
                 feed[0] = b"""BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:assignment-42\nSUMMARY:Essay revised\nDTSTART;VALUE=DATE:20260916\nDUE;VALUE=DATE:20260916\nX-CANVAS-SUBMISSION-STATUS:submitted\nEND:VEVENT\nEND:VCALENDAR\n"""
                 module.calendar_subscription_sync(1, force=True)

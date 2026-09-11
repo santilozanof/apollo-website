@@ -10012,7 +10012,7 @@ def canvas_subscription_event_keys(range_start, range_end, requested_zone):
     """Identify only imported Google copies of active Canvas assignments."""
     conn = db()
     rows = conn.execute("""
-        SELECT e.start_json, e.end_json, e.summary
+        SELECT e.uid, e.start_json, e.end_json, e.summary
         FROM calendar_subscription_events e
         JOIN calendar_subscriptions s ON s.id = e.subscription_id
         WHERE e.active = 1 AND s.active = 1 AND s.provider = 'canvas'
