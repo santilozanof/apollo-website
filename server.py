@@ -9760,6 +9760,15 @@ def _canvas_task_due_at(row):
     return value.get("dateTime") or value.get("date") or None
 
 
+def _canvas_task_course_name(row):
+    """Prefer Canvas's course field; retain its visible course code as fallback."""
+    course_name = str(row["calendar_name"] or "").strip()
+    if course_name:
+        return course_name
+    match = re.search(r"\[([^\]]+)\]\s*$", str(row["summary"] or ""))
+    return match.group(1).strip() if match else None
+
+
 def canvas_tasks_sync_from_subscription(conn, subscription_id):
     """Upsert active Canvas assignments as Apollo tasks and archive removals.
 
@@ -9784,7 +9793,7 @@ def canvas_tasks_sync_from_subscription(conn, subscription_id):
         external_id = _canvas_task_external_id(row["uid"], row["recurrence_id"] or "")
         active_external_ids.add(external_id)
         metadata = json.dumps({
-            "course_name": row["calendar_name"],
+            "course_name": _canvas_task_course_name(row),
             "assignment_url": row["html_link"],
             "canvas_uid": row["uid"],
             "completion_source": row["completion_source"],

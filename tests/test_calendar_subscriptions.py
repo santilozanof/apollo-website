@@ -197,6 +197,11 @@ END:VCALENDAR\r
                 self.assertEqual(canvas_task["courseName"], "History 101")
                 self.assertEqual(canvas_task["htmlLink"], "https://canvas.example/courses/42/assignments/42")
 
+                self.assertEqual(
+                    module._canvas_task_course_name({"calendar_name": None, "summary": "Essay [PM5010.605]"}),
+                    "PM5010.605",
+                )
+
                 calendar_events = module.calendar_subscription_events(
                     datetime(2026, 9, 14, tzinfo=timezone.utc),
                     datetime(2026, 9, 17, tzinfo=timezone.utc),
