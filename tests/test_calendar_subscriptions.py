@@ -67,18 +67,21 @@ END:VCALENDAR\r
         self.assertEqual(event["start"]["dateTime"], "2026-11-03T09:00:00-05:00")
         self.assertEqual(event["end"]["dateTime"], "2026-11-03T10:00:00-05:00")
 
-    def test_google_import_of_canvas_is_replaced_by_canonical_canvas_event(self):
+    def test_google_import_of_canvas_is_excluded_without_hiding_google_events(self):
         start, end = {"dateTime": "2026-09-10T06:59:00Z"}, {"dateTime": "2026-09-10T06:59:00Z"}
         google_import = {
             "id": "google-copy", "calendarId": "feed@import.calendar.google.com",
             "summary": "Assignment", "start": start, "end": end,
         }
-        canvas = {
-            "id": "ical:1:abc", "source": "canvas", "sourceEventUid": "assignment-1",
-            "summary": "Assignment", "start": {"dateTime": "2026-09-10T06:59:00+00:00"}, "end": {"dateTime": "2026-09-10T06:59:00+00:00"},
+        normal_google = {
+            "id": "class", "calendarId": "primary",
+            "summary": "Class", "start": start, "end": end,
         }
-        merged = self.merger()([google_import], [canvas])
-        self.assertEqual(merged, [canvas])
+        namespace = {"json": json, "re": re, "datetime": datetime, "timezone": timezone}
+        load_function("_calendar_event_equivalence_key", namespace)
+        canvas_key = namespace["_calendar_event_equivalence_key"](google_import)
+        merged = self.merger()([normal_google, google_import], [], {canvas_key})
+        self.assertEqual(merged, [normal_google])
 
     def test_canvas_dedupe_never_removes_normal_google_events(self):
         """Only the imported Google Canvas feed may yield to Apollo's copy."""
@@ -141,7 +144,7 @@ END:VCALENDAR\r
             spec.loader.exec_module(module)
             module.init_db()
 
-            feed = [b"""BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:assignment-42\nSUMMARY:Essay\nDTSTART;VALUE=DATE:20260915\nEND:VEVENT\nEND:VCALENDAR\n"""]
+            feed = [b"""BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:assignment-42\nSUMMARY:Essay\nDTSTART;VALUE=DATE:20260915\nDUE;VALUE=DATE:20260915\nDESCRIPTION:Submit it\\nhttps://canvas.example/courses/42/assignments/42\nX-CANVAS-CALENDAR-NAME:History 101\nEND:VEVENT\nEND:VCALENDAR\n"""]
 
             class Response:
                 def __init__(self, payload):
@@ -165,17 +168,46 @@ END:VCALENDAR\r
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(rows[0]["active"], 1)
                 record_id = rows[0]["id"]
+                task = connection.execute("SELECT * FROM tasks WHERE external_id = ?", ("canvas:assignment-42",)).fetchone()
+                self.assertEqual(task["title"], "Essay")
+                self.assertEqual(task["due_at"], "2026-09-15")
+                self.assertEqual(task["source"], "canvas")
+                self.assertEqual(task["active"], 1)
+                task_id = task["id"]
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM tasks WHERE external_id = ?", ("canvas:assignment-42",)).fetchone()[0], 1)
+                canvas_task = next(item for item in module.get_tasks() if item["id"] == task_id)
+                self.assertEqual(canvas_task["sourceLabel"], "Canvas")
+                self.assertEqual(canvas_task["courseName"], "History 101")
+                self.assertEqual(canvas_task["htmlLink"], "https://canvas.example/courses/42/assignments/42")
+
+                calendar_events = module.calendar_subscription_events(
+                    datetime(2026, 9, 14, tzinfo=timezone.utc),
+                    datetime(2026, 9, 17, tzinfo=timezone.utc),
+                    "UTC",
+                )
+                self.assertEqual(calendar_events, [])
+
+                feed[0] = b"""BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:assignment-42\nSUMMARY:Essay revised\nDTSTART;VALUE=DATE:20260916\nDUE;VALUE=DATE:20260916\nX-CANVAS-SUBMISSION-STATUS:submitted\nEND:VEVENT\nEND:VCALENDAR\n"""
+                module.calendar_subscription_sync(1, force=True)
+                updated_task = connection.execute("SELECT * FROM tasks WHERE external_id = ?", ("canvas:assignment-42",)).fetchone()
+                self.assertEqual(updated_task["id"], task_id)
+                self.assertEqual(updated_task["title"], "Essay revised")
+                self.assertEqual(updated_task["due_at"], "2026-09-16")
+                self.assertEqual(updated_task["completed"], 1)
 
                 feed[0] = b"BEGIN:VCALENDAR\nEND:VCALENDAR\n"
                 module.calendar_subscription_sync(1, force=True)
                 self.assertEqual(connection.execute("SELECT active FROM calendar_subscription_events WHERE id = ?", (record_id,)).fetchone()["active"], 0)
+                self.assertEqual(connection.execute("SELECT active FROM tasks WHERE id = ?", (task_id,)).fetchone()["active"], 0)
 
-                feed[0] = b"""BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:assignment-42\nSUMMARY:Essay revised\nDTSTART;VALUE=DATE:20260915\nEND:VEVENT\nEND:VCALENDAR\n"""
+                feed[0] = b"""BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:assignment-42\nSUMMARY:Essay revised\nDTSTART;VALUE=DATE:20260916\nDUE;VALUE=DATE:20260916\nEND:VEVENT\nEND:VCALENDAR\n"""
                 module.calendar_subscription_sync(1, force=True)
                 restored = connection.execute("SELECT id, active, summary FROM calendar_subscription_events WHERE uid = ?", ("assignment-42",)).fetchone()
                 self.assertEqual(restored["id"], record_id)
                 self.assertEqual(restored["active"], 1)
                 self.assertEqual(restored["summary"], "Essay revised")
+                self.assertEqual(connection.execute("SELECT id, active FROM tasks WHERE external_id = ?", ("canvas:assignment-42",)).fetchone()["id"], task_id)
+                self.assertEqual(connection.execute("SELECT active FROM tasks WHERE external_id = ?", ("canvas:assignment-42",)).fetchone()["active"], 1)
                 connection.close()
             finally:
                 module.urllib.request.urlopen = original_open

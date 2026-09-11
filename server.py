@@ -756,9 +756,35 @@ def init_db():
             due_at TEXT,
             completed INTEGER NOT NULL DEFAULT 0,
             completed_at DATETIME,
+            source TEXT NOT NULL DEFAULT 'apollo',
+            external_id TEXT,
+            source_metadata_json TEXT,
+            active INTEGER NOT NULL DEFAULT 1,
+            archived_at DATETIME,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
+    """)
+
+    # Canvas tasks are durable external records.  These additive migrations
+    # leave every existing user-created task untouched.
+    task_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(tasks)").fetchall()
+    }
+    for column, definition in (
+        ("source", "TEXT NOT NULL DEFAULT 'apollo'"),
+        ("external_id", "TEXT"),
+        ("source_metadata_json", "TEXT"),
+        ("active", "INTEGER NOT NULL DEFAULT 1"),
+        ("archived_at", "DATETIME"),
+    ):
+        if column not in task_columns:
+            conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} {definition}")
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_source_external_id
+        ON tasks(source, external_id)
+        WHERE external_id IS NOT NULL
     """)
 
     init_automation_schema(conn)
@@ -9703,10 +9729,129 @@ def calendar_subscription_disconnect(provider="canvas"):
     rows = conn.execute("SELECT id FROM calendar_subscriptions WHERE provider = ? AND active = 1", (provider,)).fetchall()
     for row in rows:
         conn.execute("DELETE FROM calendar_subscription_events WHERE subscription_id = ?", (row["id"],))
+    if provider == "canvas":
+        conn.execute("""
+            UPDATE tasks
+            SET active = 0, archived_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE source = 'canvas' AND active = 1
+        """)
     conn.execute("DELETE FROM calendar_subscriptions WHERE provider = ?", (provider,))
     conn.commit()
     conn.close()
     return {"connected": False, "provider": provider}
+
+
+def _canvas_task_external_id(uid, recurrence_id=""):
+    """Use Canvas's immutable assignment UID, never a title or due date."""
+    suffix = f"::{recurrence_id}" if recurrence_id else ""
+    return "canvas:" + str(uid) + suffix
+
+
+def _canvas_task_due_at(row):
+    """Convert the explicit Canvas due value into Apollo's task deadline."""
+    try:
+        value = json.loads(row["due_json"]) if row["due_json"] else json.loads(row["start_json"])
+    except (TypeError, KeyError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    return value.get("dateTime") or value.get("date") or None
+
+
+def canvas_tasks_sync_from_subscription(conn, subscription_id):
+    """Upsert active Canvas assignments as Apollo tasks and archive removals.
+
+    The subscription event table remains the canonical transport cache. Task
+    rows reference the Canvas UID, so title and deadline changes update one
+    task rather than producing a duplicate.
+    """
+    subscription = conn.execute("""
+        SELECT id, provider, active FROM calendar_subscriptions
+        WHERE id = ?
+    """, (subscription_id,)).fetchone()
+    if not subscription or subscription["provider"] != "canvas":
+        return {"created": 0, "updated": 0, "archived": 0}
+
+    rows = conn.execute("""
+        SELECT * FROM calendar_subscription_events
+        WHERE subscription_id = ? AND active = 1
+    """, (subscription_id,)).fetchall()
+    active_external_ids = set()
+    created = updated = archived = 0
+    for row in rows:
+        external_id = _canvas_task_external_id(row["uid"], row["recurrence_id"] or "")
+        active_external_ids.add(external_id)
+        metadata = json.dumps({
+            "course_name": row["calendar_name"],
+            "assignment_url": row["html_link"],
+            "canvas_uid": row["uid"],
+            "completion_source": row["completion_source"],
+        }, ensure_ascii=False, sort_keys=True)
+        due_at = _canvas_task_due_at(row)
+        existing = conn.execute("""
+            SELECT id, completed FROM tasks
+            WHERE source = 'canvas' AND external_id = ?
+        """, (external_id,)).fetchone()
+        completed = row["completion_state"] == "completed"
+        if existing:
+            # Unknown Canvas status must not overwrite a known completion.
+            conn.execute("""
+                UPDATE tasks
+                SET title = ?, due_at = ?, source_metadata_json = ?,
+                    active = 1, archived_at = NULL,
+                    completed = CASE WHEN ? THEN 1 ELSE completed END,
+                    completed_at = CASE
+                        WHEN ? AND completed_at IS NULL THEN CURRENT_TIMESTAMP
+                        ELSE completed_at
+                    END,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (row["summary"] or "(No title)", due_at, metadata,
+                  int(completed), int(completed), existing["id"]))
+            updated += 1
+        else:
+            conn.execute("""
+                INSERT INTO tasks (
+                    title, due_at, completed, completed_at, source,
+                    external_id, source_metadata_json, active
+                ) VALUES (?, ?, ?, CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END,
+                          'canvas', ?, ?, 1)
+            """, (row["summary"] or "(No title)", due_at, int(completed),
+                  int(completed), external_id, metadata))
+            created += 1
+
+    existing_tasks = conn.execute("""
+        SELECT id, external_id FROM tasks
+        WHERE source = 'canvas' AND active = 1
+    """).fetchall()
+    for task in existing_tasks:
+        if task["external_id"] not in active_external_ids:
+            conn.execute("""
+                UPDATE tasks
+                SET active = 0, archived_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (task["id"],))
+            archived += 1
+    return {"created": created, "updated": updated, "archived": archived}
+
+
+def canvas_tasks_backfill():
+    """Migrate cached active Canvas assignments on startup without refetching."""
+    conn = db()
+    subscriptions = conn.execute("""
+        SELECT id FROM calendar_subscriptions
+        WHERE provider = 'canvas' AND active = 1
+    """).fetchall()
+    result = {"created": 0, "updated": 0, "archived": 0}
+    for subscription in subscriptions:
+        counts = canvas_tasks_sync_from_subscription(conn, subscription["id"])
+        for key in result:
+            result[key] += counts[key]
+    conn.commit()
+    conn.close()
+    return result
 
 
 def calendar_subscription_sync(subscription_id, force=False, fallback_zone=None):
@@ -9781,10 +9926,11 @@ def calendar_subscription_sync(subscription_id, force=False, fallback_zone=None)
     missing = [row["event_key"] for row in existing if row["event_key"] not in seen]
     if missing:
         conn.executemany("UPDATE calendar_subscription_events SET active = 0, deleted_at = ?, updated_at = CURRENT_TIMESTAMP WHERE subscription_id = ? AND event_key = ?", [(_calendar_now_iso(), subscription_id, event_key) for event_key in missing])
+    task_sync = canvas_tasks_sync_from_subscription(conn, subscription_id)
     conn.execute("UPDATE calendar_subscriptions SET last_synced_at = ?, last_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (_calendar_now_iso(), subscription_id))
     conn.commit()
     conn.close()
-    return {"synced": True, "events": len(records)}
+    return {"synced": True, "events": len(records), "tasks": task_sync}
 
 
 def calendar_subscription_sync_due(fallback_zone=None):
@@ -9812,15 +9958,15 @@ def _subscription_event_overlaps(event, range_start, range_end, requested_zone):
 
 
 def calendar_subscription_events(range_start, range_end, requested_zone):
-    # A request gets fresh data when the regular worker has not run yet; a
-    # failed feed only affects Canvas, never the Google result below.
+    # Canvas assignments live in Tasks, not Calendar. Non-Canvas iCal feeds
+    # retain their existing calendar behavior.
     calendar_subscription_sync_due(requested_zone)
     conn = db()
     rows = conn.execute("""
         SELECT e.*, s.provider, s.display_name
         FROM calendar_subscription_events e
         JOIN calendar_subscriptions s ON s.id = e.subscription_id
-        WHERE e.active = 1 AND s.active = 1
+        WHERE e.active = 1 AND s.active = 1 AND s.provider != 'canvas'
         ORDER BY e.updated_at DESC, e.id DESC
     """).fetchall()
     conn.close()
@@ -9861,6 +10007,31 @@ def calendar_subscription_events(range_start, range_end, requested_zone):
     return events
 
 
+def canvas_subscription_event_keys(range_start, range_end, requested_zone):
+    """Identify only imported Google copies of active Canvas assignments."""
+    conn = db()
+    rows = conn.execute("""
+        SELECT e.start_json, e.end_json, e.summary
+        FROM calendar_subscription_events e
+        JOIN calendar_subscriptions s ON s.id = e.subscription_id
+        WHERE e.active = 1 AND s.active = 1 AND s.provider = 'canvas'
+    """).fetchall()
+    conn.close()
+    keys = set()
+    for row in rows:
+        try:
+            event = {
+                "summary": row["summary"],
+                "start": json.loads(row["start_json"]),
+                "end": json.loads(row["end_json"]),
+            }
+            if _subscription_event_overlaps(event, range_start, range_end, requested_zone):
+                keys.add(_calendar_event_equivalence_key(event))
+        except (json.JSONDecodeError, KeyError, TypeError):
+            continue
+    return keys
+
+
 def _calendar_event_equivalence_key(event):
     """A source-independent identity used only to suppress the same iCal feed via Google."""
     def canonical_time(value):
@@ -9883,9 +10054,9 @@ def _calendar_event_equivalence_key(event):
     return title, start, end
 
 
-def merge_calendar_event_sources(google_events, subscription_events):
-    """Return each logical event once, preferring Apollo's canonical Canvas record."""
-    canvas_keys = {
+def merge_calendar_event_sources(google_events, subscription_events, canvas_keys=None):
+    """Return calendar events while suppressing only imported Canvas copies."""
+    canvas_keys = set(canvas_keys or ()) | {
         _calendar_event_equivalence_key(event)
         for event in subscription_events
         if event.get("source") == "canvas"
@@ -9930,17 +10101,18 @@ def apollo_calendar_events(days=7, start_date=None, end_date=None, time_zone=Non
     else:
         range_end = range_start + timedelta(days=days)
 
-    google_events, subscription_events, errors = [], [], {}
+    google_events, subscription_events, canvas_keys, errors = [], [], set(), {}
     try:
         google_events = google_calendar_events(days, start_date=start_date, end_date=end_date, time_zone=tz_name)
     except Exception as error:
         errors["google"] = str(error)
     try:
         subscription_events = calendar_subscription_events(range_start, range_end, tz_name)
+        canvas_keys = canvas_subscription_event_keys(range_start, range_end, tz_name)
     except Exception as error:
         errors["subscriptions"] = str(error)
 
-    events = merge_calendar_event_sources(google_events, subscription_events)
+    events = merge_calendar_event_sources(google_events, subscription_events, canvas_keys)
 
     def sort_key(event):
         value = (event.get("start") or {}).get("dateTime") or (event.get("start") or {}).get("date") or "9999-12-31"
@@ -13630,6 +13802,17 @@ def task_dict(row):
 
     task = dict(row)
 
+    metadata = {}
+    try:
+        metadata = json.loads(task.pop("source_metadata_json", None) or "{}")
+    except (TypeError, json.JSONDecodeError):
+        pass
+    task["source"] = task.get("source") or "apollo"
+    task["sourceLabel"] = "Canvas" if task["source"] == "canvas" else None
+    task["courseName"] = metadata.get("course_name")
+    task["htmlLink"] = metadata.get("assignment_url")
+    task["completionSource"] = metadata.get("completion_source")
+
     task["completed"] = bool(
         task.get("completed")
     )
@@ -13648,9 +13831,15 @@ def get_tasks():
             due_at,
             completed,
             completed_at,
+            source,
+            external_id,
+            source_metadata_json,
+            active,
+            archived_at,
             created_at,
             updated_at
         FROM tasks
+        WHERE active = 1
         ORDER BY
             completed ASC,
             CASE
@@ -21521,6 +21710,11 @@ class ApolloHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
 
     init_db()
+
+    # One-time-safe migration of the existing Canvas cache into external task
+    # rows. The UID index makes this idempotent on every restart.
+    canvas_backfill = canvas_tasks_backfill()
+    print("[Apollo Canvas Tasks] " + json.dumps(canvas_backfill, sort_keys=True))
 
     AUTOMATION_ENGINE = AutomationEngine(
         DB_PATH,

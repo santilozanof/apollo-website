@@ -29311,6 +29311,7 @@ requestAnimationFrame(() => {
                 task =>
                     !task.completed
                     && task.due_at
+                    && task.source !== "canvas"
             );
 
 
@@ -29646,6 +29647,7 @@ requestAnimationFrame(() => {
                 task =>
                     !task.completed
                     && task.due_at
+                    && task.source !== "canvas"
             );
 
 
@@ -48278,7 +48280,7 @@ html[data-theme="light"]
                                         formatDue(
                                             task
                                         )
-                                    )}
+                                    )}${task.sourceLabel ? " · " + escapeHTML(task.sourceLabel + (task.courseName ? " · " + task.courseName : "")) : ""}
                                 </div>
 
                             </div>
