@@ -284,6 +284,7 @@ class AttachmentContextTests(unittest.TestCase):
                 "client_secret": "secret",
                 "token_uri": "https://example.test/token",
             },
+            "google_oauth_audit": lambda *_args, **_kwargs: None,
         }
         token = load_function("google_get_access_token", namespace)
 
@@ -374,7 +375,7 @@ class AttachmentContextTests(unittest.TestCase):
             "google_get_access_token": lambda: (
                 "stale" if not cleared else "fresh"
             ),
-            "google_clear_access_token": lambda: cleared.append(True),
+            "google_clear_access_token": lambda **_kwargs: cleared.append(True),
             "google_clear_oauth_tokens": lambda: None,
         }
         request_raw = load_function("google_calendar_request_raw", namespace)
@@ -385,6 +386,133 @@ class AttachmentContextTests(unittest.TestCase):
         )
         self.assertEqual(calls, ["stale", "fresh"])
         self.assertEqual(cleared, [True])
+
+    def test_google_calendar_second_401_keeps_refresh_token(self):
+        cleared_access = []
+        cleared_oauth = []
+
+        class AuthError(RuntimeError):
+            pass
+
+        def urlopen(*_args, **_kwargs):
+            raise urllib.error.HTTPError(
+                "https://example.test/calendar",
+                401,
+                "Unauthorized",
+                {},
+                io.BytesIO(b'{"error":"invalidCredentials"}'),
+            )
+
+        fake_urllib = types.SimpleNamespace(
+            error=types.SimpleNamespace(HTTPError=urllib.error.HTTPError),
+            request=types.SimpleNamespace(urlopen=urlopen),
+        )
+        namespace = {
+            "urllib": fake_urllib,
+            "GoogleCalendarAuthError": AuthError,
+            "google_get_access_token": lambda: "access-token",
+            "google_clear_access_token": lambda **kwargs: cleared_access.append(kwargs),
+            "google_clear_oauth_tokens": lambda **kwargs: cleared_oauth.append(kwargs),
+        }
+        request_raw = load_function("google_calendar_request_raw", namespace)
+
+        with self.assertRaisesRegex(AuthError, "refresh token was preserved"):
+            request_raw(lambda token: token, "request")
+
+        self.assertEqual(cleared_oauth, [])
+        self.assertEqual(
+            [entry["reason"] for entry in cleared_access],
+            [
+                "calendar_401_retrying_with_refresh",
+                "calendar_401_after_refresh_preserved_refresh",
+            ],
+        )
+
+    def test_google_oauth_clear_audits_without_recording_tokens(self):
+        state = {
+            "google_access_token": "access-secret",
+            "google_access_token_expires_at": "1234",
+            "google_refresh_token": "refresh-secret",
+        }
+        deleted = []
+        audit = []
+        namespace = {
+            "app_state_get": lambda key, default=None: state.get(key, default),
+            "app_state_delete": lambda key: (deleted.append(key), state.pop(key, None)),
+            "google_oauth_audit": lambda *args, **kwargs: audit.append((args, kwargs)),
+        }
+        clear = load_function("google_clear_oauth_tokens", namespace)
+
+        clear(
+            reason="refresh_token_invalid_or_revoked",
+            code_path="test",
+            http_status=400,
+            error_category="invalid_grant",
+        )
+
+        self.assertNotIn("google_access_token", state)
+        self.assertNotIn("google_refresh_token", state)
+        self.assertEqual(
+            audit,
+            [(("refresh_token_invalid_or_revoked", "test", True, True, 400, "invalid_grant"), {})],
+        )
+        self.assertNotIn("access-secret", repr(audit))
+        self.assertNotIn("refresh-secret", repr(audit))
+
+    def test_google_reconnect_verifies_calendar_after_storing_credentials(self):
+        state = {}
+        audit = []
+        visible_ids_calls = []
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "access_token": "new-access",
+                    "refresh_token": "new-refresh",
+                    "expires_in": 3600,
+                }).encode("utf-8")
+
+        fake_urllib = types.SimpleNamespace(
+            parse=urllib.parse,
+            error=types.SimpleNamespace(HTTPError=urllib.error.HTTPError),
+            request=types.SimpleNamespace(
+                Request=lambda *args, **kwargs: (args, kwargs),
+                urlopen=lambda *_args, **_kwargs: Response(),
+            ),
+        )
+        namespace = {
+            "GOOGLE_REDIRECT_URI": "https://apollo.test/callback",
+            "json": json,
+            "time": types.SimpleNamespace(time=lambda: 1000),
+            "urllib": fake_urllib,
+            "app_state_get": lambda key, default=None: state.get(key, default),
+            "app_state_set": lambda key, value: state.__setitem__(key, str(value)),
+            "get_google_oauth_config": lambda: {
+                "client_id": "id",
+                "client_secret": "secret",
+                "token_uri": "https://example.test/token",
+            },
+            "google_oauth_audit": lambda *args, **kwargs: audit.append((args, kwargs)),
+            "google_calendar_visible_ids": lambda: visible_ids_calls.append(True) or ["primary"],
+            "google_clear_access_token": lambda **_kwargs: self.fail("unexpected clear"),
+        }
+        exchange = load_function("google_exchange_code", namespace)
+
+        exchange("authorization-code")
+
+        self.assertEqual(state["google_access_token"], "new-access")
+        self.assertEqual(state["google_refresh_token"], "new-refresh")
+        self.assertEqual(visible_ids_calls, [True])
+        self.assertEqual(
+            [entry[0][0] for entry in audit],
+            ["authorization_code_exchanged", "post_connect_calendar_verified"],
+        )
 
 
 if __name__ == "__main__":

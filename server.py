@@ -140,6 +140,23 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS google_oauth_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            reason TEXT NOT NULL,
+            code_path TEXT NOT NULL,
+            access_token_present INTEGER NOT NULL,
+            refresh_token_present INTEGER NOT NULL,
+            http_status INTEGER,
+            error_category TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_google_oauth_audit_created
+        ON google_oauth_audit(created_at DESC)
+    """)
+
     # Calendar subscriptions are intentionally independent of Google OAuth.
     # The feed URL is backend-only: API responses expose status, never it.
     conn.execute("""
@@ -5473,7 +5490,7 @@ def spotify_current_with_player_probe():
     hook = r'''
 import atexit, json, os, re, subprocess, urllib.error, urllib.request
 trace_path = os.environ.get("APOLLO_SPOTIFY_TRACE_FILE")
-state = {"currently_playing": {}, "player": {}, "granted_scopes": [], "helper_requests": []}
+state = {"currently_playing": {}, "player": {}, "devices": {}, "granted_scopes": [], "helper_requests": []}
 latest_authorization = None
 original_urlopen = urllib.request.urlopen
 original_json_load = json.load
@@ -5558,6 +5575,38 @@ def currently_playing_probe(authorization):
     except Exception as error:
         state["currently_playing"] = {"error": str(error)}
 
+def devices_probe(authorization):
+    """Capture Connect device state without storing device IDs or tokens."""
+    if state["devices"] or not authorization:
+        return
+    request = urllib.request.Request(
+        "https://api.spotify.com/v1/me/player/devices",
+        headers={"Authorization": authorization},
+    )
+    try:
+        with original_urlopen(request, timeout=20) as response:
+            status = response_status(response)
+            payload = response.read().decode("utf-8", errors="replace")
+            state["devices"] = {"status": status, "devices": []}
+            if payload:
+                data = original_json_loads(payload)
+                devices = data.get("devices") if isinstance(data, dict) else []
+                state["devices"]["devices"] = [
+                    {
+                        "name": device.get("name"),
+                        "type": device.get("type"),
+                        "is_active": bool(device.get("is_active")),
+                        "is_private_session": bool(device.get("is_private_session")),
+                        "is_restricted": bool(device.get("is_restricted")),
+                    }
+                    for device in devices
+                    if isinstance(device, dict)
+                ]
+    except urllib.error.HTTPError as error:
+        state["devices"] = {"status": error.code, "error": error.read().decode("utf-8", errors="replace")[:500]}
+    except Exception as error:
+        state["devices"] = {"error": str(error)}
+
 def traced_urlopen(request, *args, **kwargs):
     url = request_url(request)
     is_current = "/v1/me/player/currently-playing" in url
@@ -5606,6 +5655,7 @@ def traced_subprocess_run(args, *positional, **keyword):
             authorization = "Bearer " + match.group(1)
             currently_playing_probe(authorization)
             player_probe(authorization)
+            devices_probe(authorization)
     return original_subprocess_run(args, *positional, **keyword)
 subprocess.run = traced_subprocess_run
 
@@ -5615,6 +5665,7 @@ def write_trace():
         # comparison always uses its final access token, not a stale cache.
         currently_playing_probe(latest_authorization)
         player_probe(latest_authorization)
+        devices_probe(latest_authorization)
         with open(trace_path, "w", encoding="utf-8") as output:
             json.dump(state, output)
 atexit.register(write_trace)
@@ -5636,7 +5687,7 @@ atexit.register(write_trace)
         try:
             diagnostics = json.loads(trace_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            diagnostics = {"currently_playing": {}, "player": {}, "granted_scopes": []}
+            diagnostics = {"currently_playing": {}, "player": {}, "devices": {}, "granted_scopes": []}
     return result, diagnostics
 
 
@@ -5690,7 +5741,9 @@ def get_now_playing():
             "[Apollo Spotify] "
             f"scopes={diagnostics.get('granted_scopes', [])} "
             f"currently_playing={diagnostics.get('currently_playing', {}).get('status')} "
-            f"player={diagnostics.get('player', {}).get('status')}"
+            f"player={diagnostics.get('player', {}).get('status')} "
+            f"devices={diagnostics.get('devices', {}).get('status')} "
+            f"active_devices={sum(1 for device in diagnostics.get('devices', {}).get('devices', []) if device.get('is_active'))}"
         )
         return playback
     except Exception as error:
@@ -8649,14 +8702,57 @@ def app_state_delete(key):
     conn.close()
 
 
-def google_clear_access_token():
+def google_oauth_audit(reason, code_path, access_token_present=None,
+                       refresh_token_present=None, http_status=None,
+                       error_category=None):
+    """Persist credential state transitions without ever recording secrets."""
+    if access_token_present is None:
+        access_token_present = bool(app_state_get("google_access_token"))
+    if refresh_token_present is None:
+        refresh_token_present = bool(app_state_get("google_refresh_token"))
+    conn = db()
+    try:
+        conn.execute("""
+            INSERT INTO google_oauth_audit (
+                reason, code_path, access_token_present,
+                refresh_token_present, http_status, error_category
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            str(reason), str(code_path), int(bool(access_token_present)),
+            int(bool(refresh_token_present)), http_status,
+            str(error_category) if error_category else None,
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def google_clear_access_token(reason="access_token_cleared",
+                              code_path="google_clear_access_token",
+                              http_status=None, error_category=None):
+    had_access = bool(app_state_get("google_access_token"))
+    had_refresh = bool(app_state_get("google_refresh_token"))
     app_state_delete("google_access_token")
     app_state_delete("google_access_token_expires_at")
+    google_oauth_audit(
+        reason, code_path, had_access, had_refresh, http_status,
+        error_category,
+    )
 
 
-def google_clear_oauth_tokens():
-    google_clear_access_token()
+def google_clear_oauth_tokens(reason="oauth_tokens_cleared",
+                              code_path="google_clear_oauth_tokens",
+                              http_status=None, error_category=None):
+    """Clear a refresh credential only after a definitive OAuth revocation."""
+    had_access = bool(app_state_get("google_access_token"))
+    had_refresh = bool(app_state_get("google_refresh_token"))
+    app_state_delete("google_access_token")
+    app_state_delete("google_access_token_expires_at")
     app_state_delete("google_refresh_token")
+    google_oauth_audit(
+        reason, code_path, had_access, had_refresh, http_status,
+        error_category,
+    )
 
 
 def get_google_oauth_config():
@@ -8817,9 +8913,43 @@ def google_exchange_code(code):
     if not app_state_get(
         "google_refresh_token"
     ):
+        google_clear_access_token(
+            reason="authorization_code_missing_refresh_token",
+            code_path="google_exchange_code",
+            error_category="missing_refresh_token",
+        )
         raise RuntimeError(
             "Google did not provide a refresh token"
         )
+
+    google_oauth_audit(
+        "authorization_code_exchanged",
+        "google_exchange_code",
+        http_status=200,
+        error_category="authorization_code_exchange",
+    )
+
+    # Verify a newly connected account can read Calendar now. Retain the
+    # offline grant on failure so a transient API problem cannot erase it.
+    try:
+        google_calendar_visible_ids()
+    except Exception as error:
+        google_oauth_audit(
+            "post_connect_calendar_verification_failed",
+            "google_exchange_code",
+            http_status=401 if "401" in str(error) else None,
+            error_category="calendar_verification_failed",
+        )
+        raise RuntimeError(
+            "Google credentials were saved, but Calendar access could not "
+            f"be verified: {error}"
+        )
+    google_oauth_audit(
+        "post_connect_calendar_verified",
+        "google_exchange_code",
+        http_status=200,
+        error_category="calendar_verification",
+    )
 
 
 def google_get_access_token():
@@ -8887,7 +9017,12 @@ def google_get_access_token():
         )
 
         if "invalid_grant" in body.lower():
-            google_clear_oauth_tokens()
+            google_clear_oauth_tokens(
+                reason="refresh_token_invalid_or_revoked",
+                code_path="google_get_access_token",
+                http_status=exc.code,
+                error_category="invalid_grant",
+            )
             raise GoogleCalendarAuthError(
                 "Google Calendar authorization expired; reconnect it in "
                 "Apollo Settings"
@@ -8937,6 +9072,13 @@ def google_get_access_token():
             "google_refresh_token",
             refreshed_refresh_token
         )
+
+    google_oauth_audit(
+        "access_token_refreshed",
+        "google_get_access_token",
+        http_status=200,
+        error_category="refresh",
+    )
 
     return access_token
 
@@ -9059,14 +9201,29 @@ def google_calendar_request_raw(request_factory, operation):
             )
 
             if exc.code == 401 and attempt == 0:
-                google_clear_access_token()
+                google_clear_access_token(
+                    reason="calendar_401_retrying_with_refresh",
+                    code_path="google_calendar_request_raw",
+                    http_status=exc.code,
+                    error_category="calendar_401",
+                )
                 continue
 
             if exc.code == 401:
-                google_clear_oauth_tokens()
+                # A Calendar 401 after refresh is not definitive proof that
+                # the offline grant was revoked. Preserve it for reconnect or
+                # a later retry rather than turning a transient failure into a
+                # permanent disconnect.
+                google_clear_access_token(
+                    reason="calendar_401_after_refresh_preserved_refresh",
+                    code_path="google_calendar_request_raw",
+                    http_status=exc.code,
+                    error_category="calendar_401_after_refresh",
+                )
                 raise GoogleCalendarAuthError(
-                    "Google Calendar authorization was rejected; reconnect "
-                    "it in Apollo Settings"
+                    "Google Calendar authorization was rejected after a "
+                    "refresh attempt; the refresh token was preserved. "
+                    "Reconnect it in Apollo Settings if this persists."
                 )
 
             # A subscribed calendar (for example Canvas) can be readable
