@@ -4,13 +4,6 @@ on:
   push:
     branches:
       - main
-    # Temporary diagnostic guard. The only matching paths are this workflow,
-    # the manual diagnostic workflow, and its read-only script; none can
-    # restart or deploy Apollo. Remove after the one diagnostic run.
-    paths-ignore:
-      - .github/workflows/deploy-production.yml
-      - .github/workflows/production-integration-diagnostics.yml
-      - scripts/production_integration_diagnostics.py
 
 permissions:
   contents: read
