@@ -879,25 +879,24 @@ def chat_action(conn, text, time_zone="UTC"):
             days = sorted({new_day if value == old_day else value for value in days})
             update_step(conn, step["id"], {"schedule_type": "weekdays", "schedule_days": days}, time_zone)
             return f"Moved {step['title']} from {old_name.title()} to {new_name.title()} in {group['title']}."
+    # An explicit "routine named X" wins over descriptive words before
+    # "routine" (for example, "create a daily routine named Morning").
     create = re.search(
-        r"\b(?:create|make|set\s+up)\s+(?:(?:a|my)\s+)?(.+?)\s+routine\b(.*)$",
+        r"\broutine\s+(?:named|called)\s+[\"']?([^\"'\n,]+?)[\"']?"
+        r"(?=\s+(?:in\b|with\b|repeating\b|that\b)|[,\n.]|$)(.*)$",
         raw, re.I | re.S,
     )
     if not create:
-        named = re.search(
-            r"\b(?:create|make|set\s+up)\s+(?:(?:a|my)\s+)?routine\s+"
-            r"(?:named|called)\s+[\"']?([^\"'\n,]+?)[\"']?"
-            r"(?=\s+(?:in\b|with\b|repeating\b|that\b)|[,\n.]|$)(.*)$",
+        create = re.search(
+            r"\b(?:create|make|set\s+up)\s+(?:(?:a|my)\s+)?(.+?)\s+routine\b(.*)$",
             raw, re.I | re.S,
         )
-        if named:
-            create = named
     if create:
         day_names = {name: index for index, name in enumerate(("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"))}
         tail = create.group(2).strip(" .!?:")
         schedule_text = tail.lower()
         selected = [index for name, index in day_names.items() if name in schedule_text]
-        if "every day" in schedule_text or "daily" in schedule_text or "monday through sunday" in schedule_text:
+        if "every day" in schedule_text or "every morning" in schedule_text or "daily" in lower or "monday through sunday" in schedule_text:
             selected = list(range(7))
         elif "weekday" in schedule_text and not selected:
             selected = list(range(5))
@@ -907,11 +906,15 @@ def chat_action(conn, text, time_zone="UTC"):
         steps_match = re.search(
             r"(?:^|\b)(?:with|including|containing)\s+(?:(?:the|these)\s+)?"
             r"(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
-            r"(?:steps?\s*)?(?:in\s+this\s+exact\s+order\s*)?:?\s*(.+)$",
+            r"(?:steps?\s*)?(?:in\s+(?:this\s+exact\s+)?order\s*)?:?\s*(.+)$",
             tail, re.I | re.S,
         )
         if steps_match:
             steps_text = steps_match.group(1)
+            steps_text = re.split(
+                r"\.\s+(?=(?:schedule|if|verify|make|each|use|do\s+not|the\s+routine)\b)",
+                steps_text, maxsplit=1, flags=re.I,
+            )[0]
             steps_text = re.sub(
                 r"\s+(?:every\s+day|daily|on\s+weekdays?|on\s+(?:(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s*,?\s*(?:and\s+)?|$))+)[.!?]*$",
                 "", steps_text, flags=re.I,

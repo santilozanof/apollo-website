@@ -208,6 +208,26 @@ Make each step individually checkable and verify that all four steps were saved 
             ["Cleanser", "Niacinamide serum", "Hydrating cream", "SPF sunscreen"],
         )
 
+    def test_chat_parses_explicit_name_and_stops_steps_at_instructions(self):
+        request = (
+            "Create a daily routine named Morning Skincare in the Routines tab with these four "
+            "steps in order: Cleanser, Niacinamide serum, Hydrating cream, SPF sunscreen. "
+            "Schedule it every morning, Monday through Sunday. If it already exists, update it "
+            "instead of creating a duplicate. Verify that all four steps were saved correctly."
+        )
+        reply = routines.chat_action(self.conn, request, "Europe/Zurich")
+        self.assertIn("Created Morning Skincare for every day with 4 steps", reply)
+        groups = self.conn.execute(
+            "SELECT id,schedule_days FROM routine_groups WHERE title=?", ("Morning Skincare",)
+        ).fetchall()
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["schedule_days"], "[0, 1, 2, 3, 4, 5, 6]")
+        saved = routines._snapshot(self.conn, groups[0]["id"])
+        self.assertEqual(
+            [step["title"] for step in saved["steps"]],
+            ["Cleanser", "Niacinamide serum", "Hydrating cream", "SPF sunscreen"],
+        )
+
     def test_chat_adds_step_after_named_step(self):
         routine = routines.create_routine(self.conn, {
             "title": "Night Routine",
