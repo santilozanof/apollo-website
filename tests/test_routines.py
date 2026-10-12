@@ -146,6 +146,22 @@ class RoutineTests(unittest.TestCase):
         self.assertEqual(item["title"], "Qa Morning")
         self.assertEqual([step["title"] for step in item["steps"]], ["Cleanse", "Serum", "Moisturize", "Sunscreen"])
 
+    def test_chat_creates_four_explicitly_counted_ordered_steps(self):
+        request = (
+            "Create a Morning Skincare routine with four steps: Cleanser, "
+            "Niacinamide serum, Hydrating cream, and SPF sunscreen."
+        )
+        reply = routines.chat_action(self.conn, request, "Europe/Zurich")
+        self.assertIn("with 4 steps", reply)
+        item = routines.get_state(self.conn, "2026-10-12", "Europe/Zurich")["routines"][0]
+        self.assertEqual(
+            [step["title"] for step in item["steps"]],
+            ["Cleanser", "Niacinamide serum", "Hydrating cream", "SPF sunscreen"],
+        )
+        routines.chat_action(self.conn, request, "Europe/Zurich")
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM routine_groups").fetchone()[0], 1)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM routine_steps").fetchone()[0], 4)
+
     def test_chat_retrieves_created_routine(self):
         routines.chat_action(
             self.conn,

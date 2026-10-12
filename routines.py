@@ -292,6 +292,7 @@ def _freeze_past(conn, routine_id, time_zone="UTC"):
 
 
 def create_routine(conn, payload, today=None):
+    """Create a routine and all supplied ordered steps as one transaction unit."""
     title = str(payload.get("title") or "").strip()[:120]
     if not title:
         raise ValueError("A routine name is required")
@@ -313,6 +314,45 @@ def create_routine(conn, payload, today=None):
         _insert_step(conn, routine_id, step, index)
     _save_version(conn, routine_id, increment=False)
     return _snapshot(conn, routine_id)
+
+
+def create_or_populate_routine(conn, payload, today=None):
+    """Create a complete routine, or atomically add missing steps to its namesake."""
+    title = str(payload.get("title") or "").strip()[:120]
+    requested_steps = payload.get("steps") or []
+    existing = conn.execute(
+        "SELECT id FROM routine_groups WHERE archived=0 AND lower(title)=lower(?) ORDER BY created_at LIMIT 1",
+        (title,),
+    ).fetchone()
+    if not existing:
+        item = create_routine(conn, payload, today=today)
+    else:
+        routine_id = existing["id"]
+        current = _snapshot(conn, routine_id)
+        known = {step["title"].strip().casefold() for step in current["steps"]}
+        missing = [
+            step for step in requested_steps
+            if str(step.get("title") or "").strip().casefold() not in known
+        ]
+        if missing:
+            _freeze_past(conn, routine_id, payload.get("timezone") or "UTC")
+            for step in missing:
+                _insert_step(conn, routine_id, step)
+            item = _save_version(
+                conn, routine_id,
+                effective_day=local_day(payload.get("timezone") or "UTC", today),
+            )
+        else:
+            item = current
+    saved = {step["title"].strip().casefold() for step in item["steps"]}
+    absent = [
+        str(step.get("title") or "").strip()
+        for step in requested_steps
+        if str(step.get("title") or "").strip().casefold() not in saved
+    ]
+    if absent:
+        raise RuntimeError("Routine saved without requested steps: " + ", ".join(absent))
+    return item, bool(existing)
 
 
 def _insert_step(conn, routine_id, payload, position=None):
@@ -852,7 +892,12 @@ def chat_action(conn, text, time_zone="UTC"):
         if not selected:
             selected = list(range(7))
         steps_text = ""
-        steps_match = re.search(r"(?:^|\b)(?:with|including|containing)\s+(?:the\s+)?(?:steps?\s*)?:?\s*(.+)$", tail, re.I)
+        steps_match = re.search(
+            r"(?:^|\b)(?:with|including|containing)\s+(?:the\s+)?"
+            r"(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
+            r"(?:steps?\s*)?:?\s*(.+)$",
+            tail, re.I,
+        )
         if steps_match:
             steps_text = steps_match.group(1)
             steps_text = re.sub(
@@ -866,7 +911,7 @@ def chat_action(conn, text, time_zone="UTC"):
                 if title:
                     step_titles.append(title[:160])
         name = create.group(1).strip().title()
-        item = create_routine(conn, {
+        item, existed = create_or_populate_routine(conn, {
             "title": name,
             "schedule_days": selected,
             "timezone": time_zone,
@@ -874,7 +919,10 @@ def chat_action(conn, text, time_zone="UTC"):
         })
         labels = "every day" if len(selected) == 7 else ", ".join(WEEKDAYS[index].title() for index in selected)
         if step_titles:
-            return f"Created {item['title']} for {labels} with {len(step_titles)} steps: " + ", ".join(step_titles) + "."
+            verb = "Updated" if existed else "Created"
+            return f"{verb} {item['title']} for {labels} with {len(step_titles)} steps: " + ", ".join(step_titles) + "."
+        if existed:
+            return f"{item['title']} already exists. Tell me which steps to add."
         return f"Created {item['title']} for {labels}. It has no steps yet, so you can add exactly what you want."
     if "routine" in lower and any(word in lower for word in ("show", "list", "what", "which", "steps", "scheduled")):
         groups = [_snapshot(conn, row["id"]) for row in conn.execute(
@@ -934,7 +982,7 @@ def api_action(conn, payload, time_zone="UTC"):
     if action == "update_routine": return update_routine(conn, payload["routine_id"], payload.get("changes") or {}, time_zone)
     if action == "duplicate_routine": return duplicate_routine(conn, payload["routine_id"])
     if action == "delete_routine": return delete_routine(conn, payload["routine_id"], bool(payload.get("delete_history")))
-    if action == "add_step": return add_step(conn, payload["routine_id"], payload, time_zone)
+    if action in {"add_step", "add_routine_step"}: return add_step(conn, payload["routine_id"], payload, time_zone)
     if action == "update_step": return update_step(conn, payload["step_id"], payload.get("changes") or {}, time_zone)
     if action == "delete_step": return delete_step(conn, payload["step_id"], time_zone)
     if action == "set_step_exception": return set_step_exception(conn, payload["routine_id"], payload["step_id"], payload["date"], payload["exception_action"], payload.get("substitute_title", ""), time_zone)

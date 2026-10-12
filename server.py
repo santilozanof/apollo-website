@@ -20663,6 +20663,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
             # ROUTINES + HYDRATION
             # ─────────────────────────────
             # High-confidence mutations are executed locally and transactionally.
+            # Routine creation includes every explicitly named step and reports
+            # success only after the saved routine has been verified.
             # Factual questions receive a database-backed snapshot; Hermes may
             # phrase the answer but is explicitly forbidden from inventing state.
             routine_terms = (
