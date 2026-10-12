@@ -838,15 +838,56 @@ def chat_action(conn, text, time_zone="UTC"):
             days = sorted({new_day if value == old_day else value for value in days})
             update_step(conn, step["id"], {"schedule_type": "weekdays", "schedule_days": days}, time_zone)
             return f"Moved {step['title']} from {old_name.title()} to {new_name.title()} in {group['title']}."
-    create = re.search(r"\bcreate\s+(?:a\s+)?(.+?)\s+routine\s+(?:for|on)\s+(.+?)(?:[.!?]|$)", raw, re.I)
+    create = re.search(
+        r"\b(?:create|make|set\s+up)\s+(?:(?:a|my)\s+)?(.+?)\s+routine\b(.*)$",
+        raw, re.I,
+    )
     if create:
         day_names = {name: index for index, name in enumerate(("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"))}
-        selected = [index for name, index in day_names.items() if name in create.group(2).lower()]
-        if selected:
-            name = create.group(1).strip().title()
-            item = create_routine(conn, {"title": name, "schedule_days": selected, "timezone": time_zone})
-            labels = ", ".join(WEEKDAYS[index].title() for index in selected)
-            return f"Created {item['title']} for {labels}. It has no steps yet, so you can add exactly what you want."
+        tail = create.group(2).strip(" .!?:")
+        schedule_text = tail.lower()
+        selected = [index for name, index in day_names.items() if name in schedule_text]
+        if "weekday" in schedule_text and not selected:
+            selected = list(range(5))
+        if not selected:
+            selected = list(range(7))
+        steps_text = ""
+        steps_match = re.search(r"(?:^|\b)(?:with|including|containing)\s+(?:the\s+)?(?:steps?\s*)?:?\s*(.+)$", tail, re.I)
+        if steps_match:
+            steps_text = steps_match.group(1)
+            steps_text = re.sub(
+                r"\s+(?:every\s+day|daily|on\s+weekdays?|on\s+(?:(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s*,?\s*(?:and\s+)?|$))+)[.!?]*$",
+                "", steps_text, flags=re.I,
+            ).strip()
+        step_titles = []
+        if steps_text:
+            for value in re.split(r"\s*(?:,|;|\band\b)\s*", steps_text, flags=re.I):
+                title = re.sub(r"^\s*(?:\d+[.)]|[-•])\s*", "", value).strip(" .")
+                if title:
+                    step_titles.append(title[:160])
+        name = create.group(1).strip().title()
+        item = create_routine(conn, {
+            "title": name,
+            "schedule_days": selected,
+            "timezone": time_zone,
+            "steps": [{"title": title} for title in step_titles],
+        })
+        labels = "every day" if len(selected) == 7 else ", ".join(WEEKDAYS[index].title() for index in selected)
+        if step_titles:
+            return f"Created {item['title']} for {labels} with {len(step_titles)} steps: " + ", ".join(step_titles) + "."
+        return f"Created {item['title']} for {labels}. It has no steps yet, so you can add exactly what you want."
+    if "routine" in lower and any(word in lower for word in ("show", "list", "what", "which", "steps", "scheduled")):
+        groups = [_snapshot(conn, row["id"]) for row in conn.execute(
+            "SELECT id FROM routine_groups WHERE archived=0 ORDER BY position, created_at"
+        ).fetchall()]
+        hint_tokens = set(re.findall(r"[a-z]+", lower)) - {
+            "show", "list", "what", "which", "is", "are", "in", "my", "the", "routine", "steps", "scheduled",
+        }
+        matches = [group for group in groups if not hint_tokens or hint_tokens & set(re.findall(r"[a-z]+", group["title"].lower()))]
+        if len(matches) == 1:
+            group = matches[0]
+            steps = ", ".join(step["title"] for step in group["steps"]) or "no steps yet"
+            return f"{group['title']} has {steps}."
     add = re.search(r"\badd\s+(.+?)\s+after\s+(.+?)\s+in\s+(?:my\s+)?(.+?)\s+routine\b", raw, re.I)
     if add:
         new_title, after_title, routine_hint = (part.strip() for part in add.groups())

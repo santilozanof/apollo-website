@@ -134,6 +134,27 @@ class RoutineTests(unittest.TestCase):
         row = self.conn.execute("SELECT schedule_days FROM routine_groups").fetchone()
         self.assertEqual(row["schedule_days"], "[0, 2, 4]")
 
+    def test_chat_creates_daily_routine_with_multiple_steps(self):
+        reply = routines.chat_action(
+            self.conn,
+            "Create a QA morning routine with steps Cleanse, Serum, Moisturize, and Sunscreen every day",
+            "Europe/Zurich",
+        )
+        self.assertIn("with 4 steps", reply)
+        state = routines.get_state(self.conn, "2026-10-12", "Europe/Zurich")
+        item = state["routines"][0]
+        self.assertEqual(item["title"], "Qa Morning")
+        self.assertEqual([step["title"] for step in item["steps"]], ["Cleanse", "Serum", "Moisturize", "Sunscreen"])
+
+    def test_chat_retrieves_created_routine(self):
+        routines.chat_action(
+            self.conn,
+            "Create a QA verification routine with steps One, Two, Three, and Four every day",
+            "UTC",
+        )
+        reply = routines.chat_action(self.conn, "Show my QA verification routine steps", "UTC")
+        self.assertIn("Qa Verification has One, Two, Three, Four", reply)
+
     def test_chat_adds_step_after_named_step(self):
         routine = routines.create_routine(self.conn, {
             "title": "Night Routine",

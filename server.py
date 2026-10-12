@@ -1629,6 +1629,15 @@ def _apollo_choose_hermes_toolsets(messages):
     if lower.startswith("/notools"):
         return []
 
+    # Routines are an Apollo-owned transactional capability. Never hand
+    # routine creation/editing to Calendar or to external Hermes tools.
+    routine_signals = (
+        "routine", "habit", "skincare", "hydration", "water goal",
+        "streak", "morning steps", "night steps",
+    )
+    if any(signal in lower for signal in routine_signals):
+        return []
+
     selected = set()
 
     # --------------------------------------------------------
@@ -13519,6 +13528,16 @@ def apollo_calendar_chat(
     attachment_context="",
     conversation_context=""
 ):
+    lower_message = str(user_message or "").lower()
+    if (
+        any(word in lower_message for word in ("routine", "habit", "skincare"))
+        and not any(word in lower_message for word in ("calendar event", "add to calendar", "calendar appointment"))
+    ):
+        # A correction such as “make it a routine” must also cancel any
+        # clarification state left behind by an earlier Calendar guess.
+        calendar_pending_clear(chat_id)
+        return None
+
     attachment_context = str(attachment_context or "").strip()
     calendar_message = user_message
 
