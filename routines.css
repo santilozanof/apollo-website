@@ -360,6 +360,9 @@
     box-shadow: var(--apollo-shadow-modal, 0 30px 90px rgba(0,0,0,.46)) !important;
 }
 .routine-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.routine-dialog,
+.routine-dialog * { box-sizing: border-box; }
+.routine-dialog { overflow-x: hidden !important; }
 .routine-dialog-header h2 { margin: 0; }
 .routine-dialog-close { flex: 0 0 auto; font-size: 20px; font-weight: 300; }
 .routine-field { display: block; margin: 0 0 16px; padding: 0; border: 0; }
