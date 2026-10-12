@@ -844,6 +844,44 @@ def chat_context(conn, time_zone="UTC"):
     return compact
 
 
+def _chat_tokens(value, ignored=()):
+    stop = {"my", "the", "a", "an", "routine", "step"} | set(ignored)
+    tokens = set()
+    for token in re.findall(r"[a-z0-9]+", str(value).lower()):
+        if token in stop:
+            continue
+        if token.endswith("ing") and len(token) > 5:
+            token = token[:-3]
+        tokens.add(token)
+    return tokens
+
+
+def _chat_routine(conn, hint):
+    wanted = _chat_tokens(hint)
+    groups = [_snapshot(conn, row["id"]) for row in conn.execute(
+        "SELECT id FROM routine_groups WHERE archived=0 ORDER BY position, created_at"
+    ).fetchall()]
+    matches = [group for group in groups if wanted and wanted <= _chat_tokens(group["title"])]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _chat_step(group, hint):
+    wanted = _chat_tokens(hint)
+    matches = [step for step in group["steps"] if wanted and wanted <= _chat_tokens(step["title"])]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _reorder_step(conn, group, step_id, anchor_id, place, time_zone):
+    _freeze_past(conn, group["id"], time_zone)
+    ordered = [step["id"] for step in sorted(group["steps"], key=lambda step: step["position"])]
+    ordered.remove(step_id)
+    anchor_index = ordered.index(anchor_id)
+    ordered.insert(anchor_index + (1 if place == "after" else 0), step_id)
+    for position, item_id in enumerate(ordered):
+        conn.execute("UPDATE routine_steps SET position=?,updated_at=? WHERE id=?", (position, _now(), item_id))
+    return _save_version(conn, group["id"], effective_day=local_day(time_zone))
+
+
 def chat_action(conn, text, time_zone="UTC"):
     """Deterministic high-confidence actions; ambiguous requests fall through."""
     raw = re.sub(r"[*_`]", "", str(text or "").strip())
@@ -941,6 +979,97 @@ def chat_action(conn, text, time_zone="UTC"):
         if existed:
             return f"{item['title']} already exists. Tell me which steps to add."
         return f"Created {item['title']} for {labels}. It has no steps yet, so you can add exactly what you want."
+    rename_routine = re.search(r"\brename\s+(?:my\s+)?(.+?)\s+routine\s+to\s+(.+?)[.!]?$", raw, re.I)
+    if rename_routine:
+        old_hint, new_title = (part.strip(" \"'") for part in rename_routine.groups())
+        group = _chat_routine(conn, old_hint)
+        if group:
+            item = update_routine(conn, group["id"], {"title": new_title}, time_zone)
+            if item["title"] != new_title:
+                raise RuntimeError("Routine rename was not saved")
+            return f"Renamed {group['title']} to {item['title']}."
+    schedule_routine = re.search(
+        r"\b(?:change|set|schedule)\s+(?:my\s+)?(.+?)\s+routine(?:'s)?\s+schedule\s+(?:to|for)\s+(.+?)[.!]?$",
+        raw, re.I,
+    )
+    if schedule_routine:
+        routine_hint, schedule_hint = schedule_routine.groups()
+        group = _chat_routine(conn, routine_hint)
+        if group:
+            names = {name: index for index, name in enumerate(("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"))}
+            schedule_lower = schedule_hint.lower()
+            if any(value in schedule_lower for value in ("daily", "every day", "monday through sunday")):
+                days = list(range(7))
+            elif "weekday" in schedule_lower:
+                days = list(range(5))
+            else:
+                days = [index for name, index in names.items() if name in schedule_lower]
+            if days:
+                item = update_routine(conn, group["id"], {"schedule_days": days}, time_zone)
+                if item["schedule_days"] != days:
+                    raise RuntimeError("Routine schedule was not saved")
+                return f"Updated {item['title']} to run on " + ", ".join(WEEKDAYS[index].title() for index in days) + "."
+    remove = re.search(r"\b(?:remove|delete)\s+(?:the\s+)?(.+?)\s+from\s+(?:my\s+)?(.+?)\s+routine\b", raw, re.I)
+    if remove:
+        step_hint, routine_hint = (part.strip() for part in remove.groups())
+        group = _chat_routine(conn, routine_hint)
+        step = _chat_step(group, step_hint) if group else None
+        if group and step:
+            item = delete_step(conn, step["id"], time_zone)
+            if any(saved["id"] == step["id"] for saved in item["steps"]):
+                raise RuntimeError("Routine step deletion was not saved")
+            return f"Removed {step['title']} from {item['title']}."
+    rename_step = re.search(
+        r"\brename\s+(?:the\s+)?(.+?)\s+(?:step\s+)?to\s+(.+?)\s+in\s+(?:my\s+)?(.+?)\s+routine\b",
+        raw, re.I,
+    )
+    if rename_step:
+        step_hint, new_title, routine_hint = (part.strip(" \"'") for part in rename_step.groups())
+        group = _chat_routine(conn, routine_hint)
+        step = _chat_step(group, step_hint) if group else None
+        if group and step:
+            item = update_step(conn, step["id"], {"title": new_title}, time_zone)
+            saved = next((saved for saved in item["steps"] if saved["id"] == step["id"]), None)
+            if not saved or saved["title"] != new_title:
+                raise RuntimeError("Routine step rename was not saved")
+            return f"Renamed {step['title']} to {new_title} in {item['title']}."
+    reorder = re.search(
+        r"\bmove\s+(.+?)\s+(before|after)\s+(.+?)\s+in\s+(?:my\s+)?(.+?)\s+routine\b",
+        raw, re.I,
+    )
+    if reorder:
+        step_hint, place, anchor_hint, routine_hint = (part.strip() for part in reorder.groups())
+        group = _chat_routine(conn, routine_hint)
+        step = _chat_step(group, step_hint) if group else None
+        anchor = _chat_step(group, anchor_hint) if group else None
+        if group and step and anchor and step["id"] != anchor["id"]:
+            item = _reorder_step(conn, group, step["id"], anchor["id"], place.lower(), time_zone)
+            ids = [saved["id"] for saved in sorted(item["steps"], key=lambda saved: saved["position"])]
+            expected = ids.index(anchor["id"]) + (1 if place.lower() == "after" else -1)
+            if ids.index(step["id"]) != expected:
+                raise RuntimeError("Routine step order was not saved")
+            return f"Moved {step['title']} {place.lower()} {anchor['title']} in {item['title']}."
+    add = re.search(
+        r"\badd\s+(.+?)(?:\s+(after|before)\s+(.+?))?\s+(?:to|in)\s+(?:my\s+)?(.+?)\s+routine\b",
+        raw, re.I,
+    )
+    if add:
+        new_title, place, anchor_hint, routine_hint = add.groups()
+        new_title, routine_hint = new_title.strip(), routine_hint.strip()
+        group = _chat_routine(conn, routine_hint)
+        if group:
+            existing = _chat_step(group, new_title)
+            if existing:
+                return f"{existing['title']} is already in {group['title']}."
+            item = add_step(conn, group["id"], {"title": new_title}, time_zone)
+            added = next((step for step in item["steps"] if step["title"].casefold() == new_title.casefold()), None)
+            if not added:
+                raise RuntimeError("Routine step addition was not saved")
+            if place and anchor_hint:
+                anchor = _chat_step(item, anchor_hint)
+                if anchor:
+                    item = _reorder_step(conn, item, added["id"], anchor["id"], place.lower(), time_zone)
+            return f"Added {new_title} to {item['title']}."
     if "routine" in lower and any(word in lower for word in ("show", "list", "what", "which")):
         groups = [_snapshot(conn, row["id"]) for row in conn.execute(
             "SELECT id FROM routine_groups WHERE archived=0 ORDER BY position, created_at"
@@ -956,31 +1085,6 @@ def chat_action(conn, text, time_zone="UTC"):
             group = matches[0]
             steps = ", ".join(step["title"] for step in group["steps"]) or "no steps yet"
             return f"{group['title']} has {steps}."
-    add = re.search(r"\badd\s+(.+?)\s+after\s+(.+?)\s+in\s+(?:my\s+)?(.+?)\s+routine\b", raw, re.I)
-    if add:
-        new_title, after_title, routine_hint = (part.strip() for part in add.groups())
-        groups = [_snapshot(conn, row["id"]) for row in conn.execute("SELECT id FROM routine_groups WHERE archived=0").fetchall()]
-        hint_tokens = set(re.findall(r"[a-z]+", routine_hint.lower()))
-        matches = [group for group in groups if hint_tokens & set(re.findall(r"[a-z]+", group["title"].lower()))]
-        if len(matches) == 1:
-            group = matches[0]
-            def action_tokens(value):
-                tokens = set()
-                for token in re.findall(r"[a-z]+", value.lower()):
-                    if token in {"my", "the", "a", "an"}:
-                        continue
-                    if token.endswith("ing") and len(token) > 5:
-                        token = token[:-3]
-                    tokens.add(token)
-                return tokens
-            wanted = action_tokens(after_title)
-            after = next((step for step in group["steps"] if wanted and wanted <= action_tokens(step["title"])), None)
-            if after:
-                _freeze_past(conn, group["id"], time_zone)
-                conn.execute("UPDATE routine_steps SET position=position+1 WHERE routine_id=? AND position>?", (group["id"], after["position"]))
-                _insert_step(conn, group["id"], {"title": new_title}, after["position"] + 1)
-                _save_version(conn, group["id"], effective_day=local_day(time_zone))
-                return f"Added {new_title} after {after['title']} in {group['title']}."
     # Complete a specifically named unfinished step.
     if any(word in lower for word in ("did my", "done my", "just did", "completed")):
         matches = []

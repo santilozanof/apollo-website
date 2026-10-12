@@ -244,6 +244,29 @@ Make each step individually checkable and verify that all four steps were saved 
         )["routines"][0]["steps"]]
         self.assertEqual(titles, ["Brush my teeth", "flossing", "Prepare for bed"])
 
+    def test_chat_edits_steps_and_routine_without_name_confusion(self):
+        routines.create_routine(self.conn, {
+            "title": "Morning Skincare", "steps": [{"title": "Cleanser"}],
+        }, today="2026-10-12")
+        routine = routines.create_routine(self.conn, {
+            "title": "Nighttime Skincare",
+            "steps": [{"title": "Cleanser"}, {"title": "Under-eye patches"}, {"title": "Retinol"}],
+        }, today="2026-10-12")
+        self.assertIn("Removed Under-eye patches", routines.chat_action(
+            self.conn, "Remove the under-eye patches from my nighttime routine", "Europe/Zurich"
+        ))
+        routines.chat_action(self.conn, "Add Hydrating cream after Cleanser to my nighttime routine", "Europe/Zurich")
+        routines.chat_action(self.conn, "Rename Retinol to Night treatment in my nighttime routine", "Europe/Zurich")
+        routines.chat_action(self.conn, "Move Night treatment before Cleanser in my nighttime routine", "Europe/Zurich")
+        routines.chat_action(self.conn, "Set my nighttime routine schedule to Monday, Wednesday, and Friday", "Europe/Zurich")
+        routines.chat_action(self.conn, "Rename my nighttime routine to Evening Skincare", "Europe/Zurich")
+        saved = routines._snapshot(self.conn, routine["id"])
+        self.assertEqual(saved["title"], "Evening Skincare")
+        self.assertEqual(saved["schedule_days"], [0, 2, 4])
+        self.assertEqual([step["title"] for step in saved["steps"]], ["Night treatment", "Cleanser", "Hydrating cream"])
+        morning = self.conn.execute("SELECT title FROM routine_groups WHERE title='Morning Skincare'").fetchone()
+        self.assertIsNotNone(morning)
+
     def test_only_steps_scheduled_for_day_are_required(self):
         routine = self.routine(steps=[
             {"title": "Cleanse"},
