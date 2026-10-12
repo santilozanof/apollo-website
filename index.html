@@ -77839,6 +77839,9 @@ html.apollo-jarvis-mode
 </script>
 
 
+<link id="apollo-routines-css" rel="stylesheet" href="/routines.css?v=20261012-4">
+<script id="apollo-routines-js" src="/routines.js?v=20261012-3"></script>
+
 <!-- APOLLO ROUTE STATE V2 -->
 <script id="apollo-route-state-v2">
 (() => {
@@ -77849,6 +77852,7 @@ html.apollo-jarvis-mode
         "music",
         "calendar",
         "tasks",
+        "routines",
         "studio",
         "settings"
     ];
@@ -77859,6 +77863,7 @@ html.apollo-jarvis-mode
         music: "openMusic",
         calendar: "openCalendar",
         tasks: "openTasks",
+        routines: "openRoutines",
         studio: "openStudio",
         settings: "openSettings"
     };
@@ -77871,6 +77876,7 @@ html.apollo-jarvis-mode
             music: document.getElementById("musicView"),
             calendar: document.getElementById("calendarView"),
             tasks: document.getElementById("tasksView"),
+            routines: document.getElementById("routinesView"),
             studio: document.getElementById("studioView"),
             settings: document.getElementById("settingsView")
         };
@@ -77914,6 +77920,10 @@ html.apollo-jarvis-mode
 
         if (destination !== "studio") {
             closeStudioOverlays();
+        }
+
+        if (destination !== "routines") {
+            window.apolloCloseRoutinesUi?.();
         }
 
         document.body.dataset.apolloRoute = destination;
@@ -77994,5 +78004,3 @@ html.apollo-jarvis-mode
 >
 
 <script src="/apollo_notifications.js?v=20260904-3"></script>
-<link id="apollo-routines-css" rel="stylesheet" href="/routines.css?v=20261012-2">
-<script id="apollo-routines-js" src="/routines.js?v=20261012-1"></script>
