@@ -6,7 +6,7 @@ import sys
 import time as time_module
 import urllib.parse
 import urllib.request
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from server import (
@@ -14,6 +14,7 @@ from server import (
     db,
     init_db,
 )
+import routines
 
 
 def get_state(key):
@@ -434,6 +435,18 @@ def generate(force=False):
         time_zone
     )
 
+    routine_context = None
+    try:
+        conn = db()
+        yesterday = (now.date() - timedelta(days=1)).isoformat()
+        routine_context = {
+            "yesterday": routines.get_state(conn, yesterday, time_zone),
+            "today": routines.get_state(conn, local_date, time_zone),
+        }
+        conn.close()
+    except Exception as error:
+        print("[Apollo Debrief] Routine context unavailable:", error)
+
     messages = [
         {
             "role": "system",
@@ -460,8 +473,11 @@ Personal Apollo conversation history is supporting context only.
 Do not surface Apollo UI debugging, coding minutiae, button fixes, tests, or
 development chatter unless it is genuinely important.
 
-Calendar, Tasks, Whoop, Spotify, weather, and other personal data may be added
-to this briefing later. If a source is not supplied, simply omit it. Never invent it.
+Routine progress is supplied when available. It may include yesterday's
+completed or incomplete scheduled routines, current streak context, hydration,
+and today's schedule. Keep any mention concise and never turn absent data into
+a confirmed failure. Other personal sources may be added later. If a source is
+not supplied, simply omit it. Never invent it.
 
 The final response MUST be valid JSON and NOTHING ELSE.
 
@@ -525,6 +541,7 @@ Research first. Then return only the JSON object."""
                     "local_date": local_date,
                     "local_time": now.isoformat(),
                     "timezone": time_zone,
+                    "routines": routine_context,
                     "recent_apollo_context": recent
                 },
                 ensure_ascii=False

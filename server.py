@@ -14,6 +14,7 @@ import shutil
 import hashlib
 import threading
 import tempfile
+import routines
 from automation_engine import (
     AutomationEngine,
     init_automation_schema,
@@ -788,6 +789,7 @@ def init_db():
     """)
 
     init_automation_schema(conn)
+    routines.init_schema(conn)
 
     conn.commit()
     conn.close()
@@ -14100,6 +14102,41 @@ def apollo_default_notification_rules(now, preferences):
                     notices.append({"title": "Travel reminder", "body": f"{title} is coming up. Check your travel details.", "category": "travel", "deep_link": "/?tab=calendar", "dedupe_key": f"travel:{event_id}:2h", "detail": {"event_id": event_id, "starts_at": start.isoformat()}})
         except Exception as error:
             print(f"[Apollo Automations] Calendar default notification unavailable: {error}")
+
+    # Routine reminders are opt-in on each routine. They reuse Apollo's
+    # durable notification delivery/dedupe path and never exist implicitly.
+    if preferences.get("automations"):
+        try:
+            time_zone = apollo_automation_timezone()
+            local_now = now.astimezone(ZoneInfo(time_zone))
+            conn = db()
+            routine_state = routines.get_state(conn, local_now.date().isoformat(), time_zone)
+            conn.close()
+            current_minutes = local_now.hour * 60 + local_now.minute
+            for item in routine_state["routines"]:
+                if item["status"] == "not_scheduled":
+                    continue
+                for kind, enabled, clock in (
+                    ("start", item.get("reminder_start"), item.get("window_start")),
+                    ("end", item.get("reminder_end") and item["status"] != "completed", item.get("window_end")),
+                ):
+                    if not enabled or not clock:
+                        continue
+                    hour, minute = [int(part) for part in clock.split(":")[:2]]
+                    if 0 <= current_minutes - (hour * 60 + minute) < 5:
+                        body = (
+                            f"Your {item['title']} window is starting."
+                            if kind == "start" else
+                            f"{item['title']} is still unfinished."
+                        )
+                        notices.append({
+                            "title": item["title"], "body": body,
+                            "category": "automations", "deep_link": f"/?tab=routines&routine={item['id']}",
+                            "dedupe_key": f"routine:{item['id']}:{local_now.date().isoformat()}:{kind}",
+                            "detail": {"routine_id": item["id"], "kind": kind},
+                        })
+        except Exception as error:
+            print(f"[Apollo Routines] Reminder check unavailable: {error}")
     return notices
 
 
@@ -17063,6 +17100,43 @@ class ApolloHandler(BaseHTTPRequestHandler):
         route = parsed_url.path
 
         # ─────────────────────────────
+        # ROUTINES + HYDRATION
+        # ─────────────────────────────
+        if route in {"/api/routines", "/api/routines/history", "/api/routines/statistics", "/api/routines/export"}:
+            query = urllib.parse.parse_qs(parsed_url.query)
+            time_zone = query.get("timezone", ["UTC"])[0]
+            conn = db()
+            try:
+                if route == "/api/routines":
+                    result = routines.get_state(
+                        conn,
+                        query.get("date", [None])[0],
+                        time_zone,
+                        query.get("archived", ["0"])[0] == "1",
+                    )
+                elif route == "/api/routines/history":
+                    today = routines.local_day(time_zone)
+                    end_day = query.get("end", [today])[0]
+                    start_day = query.get("start", [(datetime.fromisoformat(end_day) - timedelta(days=27)).date().isoformat()])[0]
+                    result = routines.history(conn, start_day, end_day, time_zone)
+                elif route == "/api/routines/statistics":
+                    routine_id = query.get("routine_id", [""])[0]
+                    result = routines.routine_statistics(conn, routine_id, query.get("end", [None])[0], query.get("days", ["365"])[0])
+                else:
+                    today = routines.local_day(time_zone)
+                    start_day = query.get("start", [(datetime.fromisoformat(today) - timedelta(days=364)).date().isoformat()])[0]
+                    result = routines.history(conn, start_day, today, time_zone)
+                json_response(self, result)
+            except ValueError as error:
+                json_response(self, {"error": str(error)}, 400)
+            except Exception as error:
+                print(f"[Apollo Routines] GET failed: {error}")
+                json_response(self, {"error": "Routines could not be loaded"}, 500)
+            finally:
+                conn.close()
+            return
+
+        # ─────────────────────────────
         # NOTIFICATIONS + AUTOMATIONS
         # ─────────────────────────────
 
@@ -18318,6 +18392,31 @@ class ApolloHandler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self):
+
+        routine_route = urllib.parse.urlparse(self.path).path
+        if routine_route == "/routines/action":
+            routine_route = "/api/routines/action"
+        if routine_route == "/api/routines/action":
+            try:
+                routine_data = read_json(self)
+                time_zone = str(routine_data.get("timezone") or "UTC")
+                conn = db()
+                try:
+                    conn.execute("BEGIN IMMEDIATE")
+                    result = routines.api_action(conn, routine_data, time_zone)
+                    conn.commit()
+                    json_response(self, result, 201 if routine_data.get("action") == "create_routine" else 200)
+                except Exception:
+                    conn.rollback()
+                    raise
+                finally:
+                    conn.close()
+            except (ValueError, KeyError, TypeError) as error:
+                json_response(self, {"error": str(error)}, 400)
+            except Exception as error:
+                print(f"[Apollo Routines] write failed: {error}")
+                json_response(self, {"error": "The routine change could not be saved"}, 500)
+            return
 
         automation_route = urllib.parse.urlparse(self.path).path
         if automation_route.startswith("/notifications/") or automation_route.startswith("/automations"):
@@ -20539,6 +20638,58 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 )
                 else ""
             )
+
+
+            # ─────────────────────────────
+            # ROUTINES + HYDRATION
+            # ─────────────────────────────
+            # High-confidence mutations are executed locally and transactionally.
+            # Factual questions receive a database-backed snapshot; Hermes may
+            # phrase the answer but is explicitly forbidden from inventing state.
+            routine_terms = (
+                "routine", "habit", "hydration", "water", "skincare",
+                "brush", "floss", "supplement", "streak",
+            )
+            if any(term in user_message.lower() for term in routine_terms):
+                routine_time_zone = (
+                    str(client_context.get("time_zone") or "UTC")
+                    if isinstance(client_context, dict) else "UTC"
+                )
+                conn = db()
+                try:
+                    conn.execute("BEGIN IMMEDIATE")
+                    routine_reply = routines.chat_action(
+                        conn, user_message, routine_time_zone
+                    )
+                    conn.commit()
+                    routine_context = routines.chat_context(
+                        conn, routine_time_zone
+                    )
+                except Exception as error:
+                    conn.rollback()
+                    print(f"[Apollo Routines] Chat tool failed safely: {error}")
+                    routine_reply = None
+                    routine_context = None
+                finally:
+                    conn.close()
+
+                if routine_reply is not None:
+                    apollo_send_direct_sse(self, chat_id, routine_reply)
+                    return
+
+                if routine_context:
+                    messages.insert(0, {
+                        "role": "system",
+                        "content": (
+                            "CURRENT APOLLO ROUTINE DATABASE STATE:\n"
+                            + json.dumps(routine_context, ensure_ascii=False)
+                            + "\nUse this stored data as authoritative. Never invent "
+                            "completion, hydration, target, or streak facts. Clearly "
+                            "distinguish stored actions from suggestions. If the user "
+                            "asks for a mutation that was not already performed, explain "
+                            "the ambiguity instead of claiming it happened."
+                        )
+                    })
 
 
             # Music Presence is intentionally action-first.
