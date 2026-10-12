@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 STEP_TYPES = {"checkbox", "counter", "quantity"}
+STEP_SCHEDULE_TYPES = {"daily", "weekdays", "recurrence"}
 
 
 def _now():
@@ -80,6 +81,21 @@ def init_schema(conn):
         );
         CREATE INDEX IF NOT EXISTS idx_routine_steps_group
             ON routine_steps(routine_id, position);
+        CREATE TABLE IF NOT EXISTS routine_step_exceptions (
+            id TEXT PRIMARY KEY,
+            routine_id TEXT NOT NULL,
+            step_id TEXT NOT NULL,
+            local_date TEXT NOT NULL,
+            action TEXT NOT NULL,
+            substitute_title TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(step_id, local_date),
+            FOREIGN KEY(routine_id) REFERENCES routine_groups(id),
+            FOREIGN KEY(step_id) REFERENCES routine_steps(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_routine_step_exceptions_date
+            ON routine_step_exceptions(routine_id, local_date);
         CREATE TABLE IF NOT EXISTS routine_versions (
             routine_id TEXT NOT NULL,
             version INTEGER NOT NULL,
@@ -142,6 +158,17 @@ def init_schema(conn):
         "(id, goal_ml, display_unit, timezone, updated_at) VALUES (1,2500,'ml','UTC',?)",
         (_now(),),
     )
+    # Additive migrations keep existing production data and old snapshots valid.
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(routine_steps)").fetchall()}
+    migrations = {
+        "schedule_type": "TEXT NOT NULL DEFAULT 'daily'",
+        "schedule_days": "TEXT NOT NULL DEFAULT '[0,1,2,3,4,5,6]'",
+        "recurrence_rule": "TEXT NOT NULL DEFAULT '{}'",
+        "alternative_group": "TEXT NOT NULL DEFAULT ''",
+    }
+    for column, definition in migrations.items():
+        if column not in columns:
+            conn.execute(f"ALTER TABLE routine_steps ADD COLUMN {column} {definition}")
 
 
 def _days(value):
@@ -160,10 +187,65 @@ def _snapshot(conn, routine_id):
     item["steps"] = [dict(row) for row in conn.execute(
         "SELECT * FROM routine_steps WHERE routine_id = ? ORDER BY position, created_at", (routine_id,)
     ).fetchall()]
+    for step in item["steps"]:
+        step["schedule_type"] = step.get("schedule_type") or "daily"
+        step["schedule_days"] = _json(step.get("schedule_days"), list(range(7)))
+        step["recurrence_rule"] = _json(step.get("recurrence_rule"), {})
+        step["alternative_group"] = step.get("alternative_group") or ""
     return item
 
 
-def _save_version(conn, routine_id, increment=True):
+def _step_scheduled(step, day):
+    current = date.fromisoformat(day)
+    kind = step.get("schedule_type") or "daily"
+    if kind == "daily":
+        return True
+    if kind == "weekdays":
+        return current.weekday() in _days(step.get("schedule_days"))
+    rule = step.get("recurrence_rule") or {}
+    if isinstance(rule, str):
+        rule = _json(rule, {})
+    start_text = str(rule.get("start_date") or day)[:10]
+    try:
+        start = date.fromisoformat(start_text)
+    except ValueError:
+        start = current
+    if current < start:
+        return False
+    interval = max(1, int(rule.get("interval") or 1))
+    frequency = str(rule.get("frequency") or "weekly").lower()
+    delta = (current - start).days
+    if frequency == "daily":
+        return delta % interval == 0
+    weekdays = _days(rule.get("weekdays") or step.get("schedule_days"))
+    return current.weekday() in weekdays and (delta // 7) % interval == 0
+
+
+def _daily_snapshot(conn, routine_id, day):
+    snapshot = _snapshot(conn, routine_id)
+    exceptions = {row["step_id"]: dict(row) for row in conn.execute(
+        "SELECT * FROM routine_step_exceptions WHERE routine_id=? AND local_date=?",
+        (routine_id, day),
+    ).fetchall()}
+    scheduled = []
+    for original in snapshot.get("steps", []):
+        step = dict(original)
+        exception = exceptions.get(step["id"])
+        if exception and exception["action"] == "skip":
+            continue
+        if not _step_scheduled(step, day) and not exception:
+            continue
+        if exception and exception["action"] == "substitute":
+            step["original_title"] = step["title"]
+            step["title"] = exception["substitute_title"]
+            step["is_substitution"] = True
+        scheduled.append(step)
+    snapshot["all_steps"] = snapshot.get("steps", [])
+    snapshot["steps"] = scheduled
+    return snapshot
+
+
+def _save_version(conn, routine_id, increment=True, effective_day=None):
     if increment:
         conn.execute(
             "UPDATE routine_groups SET version = version + 1, updated_at = ? WHERE id = ?",
@@ -178,18 +260,22 @@ def _save_version(conn, routine_id, increment=True):
     # while past instances remain immutable historical snapshots.
     live_rows = conn.execute(
         "SELECT id FROM routine_daily_instances WHERE routine_id=? AND local_date>=?",
-        (routine_id, date.today().isoformat()),
+        (routine_id, effective_day or date.today().isoformat()),
     ).fetchall()
     for row in live_rows:
+        instance_day = conn.execute(
+            "SELECT local_date FROM routine_daily_instances WHERE id=?", (row["id"],)
+        ).fetchone()[0]
+        daily_item = _daily_snapshot(conn, routine_id, instance_day)
         conn.execute(
             "UPDATE routine_daily_instances SET routine_version=?,snapshot_json=?,updated_at=? WHERE id=?",
-            (item["version"], json.dumps(item), _now(), row["id"]),
+            (item["version"], json.dumps(daily_item), _now(), row["id"]),
         )
         _recalculate(conn, row["id"])
     return item
 
 
-def _freeze_past(conn, routine_id):
+def _freeze_past(conn, routine_id, time_zone="UTC"):
     """Materialize old scheduled days before a structural edit.
 
     This makes historical missed/partial days use the schedule and step
@@ -197,11 +283,11 @@ def _freeze_past(conn, routine_id):
     """
     snapshot = _snapshot(conn, routine_id)
     cursor = date.fromisoformat(snapshot["created_local_date"])
-    end = date.today() - timedelta(days=1)
+    end = date.fromisoformat(local_day(time_zone)) - timedelta(days=1)
     while cursor <= end:
         key = cursor.isoformat()
         if _scheduled(snapshot, key):
-            _instance(conn, routine_id, key, "UTC", create=True)
+            _instance(conn, routine_id, key, time_zone, create=True)
         cursor += timedelta(days=1)
 
 
@@ -244,20 +330,30 @@ def _insert_step(conn, routine_id, payload, position=None):
             "SELECT COALESCE(MAX(position),-1)+1 FROM routine_steps WHERE routine_id=?", (routine_id,)
         ).fetchone()[0]
     step_id, now = _id(), _now()
+    schedule_type = str(payload.get("schedule_type") or "daily").lower()
+    if schedule_type not in STEP_SCHEDULE_TYPES:
+        raise ValueError("Invalid step schedule")
+    schedule_days = _days(payload.get("schedule_days"))
+    recurrence_rule = payload.get("recurrence_rule") or {}
+    if not isinstance(recurrence_rule, dict):
+        raise ValueError("Invalid recurrence rule")
     conn.execute("""
         INSERT INTO routine_steps
-        (id,routine_id,title,step_type,target,unit,required,linked_hydration,position,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        (id,routine_id,title,step_type,target,unit,required,linked_hydration,position,
+         schedule_type,schedule_days,recurrence_rule,alternative_group,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         step_id, routine_id, title, kind, target, str(payload.get("unit") or "")[:30],
         int(payload.get("required", True) is not False), int(bool(payload.get("linked_hydration"))),
-        int(position), now, now,
+        int(position), schedule_type, json.dumps(schedule_days),
+        json.dumps(recurrence_rule, separators=(",", ":")),
+        str(payload.get("alternative_group") or "").strip()[:80], now, now,
     ))
     return step_id
 
 
-def update_routine(conn, routine_id, changes):
-    _freeze_past(conn, routine_id)
+def update_routine(conn, routine_id, changes, time_zone="UTC"):
+    _freeze_past(conn, routine_id, time_zone)
     allowed = {
         "title": lambda v: str(v).strip()[:120],
         "description": lambda v: str(v or "").strip()[:500],
@@ -282,21 +378,22 @@ def update_routine(conn, routine_id, changes):
         conn.execute(f"UPDATE routine_groups SET {', '.join(fields)}, updated_at=? WHERE id=?", values)
     if not conn.execute("SELECT 1 FROM routine_groups WHERE id=?", (routine_id,)).fetchone():
         raise ValueError("Routine not found")
-    return _save_version(conn, routine_id)
+    return _save_version(conn, routine_id, effective_day=local_day(time_zone))
 
 
-def add_step(conn, routine_id, payload):
-    _freeze_past(conn, routine_id)
+def add_step(conn, routine_id, payload, time_zone="UTC"):
+    _freeze_past(conn, routine_id, time_zone)
     _insert_step(conn, routine_id, payload)
-    return _save_version(conn, routine_id)
+    return _save_version(conn, routine_id, effective_day=local_day(time_zone))
 
 
-def update_step(conn, step_id, changes):
+def update_step(conn, step_id, changes, time_zone="UTC"):
     row = conn.execute("SELECT routine_id FROM routine_steps WHERE id=?", (step_id,)).fetchone()
     if not row:
         raise ValueError("Step not found")
-    _freeze_past(conn, row["routine_id"])
-    allowed = {"title", "step_type", "target", "unit", "required", "linked_hydration", "position"}
+    _freeze_past(conn, row["routine_id"], time_zone)
+    allowed = {"title", "step_type", "target", "unit", "required", "linked_hydration", "position",
+               "schedule_type", "schedule_days", "recurrence_rule", "alternative_group"}
     fields, values = [], []
     for key in allowed:
         if key not in changes:
@@ -304,27 +401,38 @@ def update_step(conn, step_id, changes):
         value = changes[key]
         if key == "step_type" and value not in STEP_TYPES:
             raise ValueError("Invalid step type")
+        if key == "schedule_type" and value not in STEP_SCHEDULE_TYPES:
+            raise ValueError("Invalid step schedule")
         if key == "target":
             value = float(value)
             if value <= 0:
                 raise ValueError("Step target must be greater than zero")
         if key in {"required", "linked_hydration"}:
             value = int(bool(value))
+        if key == "schedule_days":
+            value = json.dumps(_days(value))
+        if key == "recurrence_rule":
+            if not isinstance(value, dict):
+                raise ValueError("Invalid recurrence rule")
+            value = json.dumps(value, separators=(",", ":"))
+        if key == "alternative_group":
+            value = str(value or "").strip()[:80]
         fields.append(f"{key}=?")
         values.append(value)
     if fields:
         values.extend([_now(), step_id])
         conn.execute(f"UPDATE routine_steps SET {', '.join(fields)}, updated_at=? WHERE id=?", values)
-    return _save_version(conn, row["routine_id"])
+    return _save_version(conn, row["routine_id"], effective_day=local_day(time_zone))
 
 
-def delete_step(conn, step_id):
+def delete_step(conn, step_id, time_zone="UTC"):
     row = conn.execute("SELECT routine_id FROM routine_steps WHERE id=?", (step_id,)).fetchone()
     if not row:
         raise ValueError("Step not found")
-    _freeze_past(conn, row["routine_id"])
+    _freeze_past(conn, row["routine_id"], time_zone)
+    conn.execute("DELETE FROM routine_step_exceptions WHERE step_id=?", (step_id,))
     conn.execute("DELETE FROM routine_steps WHERE id=?", (step_id,))
-    return _save_version(conn, row["routine_id"])
+    return _save_version(conn, row["routine_id"], effective_day=local_day(time_zone))
 
 
 def duplicate_routine(conn, routine_id, today=None):
@@ -344,6 +452,7 @@ def delete_routine(conn, routine_id, delete_history=False):
             conn.execute("DELETE FROM routine_completion_events WHERE instance_id=?", (instance_id,))
         conn.execute("DELETE FROM routine_daily_instances WHERE routine_id=?", (routine_id,))
         conn.execute("DELETE FROM routine_versions WHERE routine_id=?", (routine_id,))
+        conn.execute("DELETE FROM routine_step_exceptions WHERE routine_id=?", (routine_id,))
         conn.execute("DELETE FROM routine_steps WHERE routine_id=?", (routine_id,))
         conn.execute("DELETE FROM routine_groups WHERE id=?", (routine_id,))
     else:
@@ -364,6 +473,7 @@ def _instance(conn, routine_id, day, time_zone, create=True):
     snapshot = _snapshot(conn, routine_id)
     if not _scheduled(snapshot, day) or day < snapshot["created_local_date"]:
         return None
+    snapshot = _daily_snapshot(conn, routine_id, day)
     instance_id = _id()
     conn.execute("""
         INSERT INTO routine_daily_instances
@@ -381,18 +491,26 @@ def _hydrate_instance(conn, instance):
         ).fetchall()
     }
     steps, completed_required, required = [], 0, 0
+    alternative_progress = {}
     for step in snapshot.get("steps", []):
         progress = progress_rows.get(step["id"], {})
         value = float(progress.get("value") or 0)
         complete = value >= float(step.get("target") or 1)
-        if step.get("required", 1):
+        alternative = str(step.get("alternative_group") or "")
+        if step.get("required", 1) and alternative:
+            alternative_progress.setdefault(alternative, []).append(complete)
+        elif step.get("required", 1):
             required += 1
             completed_required += int(complete)
         steps.append({**step, "value": value, "complete": complete, "completed_at": progress.get("completed_at")})
+    for values in alternative_progress.values():
+        required += 1
+        completed_required += int(any(values))
     status = "completed" if required == completed_required else ("partial" if any(s["value"] > 0 for s in steps) else "incomplete")
     return {
         **snapshot, "instance_id": instance["id"], "local_date": instance["local_date"],
         "status": status, "completed_at": instance.get("completed_at"), "steps": steps,
+        "all_steps": snapshot.get("all_steps", snapshot.get("steps", [])),
         "completed_steps": completed_required, "required_steps": required,
         "progress": 1 if required == 0 else completed_required / required,
     }
@@ -462,7 +580,13 @@ def set_routine(conn, routine_id, completed, day=None, time_zone="UTC", idempote
         return _recalculate(conn, instance["id"])
     snapshot = _json(instance["snapshot_json"], {})
     now = _now()
+    seen_alternatives = set()
     for step in snapshot.get("steps", []):
+        alternative = str(step.get("alternative_group") or "")
+        if completed and alternative and alternative in seen_alternatives:
+            continue
+        if alternative:
+            seen_alternatives.add(alternative)
         value = float(step.get("target") or 1) if completed else 0
         conn.execute("""
             INSERT INTO routine_step_daily (instance_id,step_id,value,completed_at,updated_at)
@@ -475,6 +599,32 @@ def set_routine(conn, routine_id, completed, day=None, time_zone="UTC", idempote
         VALUES (?,?,NULL,?,?,?,?)
     """, (_id(), instance["id"], 1 if completed else 0, int(completed), now, idempotency_key))
     return _recalculate(conn, instance["id"], now)
+
+
+def set_step_exception(conn, routine_id, step_id, day, action, substitute_title="", time_zone="UTC"):
+    if action not in {"skip", "substitute", "clear"}:
+        raise ValueError("Invalid exception action")
+    date.fromisoformat(str(day)[:10])
+    row = conn.execute(
+        "SELECT 1 FROM routine_steps WHERE id=? AND routine_id=?", (step_id, routine_id)
+    ).fetchone()
+    if not row:
+        raise ValueError("Step not found")
+    _freeze_past(conn, routine_id, time_zone)
+    if action == "clear":
+        conn.execute("DELETE FROM routine_step_exceptions WHERE step_id=? AND local_date=?", (step_id, day))
+    else:
+        title = str(substitute_title or "").strip()[:160]
+        if action == "substitute" and not title:
+            raise ValueError("A substitute step name is required")
+        now = _now()
+        conn.execute("""
+            INSERT INTO routine_step_exceptions
+            (id,routine_id,step_id,local_date,action,substitute_title,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(step_id,local_date) DO UPDATE SET
+            action=excluded.action,substitute_title=excluded.substitute_title,updated_at=excluded.updated_at
+        """, (_id(), routine_id, step_id, day, action, title, now, now))
+    return _save_version(conn, routine_id, effective_day=local_day(time_zone))
 
 
 def hydration_status(conn, day=None, time_zone="UTC"):
@@ -606,7 +756,8 @@ def get_state(conn, day=None, time_zone="UTC", include_archived=False):
     for row in groups:
         snapshot = _snapshot(conn, row["id"])
         if day < snapshot["created_local_date"] or not _scheduled(snapshot, day):
-            items.append({**snapshot, "status": "not_scheduled", "progress": 0, "completed_steps": 0, "required_steps": len([s for s in snapshot["steps"] if s["required"]]), "steps": [{**s, "value": 0, "complete": False, "completed_at": None} for s in snapshot["steps"]]})
+            items.append({**snapshot, "status": "not_scheduled", "progress": 0, "completed_steps": 0,
+                          "required_steps": 0, "all_steps": snapshot["steps"], "steps": []})
             continue
         instance = _instance(conn, row["id"], day, time_zone)
         hydrated = _hydrate_instance(conn, instance)
@@ -633,10 +784,23 @@ def history(conn, start_day, end_day, time_zone="UTC"):
 
 def chat_context(conn, time_zone="UTC"):
     state = get_state(conn, time_zone=time_zone)
-    compact = {"local_date": state["local_date"], "routines": [], "hydration": {k: state["hydration"][k] for k in ("total_ml", "goal_ml", "progress")}}
+    today_value = date.fromisoformat(state["local_date"])
+    week = []
+    for offset in range(7):
+        key = (today_value + timedelta(days=offset)).isoformat()
+        day_state = state if offset == 0 else get_state(conn, key, time_zone)
+        week.append({
+            "date": key,
+            "label": "today" if offset == 0 else "tomorrow" if offset == 1 else WEEKDAYS[(today_value.weekday() + offset) % 7],
+            "routines": [{
+                "title": routine["title"],
+                "steps": [step["title"] for step in routine["steps"]],
+            } for routine in day_state["routines"] if routine["status"] != "not_scheduled"],
+        })
+    compact = {"local_date": state["local_date"], "week_schedule": week, "routines": [], "hydration": {k: state["hydration"][k] for k in ("total_ml", "goal_ml", "progress")}}
     for item in state["routines"]:
         stats = routine_statistics(conn, item["id"], state["local_date"], 35)
-        compact["routines"].append({"id": item["id"], "title": item["title"], "status": item["status"], "completed_steps": item["completed_steps"], "required_steps": item["required_steps"], "schedule_days": item["schedule_days"], "current_streak": stats["current_streak"], "longest_streak": stats["longest_streak"], "recent_completion_rate": stats["completion_rate"], "recent_daily": stats["daily"], "steps": [{"id": s["id"], "title": s["title"], "value": s["value"], "target": s["target"], "complete": s["complete"]} for s in item["steps"]]})
+        compact["routines"].append({"id": item["id"], "title": item["title"], "status": item["status"], "completed_steps": item["completed_steps"], "required_steps": item["required_steps"], "schedule_days": item["schedule_days"], "current_streak": stats["current_streak"], "longest_streak": stats["longest_streak"], "recent_completion_rate": stats["completion_rate"], "recent_daily": stats["daily"], "steps": [{"id": s["id"], "title": s["title"], "value": s["value"], "target": s["target"], "complete": s["complete"], "schedule_type": s.get("schedule_type"), "schedule_days": s.get("schedule_days"), "alternative_group": s.get("alternative_group")} for s in item["steps"]], "all_steps": [{"id": s["id"], "title": s["title"], "schedule_type": s.get("schedule_type"), "schedule_days": s.get("schedule_days"), "recurrence_rule": s.get("recurrence_rule"), "alternative_group": s.get("alternative_group")} for s in item.get("all_steps", [])]})
     return compact
 
 
@@ -652,6 +816,28 @@ def chat_action(conn, text, time_zone="UTC"):
     if "how much water" in lower or "water do i have left" in lower:
         h = state["hydration"]
         return f"You've logged {h['total_ml']:g} mL today. You have {max(0, h['goal_ml'] - h['total_ml']):g} mL left to reach your {h['goal_ml']:g} mL goal."
+    move = re.search(
+        r"\bmove\s+(?:my\s+)?(.+?)(?:\s+night)?\s+from\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+to\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+        raw, re.I,
+    )
+    if move:
+        step_hint, old_name, new_name = move.groups()
+        names = {name: index for index, name in enumerate(("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"))}
+        candidates = []
+        for row in conn.execute("SELECT id FROM routine_groups WHERE archived=0").fetchall():
+            group = _snapshot(conn, row["id"])
+            for step in group["steps"]:
+                if step_hint.lower().strip() in step["title"].lower():
+                    candidates.append((group, step))
+        if len(candidates) == 1:
+            group, step = candidates[0]
+            days = _days(step.get("schedule_days"))
+            old_day, new_day = names[old_name.lower()], names[new_name.lower()]
+            if old_day not in days:
+                return f"{step['title']} is not currently scheduled for {old_name.title()}."
+            days = sorted({new_day if value == old_day else value for value in days})
+            update_step(conn, step["id"], {"schedule_type": "weekdays", "schedule_days": days}, time_zone)
+            return f"Moved {step['title']} from {old_name.title()} to {new_name.title()} in {group['title']}."
     create = re.search(r"\bcreate\s+(?:a\s+)?(.+?)\s+routine\s+(?:for|on)\s+(.+?)(?:[.!?]|$)", raw, re.I)
     if create:
         day_names = {name: index for index, name in enumerate(("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"))}
@@ -681,10 +867,10 @@ def chat_action(conn, text, time_zone="UTC"):
             wanted = action_tokens(after_title)
             after = next((step for step in group["steps"] if wanted and wanted <= action_tokens(step["title"])), None)
             if after:
-                _freeze_past(conn, group["id"])
+                _freeze_past(conn, group["id"], time_zone)
                 conn.execute("UPDATE routine_steps SET position=position+1 WHERE routine_id=? AND position>?", (group["id"], after["position"]))
                 _insert_step(conn, group["id"], {"title": new_title}, after["position"] + 1)
-                _save_version(conn, group["id"])
+                _save_version(conn, group["id"], effective_day=local_day(time_zone))
                 return f"Added {new_title} after {after['title']} in {group['title']}."
     # Complete a specifically named unfinished step.
     if any(word in lower for word in ("did my", "done my", "just did", "completed")):
@@ -704,12 +890,13 @@ def chat_action(conn, text, time_zone="UTC"):
 def api_action(conn, payload, time_zone="UTC"):
     action = payload.get("action")
     if action == "create_routine": return create_routine(conn, payload)
-    if action == "update_routine": return update_routine(conn, payload["routine_id"], payload.get("changes") or {})
+    if action == "update_routine": return update_routine(conn, payload["routine_id"], payload.get("changes") or {}, time_zone)
     if action == "duplicate_routine": return duplicate_routine(conn, payload["routine_id"])
     if action == "delete_routine": return delete_routine(conn, payload["routine_id"], bool(payload.get("delete_history")))
-    if action == "add_step": return add_step(conn, payload["routine_id"], payload)
-    if action == "update_step": return update_step(conn, payload["step_id"], payload.get("changes") or {})
-    if action == "delete_step": return delete_step(conn, payload["step_id"])
+    if action == "add_step": return add_step(conn, payload["routine_id"], payload, time_zone)
+    if action == "update_step": return update_step(conn, payload["step_id"], payload.get("changes") or {}, time_zone)
+    if action == "delete_step": return delete_step(conn, payload["step_id"], time_zone)
+    if action == "set_step_exception": return set_step_exception(conn, payload["routine_id"], payload["step_id"], payload["date"], payload["exception_action"], payload.get("substitute_title", ""), time_zone)
     if action == "set_step": return set_step(conn, payload["routine_id"], payload["step_id"], payload.get("value"), payload.get("completed"), payload.get("date"), time_zone, payload.get("idempotency_key"))
     if action == "set_routine": return set_routine(conn, payload["routine_id"], bool(payload.get("completed")), payload.get("date"), time_zone, payload.get("idempotency_key"))
     if action == "log_water": return log_water(conn, payload["amount_ml"], time_zone, payload.get("logged_at"), payload.get("beverage", "water"), payload.get("idempotency_key"))

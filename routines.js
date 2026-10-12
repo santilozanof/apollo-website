@@ -6,6 +6,7 @@
         date: null,
         history: null,
         expanded: new Set(),
+        showAll: new Set(),
         openMenu: null,
         loadToken: 0,
         modal: null
@@ -179,6 +180,16 @@
         return days.map(index => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index]).join(", ");
     }
 
+    function stepScheduleLabel(step) {
+        if ((step.schedule_type || "daily") === "daily") return "Daily";
+        const days = step.schedule_days || [];
+        const labels = days.map(index => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index]).join(", ");
+        if (step.schedule_type === "weekdays") return labels || "No days";
+        const rule = step.recurrence_rule || {};
+        const interval = Number(rule.interval || 1);
+        return `${interval > 1 ? `Every ${interval} weeks` : "Weekly"}${labels ? ` · ${labels}` : ""}`;
+    }
+
     function number(value) {
         return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
     }
@@ -202,6 +213,11 @@
         const timing = item.window_start ? `${item.window_start}${item.window_end ? `–${item.window_end}` : ""}` : scheduleLabel(item);
         const progress = Math.round((item.progress || 0) * 100);
         const menuOpen = state.openMenu === item.id;
+        const showingAll = state.showAll.has(item.id);
+        const visibleSteps = showingAll ? (item.all_steps || item.steps).map(step => {
+            const live = item.steps.find(candidate => candidate.id === step.id);
+            return { ...step, ...(live || { value: 0, complete: false, completed_at: null }), scheduled_for_day: Boolean(live) };
+        }) : item.steps.map(step => ({ ...step, scheduled_for_day: true }));
         return `
             <article class="routine-card ${expanded ? "expanded" : ""} ${done ? "is-complete" : ""} ${unscheduled ? "is-unscheduled" : ""}" data-routine="${esc(item.id)}">
                 <div class="routine-card-head">
@@ -215,10 +231,20 @@
                 <div class="routine-progress-track" aria-hidden="true"><div class="routine-progress-fill" style="--progress:${progress}%"></div></div>
                 <div class="routine-body-wrap" aria-hidden="${!expanded}"><div class="routine-body"><div class="routine-body-inner">
                     ${item.description ? `<p class="routine-description">${esc(item.description)}</p>` : ""}
-                    <div class="routine-steps">${item.steps.length ? item.steps.map(step => renderStep(step, unscheduled)).join("") : '<div class="routine-no-steps">No steps yet.</div>'}</div>
+                    <div class="routine-schedule-toolbar"><button class="routine-text-button" data-show-schedule type="button">${showingAll ? "Today’s checklist" : "Weekly schedule"}</button></div>
+                    ${showingAll ? renderWeeklySchedule(item.all_steps || item.steps) : ""}
+                    <div class="routine-steps">${visibleSteps.length ? visibleSteps.map(step => renderStep(step, unscheduled || !step.scheduled_for_day, showingAll)).join("") : '<div class="routine-no-steps">No steps scheduled for this day.</div>'}</div>
                     <button class="routine-add-step" data-add-step type="button">+ Add step</button>
                 </div></div></div>
             </article>`;
+    }
+
+    function renderWeeklySchedule(steps) {
+        const headers = ["M", "T", "W", "T", "F", "S", "S"];
+        return `<div class="routine-week-grid" aria-label="Weekly step schedule"><div></div>${headers.map(day => `<span>${day}</span>`).join("")}${steps.map(step => {
+            const days = (step.schedule_type || "daily") === "daily" ? [0, 1, 2, 3, 4, 5, 6] : (step.schedule_days || []);
+            return `<strong title="${esc(step.title)}">${esc(step.title)}</strong>${headers.map((_, index) => `<i class="${days.includes(index) ? "active" : ""}" aria-label="${days.includes(index) ? "Scheduled" : "Not scheduled"}"></i>`).join("")}`;
+        }).join("")}</div>`;
     }
 
     function renderRoutineMenu(item) {
@@ -229,11 +255,11 @@
             <button type="button" role="menuitem" class="danger" data-delete-routine>Delete</button></div>`;
     }
 
-    function renderStep(step, disabled) {
+    function renderStep(step, disabled, showSchedule = false) {
         const counter = step.step_type !== "checkbox" ? `<div class="routine-counter" aria-label="${esc(step.title)} value"><button data-count="-1" type="button" aria-label="Decrease ${esc(step.title)}">−</button><span>${number(step.value)}</span><button data-count="1" type="button" aria-label="Increase ${esc(step.title)}">+</button></div><span class="routine-step-target">${esc(step.unit || "")} / ${number(step.target)}</span>` : "";
         return `<div class="routine-step ${step.complete ? "done" : ""}" data-step="${esc(step.id)}">
             <button class="routine-step-check ${step.complete ? "done" : ""}" data-step-toggle type="button" ${disabled ? "disabled" : ""} aria-label="${step.complete ? "Uncheck" : "Check"} ${esc(step.title)}">${checkIcon}</button>
-            <div class="routine-step-label">${esc(step.title)}</div><div class="routine-step-control">${counter}<button class="routine-icon-button" data-step-move="-1" type="button" title="Move earlier" aria-label="Move ${esc(step.title)} earlier">↑</button><button class="routine-icon-button" data-step-move="1" type="button" title="Move later" aria-label="Move ${esc(step.title)} later">↓</button><button class="routine-icon-button" data-edit-step type="button" aria-label="Edit ${esc(step.title)}">${moreIcon}</button></div></div>`;
+            <div class="routine-step-label">${esc(step.title)}${showSchedule ? `<small>${esc(stepScheduleLabel(step))}${step.alternative_group ? ` · Either ${esc(step.alternative_group)}` : ""}</small>` : ""}</div><div class="routine-step-control">${counter}<button class="routine-icon-button" data-step-move="-1" type="button" title="Move earlier" aria-label="Move ${esc(step.title)} earlier">↑</button><button class="routine-icon-button" data-step-move="1" type="button" title="Move later" aria-label="Move ${esc(step.title)} later">↓</button><button class="routine-icon-button" data-edit-step type="button" aria-label="Edit ${esc(step.title)}">${moreIcon}</button></div></div>`;
     }
 
     document.getElementById("routineList").addEventListener("click", async event => {
@@ -254,11 +280,15 @@
             state.expanded.has(routine.id) ? state.expanded.delete(routine.id) : state.expanded.add(routine.id);
             render(); return;
         }
+        if (target.closest("[data-show-schedule]")) {
+            state.showAll.has(routine.id) ? state.showAll.delete(routine.id) : state.showAll.add(routine.id);
+            render(); return;
+        }
         if (target.closest("[data-routine-toggle]")) {
             await save({ action: "set_routine", routine_id: routine.id, completed: routine.status !== "completed", date: state.date, idempotency_key: crypto.randomUUID() }); return;
         }
         const stepElement = target.closest("[data-step]");
-        const step = stepElement && routine.steps.find(item => item.id === stepElement.dataset.step);
+        const step = stepElement && (routine.all_steps || routine.steps).find(item => item.id === stepElement.dataset.step);
         if (step && target.closest("[data-step-toggle]")) {
             await save({ action: "set_step", routine_id: routine.id, step_id: step.id, completed: !step.complete, date: state.date, idempotency_key: crypto.randomUUID() }); return;
         }
@@ -268,7 +298,8 @@
         }
         const stepMove = Number(target.closest("[data-step-move]")?.dataset.stepMove || 0);
         if (step && stepMove) {
-            const other = routine.steps[routine.steps.indexOf(step) + stepMove];
+            const ordered = routine.all_steps || routine.steps;
+            const other = ordered[ordered.findIndex(item => item.id === step.id) + stepMove];
             if (other) { await api({ action: "update_step", step_id: step.id, changes: { position: other.position } }); await save({ action: "update_step", step_id: other.id, changes: { position: step.position } }); }
             return;
         }
@@ -407,17 +438,44 @@
     }
 
     function openStepDialog(routine, step = null) {
+        const scheduleType = step?.schedule_type || "daily";
+        const scheduleDays = step?.schedule_days || [0, 1, 2, 3, 4, 5, 6];
+        const rule = step?.recurrence_rule || {};
+        const advanced = scheduleType !== "daily" || Boolean(step?.alternative_group);
         const backdrop = openFormDialog({
             title: step ? "Edit step" : "Add a step", submitLabel: step ? "Save" : "Add step",
             content: `${field("Name", `<input class="routine-input" name="title" required maxlength="160" value="${esc(step?.title || "")}">`)}
                 ${field("Type", `<select class="routine-input" name="step_type">${[["checkbox", "Checkbox"], ["counter", "Counter"], ["quantity", "Measurable quantity"]].map(([value, label]) => `<option value="${value}" ${step?.step_type === value ? "selected" : ""}>${label}</option>`).join("")}</select>`)}
                 <div class="routine-field-grid">${field("Target", `<input class="routine-input" name="target" type="number" min="0.01" step="0.01" value="${step?.target || 1}">`)}${field("Unit", `<input class="routine-input" name="unit" placeholder="mL, minutes…" value="${esc(step?.unit || "")}">`)}</div>
-                <label class="routine-toggle-row"><input type="checkbox" name="linked_hydration" ${step?.linked_hydration ? "checked" : ""}><span>Link this target to water tracking</span></label>${step ? '<button class="routine-delete-step" data-delete-step type="button">Delete step</button>' : ""}`,
-            onSubmit: form => {
-                const values = { title: form.get("title"), step_type: form.get("step_type"), target: Number(form.get("target")), unit: form.get("unit"), linked_hydration: form.get("linked_hydration") === "on" };
-                return api(step ? { action: "update_step", step_id: step.id, changes: values } : { action: "add_step", routine_id: routine.id, ...values });
+                <label class="routine-toggle-row"><input type="checkbox" name="linked_hydration" ${step?.linked_hydration ? "checked" : ""}><span>Link this target to water tracking</span></label>
+                <label class="routine-toggle-row routine-advanced-toggle"><input type="checkbox" name="show_advanced" ${advanced ? "checked" : ""}><span>Schedule this step differently</span></label>
+                <div class="routine-advanced-fields" ${advanced ? "" : "hidden"}>
+                    ${field("Repeat", `<select class="routine-input" name="schedule_type"><option value="daily" ${scheduleType === "daily" ? "selected" : ""}>Every routine day</option><option value="weekdays" ${scheduleType === "weekdays" ? "selected" : ""}>Selected weekdays</option><option value="recurrence" ${scheduleType === "recurrence" ? "selected" : ""}>Custom recurrence</option></select>`)}
+                    <fieldset class="routine-field routine-day-field"><legend class="apollo-task-modal-label">Weekdays</legend><div class="routine-weekdays">${["M", "T", "W", "T", "F", "S", "S"].map((day, index) => `<label><input type="checkbox" name="step_day" value="${index}" ${scheduleDays.includes(index) ? "checked" : ""}><span>${day}</span></label>`).join("")}</div></fieldset>
+                    <div class="routine-recurrence-fields" ${scheduleType === "recurrence" ? "" : "hidden"}><div class="routine-field-grid">${field("Every", `<input class="routine-input" name="recurrence_interval" type="number" min="1" max="52" value="${Number(rule.interval || 1)}">`)}${field("Period", `<select class="routine-input" name="recurrence_frequency"><option value="weekly" ${rule.frequency !== "daily" ? "selected" : ""}>week(s)</option><option value="daily" ${rule.frequency === "daily" ? "selected" : ""}>day(s)</option></select>`)}</div>${field("Starting", `<input class="routine-input" name="recurrence_start" type="date" value="${esc(rule.start_date || state.date)}">`)}</div>
+                    ${field("Alternative set (optional)", `<input class="routine-input" name="alternative_group" placeholder="e.g. nighttime treatment" value="${esc(step?.alternative_group || "")}"><small class="routine-field-help">Steps with the same set name count as one: completing either satisfies the routine.</small>`)}
+                    ${step ? field(`Exception for ${dateLabel(state.date)}`, `<select class="routine-input" name="exception_action"><option value="">No change</option><option value="skip">Skip on this date</option><option value="substitute">Use a substitute</option><option value="clear">Clear existing exception</option></select><input class="routine-input routine-substitute-input" name="substitute_title" placeholder="Substitute step name" hidden>`) : ""}
+                </div>${step ? '<button class="routine-delete-step" data-delete-step type="button">Delete step</button>' : ""}`,
+            onSubmit: async form => {
+                const selectedDays = form.getAll("step_day").map(Number);
+                const useAdvanced = form.get("show_advanced") === "on";
+                const kind = useAdvanced ? form.get("schedule_type") : "daily";
+                if (useAdvanced && kind !== "daily" && !selectedDays.length) throw new Error("Choose at least one weekday");
+                const values = { title: form.get("title"), step_type: form.get("step_type"), target: Number(form.get("target")), unit: form.get("unit"), linked_hydration: form.get("linked_hydration") === "on", schedule_type: kind, schedule_days: selectedDays, alternative_group: useAdvanced ? form.get("alternative_group") : "", recurrence_rule: kind === "recurrence" ? { frequency: form.get("recurrence_frequency"), interval: Number(form.get("recurrence_interval")), start_date: form.get("recurrence_start"), weekdays: selectedDays } : {} };
+                await api(step ? { action: "update_step", step_id: step.id, changes: values } : { action: "add_step", routine_id: routine.id, ...values });
+                const exceptionAction = form.get("exception_action");
+                if (step && exceptionAction) await api({ action: "set_step_exception", routine_id: routine.id, step_id: step.id, date: state.date, exception_action: exceptionAction, substitute_title: form.get("substitute_title") });
             }
         });
+        const advancedToggle = backdrop.querySelector('[name="show_advanced"]');
+        const advancedFields = backdrop.querySelector(".routine-advanced-fields");
+        const scheduleSelect = backdrop.querySelector('[name="schedule_type"]');
+        const recurrenceFields = backdrop.querySelector(".routine-recurrence-fields");
+        const exceptionSelect = backdrop.querySelector('[name="exception_action"]');
+        const substituteInput = backdrop.querySelector(".routine-substitute-input");
+        advancedToggle?.addEventListener("change", () => { advancedFields.hidden = !advancedToggle.checked; });
+        scheduleSelect?.addEventListener("change", () => { recurrenceFields.hidden = scheduleSelect.value !== "recurrence"; });
+        exceptionSelect?.addEventListener("change", () => { substituteInput.hidden = exceptionSelect.value !== "substitute"; });
         backdrop.querySelector("[data-delete-step]")?.addEventListener("click", async () => {
             if (await confirmAction(`Delete “${step.title}”? Past records will stay intact.`)) {
                 try { await api({ action: "delete_step", step_id: step.id }); closeModal(); await load(true); }

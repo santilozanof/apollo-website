@@ -24,6 +24,22 @@ class RoutineTests(unittest.TestCase):
             today=created,
         )
 
+    def test_schema_upgrade_adds_step_scheduling_without_data_loss(self):
+        legacy = sqlite3.connect(":memory:")
+        legacy.execute("""CREATE TABLE routine_steps (
+            id TEXT PRIMARY KEY, routine_id TEXT NOT NULL, title TEXT NOT NULL,
+            step_type TEXT NOT NULL DEFAULT 'checkbox', target REAL NOT NULL DEFAULT 1,
+            unit TEXT NOT NULL DEFAULT '', required INTEGER NOT NULL DEFAULT 1,
+            linked_hydration INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        )""")
+        legacy.execute("INSERT INTO routine_steps VALUES ('s','r','Cleanse','checkbox',1,'',1,0,0,'now','now')")
+        routines.init_schema(legacy)
+        columns = {row[1] for row in legacy.execute("PRAGMA table_info(routine_steps)")}
+        self.assertTrue({"schedule_type", "schedule_days", "recurrence_rule", "alternative_group"} <= columns)
+        self.assertEqual(legacy.execute("SELECT title FROM routine_steps WHERE id='s'").fetchone()[0], "Cleanse")
+        legacy.close()
+
     def test_daily_state_resets_without_losing_history(self):
         routine = self.routine()
         routines.set_routine(
@@ -133,6 +149,68 @@ class RoutineTests(unittest.TestCase):
             self.conn, "2026-10-12", "Europe/Zurich"
         )["routines"][0]["steps"]]
         self.assertEqual(titles, ["Brush my teeth", "flossing", "Prepare for bed"])
+
+    def test_only_steps_scheduled_for_day_are_required(self):
+        routine = self.routine(steps=[
+            {"title": "Cleanse"},
+            {"title": "Retinol", "schedule_type": "weekdays", "schedule_days": [0]},
+            {"title": "Azelaic acid", "schedule_type": "weekdays", "schedule_days": [2]},
+        ])
+        monday = routines.get_state(self.conn, "2026-10-05", "UTC")["routines"][0]
+        self.assertEqual([step["title"] for step in monday["steps"]], ["Cleanse", "Retinol"])
+        self.assertEqual(monday["required_steps"], 2)
+        routines.set_step(self.conn, routine["id"], monday["steps"][0]["id"], completed=True, day="2026-10-05")
+        partial = routines.get_state(self.conn, "2026-10-05", "UTC")["routines"][0]
+        self.assertEqual(partial["status"], "partial")
+        self.assertEqual(partial["progress"], .5)
+
+    def test_alternative_steps_count_as_one_requirement(self):
+        routine = self.routine(steps=[
+            {"title": "Retinol", "alternative_group": "treatment"},
+            {"title": "Azelaic acid", "alternative_group": "treatment"},
+            {"title": "Moisturize"},
+        ])
+        state = routines.get_state(self.conn, "2026-10-10", "UTC")["routines"][0]
+        self.assertEqual(state["required_steps"], 2)
+        routines.set_step(self.conn, routine["id"], state["steps"][0]["id"], completed=True, day="2026-10-10")
+        routines.set_step(self.conn, routine["id"], state["steps"][2]["id"], completed=True, day="2026-10-10")
+        self.assertEqual(routines.get_state(self.conn, "2026-10-10", "UTC")["routines"][0]["status"], "completed")
+
+    def test_custom_recurrence_rule(self):
+        self.routine(steps=[{
+            "title": "Exfoliate", "schedule_type": "recurrence", "schedule_days": [0],
+            "recurrence_rule": {"frequency": "weekly", "interval": 2, "start_date": "2026-10-05", "weekdays": [0]},
+        }])
+        first = routines.get_state(self.conn, "2026-10-05", "UTC")["routines"][0]
+        off_week = routines.get_state(self.conn, "2026-10-12", "UTC")["routines"][0]
+        next_week = routines.get_state(self.conn, "2026-10-19", "UTC")["routines"][0]
+        self.assertEqual(len(first["steps"]), 1)
+        self.assertEqual(len(off_week["steps"]), 0)
+        self.assertEqual(len(next_week["steps"]), 1)
+
+    def test_date_exception_skips_and_substitutes_without_rewriting_history(self):
+        routine = self.routine(steps=[{"title": "Retinol"}])
+        historical = routines.get_state(self.conn, "2026-10-08", "UTC")["routines"][0]
+        step_id = routine["steps"][0]["id"]
+        routines.set_step_exception(self.conn, routine["id"], step_id, "2026-10-12", "substitute", "Azelaic acid")
+        substituted = routines.get_state(self.conn, "2026-10-12", "UTC")["routines"][0]
+        self.assertEqual(substituted["steps"][0]["title"], "Azelaic acid")
+        self.assertEqual(substituted["steps"][0]["original_title"], "Retinol")
+        self.assertEqual(routines.get_state(self.conn, "2026-10-08", "UTC")["routines"][0]["steps"][0]["title"], historical["steps"][0]["title"])
+        routines.set_step_exception(self.conn, routine["id"], step_id, "2026-10-13", "skip")
+        self.assertEqual(routines.get_state(self.conn, "2026-10-13", "UTC")["routines"][0]["steps"], [])
+
+    def test_chat_moves_step_between_weekdays_and_context_has_week(self):
+        routine = self.routine(steps=[{
+            "title": "Retinol", "schedule_type": "weekdays", "schedule_days": [0],
+        }])
+        reply = routines.chat_action(self.conn, "Move my retinol night from Monday to Wednesday", "UTC")
+        self.assertIn("Moved Retinol", reply)
+        updated = routines._snapshot(self.conn, routine["id"])["steps"][0]
+        self.assertEqual(updated["schedule_days"], [2])
+        context = routines.chat_context(self.conn, "UTC")
+        self.assertEqual(len(context["week_schedule"]), 7)
+        self.assertIn("all_steps", context["routines"][0])
 
 
 if __name__ == "__main__":
