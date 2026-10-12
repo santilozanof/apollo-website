@@ -46,7 +46,7 @@
     view.innerHTML = `
         <div class="routine-shell">
             <header class="routine-header">
-                <div><div class="routine-kicker">Daily rhythm</div><h1 class="routine-title">Routines</h1><div class="routine-subtitle">Small things, consistently.</div></div>
+                <div><div class="apollo-page-eyebrow">APOLLO</div><h1 class="routine-title">Routines</h1><div class="routine-subtitle">Small things, consistently.</div></div>
                 <button class="routine-primary" id="routineCreate" type="button"><span>New routine</span><span class="routine-primary-mobile" aria-hidden="true">+</span></button>
             </header>
             <div class="routine-toolbar" aria-label="Routine date">
@@ -288,12 +288,21 @@
             await save({ action: "set_routine", routine_id: routine.id, completed: routine.status !== "completed", date: state.date, idempotency_key: crypto.randomUUID() }); return;
         }
         const stepElement = target.closest("[data-step]");
-        const step = stepElement && (routine.all_steps || routine.steps).find(item => item.id === stepElement.dataset.step);
+        // Always prefer the hydrated step for the selected day. `all_steps`
+        // contains schedule metadata, but intentionally has no live progress.
+        const step = stepElement && (
+            routine.steps.find(item => item.id === stepElement.dataset.step)
+            || (routine.all_steps || []).find(item => item.id === stepElement.dataset.step)
+        );
         if (step && target.closest("[data-step-toggle]")) {
+            event.stopPropagation();
+            target.closest("[data-step-toggle]").disabled = true;
             await save({ action: "set_step", routine_id: routine.id, step_id: step.id, completed: !step.complete, date: state.date, idempotency_key: crypto.randomUUID() }); return;
         }
         const delta = Number(target.closest("[data-count]")?.dataset.count || 0);
         if (step && delta) {
+            event.stopPropagation();
+            target.closest("[data-count]").disabled = true;
             await save({ action: "set_step", routine_id: routine.id, step_id: step.id, value: Math.max(0, Number(step.value) + delta), date: state.date, idempotency_key: crypto.randomUUID() }); return;
         }
         const stepMove = Number(target.closest("[data-step-move]")?.dataset.stepMove || 0);

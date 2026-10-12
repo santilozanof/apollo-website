@@ -35,16 +35,6 @@
     animation: routine-page-enter 300ms var(--apollo-motion-ease, cubic-bezier(.22,1,.36,1)) both;
 }
 
-.routine-kicker {
-    margin: 0 0 11px;
-    color: var(--dim);
-    font-size: var(--apollo-page-eyebrow-size, 9px);
-    font-weight: var(--apollo-page-eyebrow-weight, 650);
-    line-height: 1;
-    letter-spacing: var(--apollo-page-eyebrow-tracking, .18em);
-    text-transform: uppercase;
-}
-
 .routine-title {
     margin: 0;
     color: var(--text);
@@ -135,12 +125,12 @@
 .routine-layout {
     display: grid;
     grid-template-columns: minmax(0, 1.55fr) minmax(260px, .65fr);
-    gap: var(--apollo-space-4, 16px);
+    gap: var(--apollo-space-5, 20px);
     align-items: start;
 }
 
 .routine-list,
-.routine-side { display: grid; gap: var(--apollo-space-3, 12px); }
+.routine-side { display: grid; gap: var(--apollo-space-4, 16px); }
 .routine-side { position: sticky; top: 0; }
 
 .routine-card,
@@ -190,7 +180,9 @@
 .routine-card-toggle svg { width: 15px; }
 .routine-step-check svg { width: 13px; }
 .routine-card-toggle svg,
-.routine-step-check svg { fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+.routine-step-check svg { fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; opacity: 0; transform: scale(.72); transition: opacity var(--apollo-motion-fast, 140ms) ease, transform var(--apollo-motion-fast, 140ms) var(--apollo-motion-ease, ease); }
+.routine-card-toggle.done svg,
+.routine-step-check.done svg { opacity: 1; transform: scale(1); }
 
 .routine-card-main {
     min-width: 0;
@@ -457,14 +449,14 @@ textarea.routine-input { min-height: 80px; padding: 12px 13px; resize: vertical;
 }
 
 @media (max-width: 760px) {
-    #routinesView { padding: 42px 20px 100px; }
+    #routinesView { padding: 42px var(--apollo-mobile-gutter, 20px) 100px; }
     .routine-header { align-items: center; margin-bottom: 24px; }
     .routine-title { font-size: 34px; }
     .routine-subtitle { margin-top: 9px; }
     .routine-primary { width: 40px; min-width: 40px; padding: 0; font-size: 0; }
     .routine-primary > span:first-child { display: none; }
     .routine-primary-mobile { display: inline; font-size: 21px; font-weight: 400; }
-    .routine-layout { grid-template-columns: 1fr; }
+    .routine-layout { grid-template-columns: 1fr; gap: var(--apollo-space-4, 16px); }
     .routine-side { position: static; grid-row: 1; grid-template-columns: 1fr; }
     .routine-card-head { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; padding: 13px; }
     .routine-body-inner { padding: 4px 13px 13px; }

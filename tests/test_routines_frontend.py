@@ -35,6 +35,19 @@ class RoutinesFrontendIntegrationTests(unittest.TestCase):
         self.assertIn('action: "set_step_exception"', script)
         self.assertIn("alternative_group", script)
 
+    def test_step_toggle_uses_hydrated_progress_before_schedule_metadata(self):
+        script = (ROOT / "routines.js").read_text(encoding="utf-8")
+        hydrated = "routine.steps.find(item => item.id === stepElement.dataset.step)"
+        metadata = "(routine.all_steps || []).find(item => item.id === stepElement.dataset.step)"
+        self.assertIn("completed: !step.complete", script)
+        self.assertLess(script.index(hydrated), script.index(metadata))
+        self.assertIn('target.closest("[data-step-toggle]").disabled = true', script)
+
+    def test_routines_reuses_the_canonical_apollo_eyebrow(self):
+        script = (ROOT / "routines.js").read_text(encoding="utf-8")
+        self.assertIn('<div class="apollo-page-eyebrow">APOLLO</div>', script)
+        self.assertNotIn("routine-kicker", script)
+
 
 if __name__ == "__main__":
     unittest.main()
