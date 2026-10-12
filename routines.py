@@ -846,7 +846,8 @@ def chat_context(conn, time_zone="UTC"):
 
 def chat_action(conn, text, time_zone="UTC"):
     """Deterministic high-confidence actions; ambiguous requests fall through."""
-    raw, lower = str(text or "").strip(), str(text or "").lower()
+    raw = re.sub(r"[*_`]", "", str(text or "").strip())
+    lower = raw.lower()
     water = re.search(r"(?:drank|drink|log(?:ged)?|add)\s+(\d+(?:\.\d+)?)\s*(ml|millilit(?:er|re)s?|l|lit(?:er|re)s?)\b", lower)
     if water and ("water" in lower or "drank" in lower):
         amount = float(water.group(1)) * (1000 if water.group(2) in {"l", "liter", "litre", "liters", "litres"} else 1)
@@ -858,7 +859,7 @@ def chat_action(conn, text, time_zone="UTC"):
         return f"You've logged {h['total_ml']:g} mL today. You have {max(0, h['goal_ml'] - h['total_ml']):g} mL left to reach your {h['goal_ml']:g} mL goal."
     move = re.search(
         r"\bmove\s+(?:my\s+)?(.+?)(?:\s+night)?\s+from\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+to\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
-        raw, re.I,
+        raw, re.I | re.S,
     )
     if move:
         step_hint, old_name, new_name = move.groups()
@@ -880,23 +881,34 @@ def chat_action(conn, text, time_zone="UTC"):
             return f"Moved {step['title']} from {old_name.title()} to {new_name.title()} in {group['title']}."
     create = re.search(
         r"\b(?:create|make|set\s+up)\s+(?:(?:a|my)\s+)?(.+?)\s+routine\b(.*)$",
-        raw, re.I,
+        raw, re.I | re.S,
     )
+    if not create:
+        named = re.search(
+            r"\b(?:create|make|set\s+up)\s+(?:(?:a|my)\s+)?routine\s+"
+            r"(?:named|called)\s+[\"']?([^\"'\n,]+?)[\"']?"
+            r"(?=\s+(?:in\b|with\b|repeating\b|that\b)|[,\n.]|$)(.*)$",
+            raw, re.I | re.S,
+        )
+        if named:
+            create = named
     if create:
         day_names = {name: index for index, name in enumerate(("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"))}
         tail = create.group(2).strip(" .!?:")
         schedule_text = tail.lower()
         selected = [index for name, index in day_names.items() if name in schedule_text]
-        if "weekday" in schedule_text and not selected:
+        if "every day" in schedule_text or "daily" in schedule_text or "monday through sunday" in schedule_text:
+            selected = list(range(7))
+        elif "weekday" in schedule_text and not selected:
             selected = list(range(5))
         if not selected:
             selected = list(range(7))
         steps_text = ""
         steps_match = re.search(
-            r"(?:^|\b)(?:with|including|containing)\s+(?:the\s+)?"
+            r"(?:^|\b)(?:with|including|containing)\s+(?:(?:the|these)\s+)?"
             r"(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
-            r"(?:steps?\s*)?:?\s*(.+)$",
-            tail, re.I,
+            r"(?:steps?\s*)?(?:in\s+this\s+exact\s+order\s*)?:?\s*(.+)$",
+            tail, re.I | re.S,
         )
         if steps_match:
             steps_text = steps_match.group(1)
@@ -906,7 +918,9 @@ def chat_action(conn, text, time_zone="UTC"):
             ).strip()
         step_titles = []
         if steps_text:
-            for value in re.split(r"\s*(?:,|;|\band\b)\s*", steps_text, flags=re.I):
+            numbered = re.findall(r"(?m)^\s*\d+[.)]\s*(.+?)\s*$", steps_text)
+            values = numbered or re.split(r"\s*(?:,|;|\band\b)\s*", steps_text, flags=re.I)
+            for value in values:
                 title = re.sub(r"^\s*(?:\d+[.)]|[-•])\s*", "", value).strip(" .")
                 if title:
                     step_titles.append(title[:160])

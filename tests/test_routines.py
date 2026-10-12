@@ -189,6 +189,25 @@ class RoutineTests(unittest.TestCase):
             "Morning Skincare has Cleanser, Niacinamide serum, Hydrating cream, SPF sunscreen.",
         )
 
+    def test_chat_executes_markdown_numbered_routine_request(self):
+        reply = routines.chat_action(self.conn, """Apollo, create my **Morning Skincare** routine in the Routines tab, repeating every day, Monday through Sunday, with these four steps in this exact order:
+
+1. **Cleanser**
+2. **Niacinamide serum**
+3. **Hydrating cream**
+4. **SPF sunscreen**
+
+Make each step individually checkable and verify that all four steps were saved correctly.""", "Europe/Zurich")
+        self.assertIn("Created Morning Skincare for every day with 4 steps", reply)
+        saved = routines._snapshot(
+            self.conn,
+            self.conn.execute("SELECT id FROM routine_groups WHERE title=?", ("Morning Skincare",)).fetchone()[0],
+        )
+        self.assertEqual(
+            [step["title"] for step in saved["steps"]],
+            ["Cleanser", "Niacinamide serum", "Hydrating cream", "SPF sunscreen"],
+        )
+
     def test_chat_adds_step_after_named_step(self):
         routine = routines.create_routine(self.conn, {
             "title": "Night Routine",
