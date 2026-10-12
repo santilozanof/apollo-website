@@ -106,3 +106,64 @@
 }
 
 @media (prefers-reduced-motion:reduce) { #routinesView.active,.routine-step-check.done { animation:none; } * { scroll-behavior:auto !important; } }
+
+/* Apollo's light theme does not expose the same text token names as dark mode. */
+html[data-theme="light"] #routinesView {
+    color:#17171b;
+    --routine-line:rgba(20,20,28,.10);
+    --routine-surface:rgba(255,255,255,.72);
+}
+html[data-theme="light"] .routine-kicker,
+html[data-theme="light"] .routine-subtitle,
+html[data-theme="light"] .routine-date-label,
+html[data-theme="light"] .routine-card-meta,
+html[data-theme="light"] .routine-description,
+html[data-theme="light"] .routine-step-control,
+html[data-theme="light"] .routine-panel-label,
+html[data-theme="light"] .routine-quiet,
+html[data-theme="light"] .hydration-value span {
+    color:rgba(20,20,28,.52);
+}
+html[data-theme="light"] .routine-chip,
+html[data-theme="light"] .hydration-quick button,
+html[data-theme="light"] .routine-counter button,
+html[data-theme="light"] .routine-icon-button {
+    color:#25252b;
+    background:rgba(255,255,255,.58);
+}
+html[data-theme="light"] .routine-chip.active {
+    color:#111217;
+    background:rgba(20,20,28,.09);
+}
+html[data-theme="light"] .routine-card,
+html[data-theme="light"] .hydration-card,
+html[data-theme="light"] .routine-history-panel {
+    box-shadow:0 12px 36px rgba(28,31,42,.055);
+}
+html[data-theme="light"] .routine-card-toggle,
+html[data-theme="light"] .routine-step-check {
+    border-color:rgba(20,20,28,.22);
+}
+html[data-theme="light"] .routine-step.done .routine-step-label {
+    color:rgba(20,20,28,.42);
+}
+html[data-theme="light"] .routine-progress-track,
+html[data-theme="light"] .hydration-water,
+html[data-theme="light"] .routine-heat {
+    background:rgba(20,20,28,.075);
+}
+html[data-theme="light"] .routine-step {
+    border-top-color:rgba(20,20,28,.065);
+}
+html[data-theme="light"] .routine-empty {
+    color:rgba(20,20,28,.52);
+    border-color:rgba(20,20,28,.14);
+}
+html[data-theme="light"] .routine-empty strong { color:#17171b; }
+html[data-theme="light"] .apollo-home-routine-box {
+    border-color:rgba(20,20,28,.09);
+    background:rgba(255,255,255,.62);
+}
+html[data-theme="light"] .apollo-home-routine-row span:last-child {
+    color:rgba(20,20,28,.52);
+}
