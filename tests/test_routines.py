@@ -171,6 +171,24 @@ class RoutineTests(unittest.TestCase):
         reply = routines.chat_action(self.conn, "Show my QA verification routine steps", "UTC")
         self.assertIn("Qa Verification has One, Two, Three, Four", reply)
 
+    def test_chat_distinguishes_morning_from_nighttime_skincare(self):
+        routines.create_routine(self.conn, {
+            "title": "Nighttime Skincare",
+            "steps": [{"title": "Retinol"}],
+        })
+        routines.chat_action(
+            self.conn,
+            "Create a Morning Skincare routine with four steps: Cleanser, Niacinamide serum, Hydrating cream, and SPF sunscreen.",
+            "Europe/Zurich",
+        )
+        reply = routines.chat_action(
+            self.conn, "What are the steps in my Morning Skincare routine?", "Europe/Zurich"
+        )
+        self.assertEqual(
+            reply,
+            "Morning Skincare has Cleanser, Niacinamide serum, Hydrating cream, SPF sunscreen.",
+        )
+
     def test_chat_adds_step_after_named_step(self):
         routine = routines.create_routine(self.conn, {
             "title": "Night Routine",

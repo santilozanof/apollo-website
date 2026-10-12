@@ -924,14 +924,17 @@ def chat_action(conn, text, time_zone="UTC"):
         if existed:
             return f"{item['title']} already exists. Tell me which steps to add."
         return f"Created {item['title']} for {labels}. It has no steps yet, so you can add exactly what you want."
-    if "routine" in lower and any(word in lower for word in ("show", "list", "what", "which", "steps", "scheduled")):
+    if "routine" in lower and any(word in lower for word in ("show", "list", "what", "which")):
         groups = [_snapshot(conn, row["id"]) for row in conn.execute(
             "SELECT id FROM routine_groups WHERE archived=0 ORDER BY position, created_at"
         ).fetchall()]
         hint_tokens = set(re.findall(r"[a-z]+", lower)) - {
-            "show", "list", "what", "which", "is", "are", "in", "my", "the", "routine", "steps", "scheduled",
+            "show", "list", "what", "which", "is", "are", "in", "my", "the", "routine", "steps", "scheduled", "for", "of",
         }
-        matches = [group for group in groups if not hint_tokens or hint_tokens & set(re.findall(r"[a-z]+", group["title"].lower()))]
+        matches = [
+            group for group in groups
+            if set(re.findall(r"[a-z]+", group["title"].lower())) <= hint_tokens
+        ]
         if len(matches) == 1:
             group = matches[0]
             steps = ", ".join(step["title"] for step in group["steps"]) or "no steps yet"
