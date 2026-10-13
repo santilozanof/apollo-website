@@ -10,13 +10,10 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from server import (
-    apollo_calendar_events,
     ask_hermes,
     db,
-    get_tasks,
     init_db,
 )
-import routines
 import debrief_personalization
 
 
@@ -35,89 +32,6 @@ def get_state(key):
     conn.close()
 
     return row["value"] if row else None
-
-
-def _event_time(event):
-    start = event.get("start") if isinstance(event.get("start"), dict) else {}
-    return str(start.get("dateTime") or start.get("date") or "")
-
-
-def get_personal_today(now, time_zone):
-    """Build private, deterministic Today content without sending it to news research."""
-    local_date = now.date().isoformat()
-    tomorrow = (now.date() + timedelta(days=1)).isoformat()
-    result = {"calendar": [], "tasks": [], "routines": []}
-
-    try:
-        events, errors = apollo_calendar_events(
-            days=1,
-            start_date=local_date,
-            end_date=tomorrow,
-            time_zone=time_zone,
-        )
-        if errors:
-            print("[Apollo Debrief] Calendar sources partially unavailable:", sorted(errors))
-        for event in events[:6]:
-            title = str(event.get("summary") or "Untitled event").strip()
-            result["calendar"].append({
-                "kind": "calendar",
-                "headline": title,
-                "body": _event_time(event),
-                "location": str(event.get("location") or "").strip() or None,
-            })
-    except Exception as error:
-        print("[Apollo Debrief] Calendar context unavailable:", error)
-
-    try:
-        horizon = now + timedelta(days=7)
-        incomplete = [task for task in get_tasks() if not task.get("completed")]
-        selected = []
-        for task in incomplete:
-            due_raw = str(task.get("due_at") or "").strip()
-            due = None
-            if due_raw:
-                try:
-                    due = datetime.fromisoformat(due_raw.replace("Z", "+00:00"))
-                    if due.tzinfo is None:
-                        due = due.replace(tzinfo=now.tzinfo)
-                    due = due.astimezone(now.tzinfo)
-                except ValueError:
-                    pass
-            if due is None or due <= horizon:
-                selected.append((task, due))
-        selected.sort(key=lambda pair: pair[1] or horizon)
-        for task, due in selected[:5]:
-            result["tasks"].append({
-                "kind": "assignment" if task.get("source") == "canvas" else "task",
-                "headline": str(task.get("title") or "Untitled task").strip(),
-                "body": due.isoformat() if due else "",
-                "source": task.get("sourceLabel"),
-                "url": task.get("htmlLink"),
-            })
-    except Exception as error:
-        print("[Apollo Debrief] Task context unavailable:", error)
-
-    try:
-        conn = db()
-        try:
-            state = routines.get_state(conn, local_date, time_zone)
-        finally:
-            conn.close()
-        for routine in state.get("routines") or []:
-            if routine.get("status") in {"not_scheduled", "complete"}:
-                continue
-            remaining = [step.get("title") for step in routine.get("steps") or [] if not step.get("complete")]
-            if not remaining:
-                continue
-            result["routines"].append({
-                "kind": "routine",
-                "headline": str(routine.get("title") or "Routine").strip(),
-                "body": f"{len(remaining)} step{'s' if len(remaining) != 1 else ''} remaining",
-            })
-    except Exception as error:
-        print("[Apollo Debrief] Routine context unavailable:", error)
-
-    return result
 
 
 def weather_code_label(code):
@@ -488,12 +402,6 @@ def generate(force=False):
         if existing_content.get("news_status") != "unavailable":
             return False
 
-    weather = get_weather(
-        time_zone
-    )
-
-    today = get_personal_today(now, time_zone)
-
     conn = db()
     try:
         prior_stories = debrief_personalization.previous_stories(conn)
@@ -511,7 +419,7 @@ def generate(force=False):
 Actively research the current web using your available
 web_search and web_extract tools.
 
-Find 8-12 verified candidates, normally from the last 96 hours. This is a
+Find 10-14 verified candidates, normally from the last 96 hours. This is a
 candidate-gathering step: a deterministic ranker will make the final selection.
 
 Interest priorities, not daily quotas:
@@ -539,7 +447,7 @@ Return valid JSON and nothing else, using exactly this structure:
       "category": "Music",
       "topics": ["music"],
       "headline": "Short factual headline",
-      "body": "One or two concise factual sentences explaining what happened and why it matters.",
+      "body": "One to three concise factual sentences explaining what happened and why it matters.",
       "source": "Publication or organization",
       "url": "https://direct-source.example/article",
       "published_at": "ISO-8601 timestamp",
@@ -556,7 +464,7 @@ RULES:
 - importance is 0 to 1 and reflects real-world consequence, not popularity
 - meaningful_new_development is true only when a continuing story has a
   substantive new event, decision, release, result, or consequence
-- each headline is short; each body is at most two concise sentences
+- each headline is short; each body is one to three concise sentences
 - no markdown
 - if a required field cannot be verified, omit that candidate
 - never include personal data in candidates
@@ -666,21 +574,15 @@ RULES:
         )
         selected = debrief_personalization.verify_selected_links(selected)
 
-        if not selected["for_you"] and not selected["worth_knowing"]:
-            print(f"[Apollo Debrief] Attempt {attempt} contained no stories that passed quality checks.")
+        stories = selected["stories"]
+        if len(stories) < 4:
+            print(f"[Apollo Debrief] Attempt {attempt} contained fewer than four verified stories.")
             continue
 
         final_brief = {
-            "today": today,
-            "for_you": selected["for_you"],
-            "worth_knowing": selected["worth_knowing"],
+            "stories": stories,
             "news_status": "ready",
         }
-
-        if weather:
-            final_brief[
-                "weather"
-            ] = weather
 
         content = json.dumps(
             final_brief,
@@ -688,17 +590,6 @@ RULES:
         )
 
         break
-
-    if not content and any(today.values()):
-        fallback = {
-            "today": today,
-            "for_you": [],
-            "worth_knowing": [],
-            "news_status": "unavailable",
-        }
-        if weather:
-            fallback["weather"] = weather
-        content = json.dumps(fallback, ensure_ascii=False)
 
     if not content:
         print(

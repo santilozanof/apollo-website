@@ -304,6 +304,7 @@
         if (feedbackButton && typeof window.apolloSaveDebriefFeedback === "function") {
             const parsed = normalizedData(dataCache).brief?.parsed || {};
             const stories = [
+                ...(parsed.stories || []),
                 ...(parsed.for_you || []),
                 ...(parsed.worth_knowing || [])
             ];
@@ -485,7 +486,7 @@
         if (typeof content === "string") {
             try { content = JSON.parse(content); } catch (_) { content = {summary: content, items: []}; }
         }
-        ["for_you", "worth_knowing"].forEach(section => {
+        ["stories", "for_you", "worth_knowing"].forEach(section => {
             (content?.[section] || []).forEach(item => {
                 item.user_feedback = raw?.feedback?.[item.id] || null;
             });
@@ -566,7 +567,9 @@
         const recovery = Number(n.health?.summary?.recovery?.score);
         const recoveryText = Number.isFinite(recovery) ? `${Math.round(recovery)}% recovery` : "Health context unavailable";
         const latestProject = n.projects.slice().sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")))[0];
-        const briefItems = Array.isArray(n.brief?.parsed?.for_you)
+        const briefItems = Array.isArray(n.brief?.parsed?.stories)
+            ? n.brief.parsed.stories
+            : Array.isArray(n.brief?.parsed?.for_you)
             ? [
                 ...n.brief.parsed.for_you,
                 ...(Array.isArray(n.brief.parsed.worth_knowing) ? n.brief.parsed.worth_knowing : [])
@@ -671,15 +674,10 @@
         const brief = n.brief;
         const parsed = brief?.parsed || {};
         const legacyItems = Array.isArray(parsed.items) ? parsed.items : [];
-        const forYou = Array.isArray(parsed.for_you) ? parsed.for_you : legacyItems;
+        const forYou = Array.isArray(parsed.stories)
+            ? parsed.stories
+            : (Array.isArray(parsed.for_you) ? parsed.for_you : legacyItems);
         const worthKnowing = Array.isArray(parsed.worth_knowing) ? parsed.worth_knowing : [];
-        const today = [];
-        if (parsed.weather && (parsed.weather.headline || parsed.weather.body)) {
-            today.push({category: "Weather", headline: parsed.weather.headline || "Today's weather", body: parsed.weather.body || ""});
-        }
-        ["calendar", "tasks", "routines"].forEach(key => {
-            if (Array.isArray(parsed.today?.[key])) today.push(...parsed.today[key]);
-        });
         const storyBody = item => {
             let value = item.body || "";
             if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
@@ -698,7 +696,7 @@
         const generated = parseLocalDate(brief?.generated_at);
         customViews.brief.innerHTML = `<div class="os-page-shell os-brief-shell">
             ${pageHeader("Daily Briefing", "A quieter view of today.", generated ? `Prepared ${dateLabel(generated)} at ${timeLabel(generated)}.` : "Apollo will prepare a briefing when enough context is available.", `<button class="os-control is-dark" type="button" data-os-ask="Give me the most useful takeaway from today’s Daily Briefing.">Discuss with Apollo</button>`)}
-            ${brief ? `${parsed.summary ? `<article class="os-brief-lead"><span>In brief</span><h2>${escapeHTML(parsed.summary)}</h2></article>` : ""}${renderSection("Today", today)}${renderSection("For You", forYou, true)}${renderSection("Worth Knowing", worthKnowing, true)}` : `<div class="os-large-empty"><span>Not ready yet.</span><strong>Your next briefing will appear here.</strong><button class="os-control" type="button" data-os-retry>Check again</button></div>`}
+            ${brief ? `${parsed.summary ? `<article class="os-brief-lead"><span>In brief</span><h2>${escapeHTML(parsed.summary)}</h2></article>` : ""}${renderSection("Briefing", forYou, true)}${renderSection("Worth Knowing", worthKnowing, true)}` : `<div class="os-large-empty"><span>Not ready yet.</span><strong>Your next briefing will appear here.</strong><button class="os-control" type="button" data-os-retry>Check again</button></div>`}
         </div>`;
     }
 

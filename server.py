@@ -18061,7 +18061,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 try:
                     parsed_content = json.loads(debrief.get("content") or "{}")
                     story_ids = []
-                    for section in ("for_you", "worth_knowing"):
+                    for section in ("stories", "for_you", "worth_knowing"):
                         for item in parsed_content.get(section) or []:
                             if isinstance(item, dict) and item.get("id"):
                                 story_ids.append(str(item["id"]))

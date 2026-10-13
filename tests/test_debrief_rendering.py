@@ -16,7 +16,7 @@ class DebriefRenderingTests(unittest.TestCase):
         start = source.index("// APOLLO_DEBRIEF_CONTENT_PARSER_START")
         end = source.index("// APOLLO_DEBRIEF_CONTENT_PARSER_END")
         parser = source[start:end]
-        payload = {"today": {"calendar": []}, "for_you": [{"headline": "Music"}], "worth_knowing": []}
+        payload = {"stories": [{"headline": "Music"}]}
         legacy = {"summary": "Legacy", "items": [{"headline": "Older story"}]}
         script = parser + "\n" + f"""
 const value = {json.dumps(payload)};
@@ -28,12 +28,12 @@ console.log(JSON.stringify(results));
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
         self.assertEqual(json.loads(result.stdout), [payload, payload, payload, legacy])
 
-    def test_failed_news_is_marked_retryable_without_inventing_stories(self):
+    def test_failed_news_is_not_saved_as_a_complete_debrief(self):
         source = (ROOT / "generate_debrief.py").read_text(encoding="utf-8")
         self.assertIn('existing_content.get("news_status") != "unavailable"', source)
-        self.assertIn('"news_status": "unavailable"', source)
-        self.assertIn('"for_you": []', source)
-        self.assertIn('"worth_knowing": []', source)
+        self.assertNotIn('"news_status": "unavailable"', source)
+        self.assertIn("if len(stories) < 4:", source)
+        self.assertNotIn("get_personal_today", source)
 
 
 if __name__ == "__main__":

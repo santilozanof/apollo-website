@@ -255,13 +255,14 @@ def select_stories(candidates, previous_stories=None, feedback_rows=None, now=No
             seen_ids.add(candidate["id"])
     ranked.sort(key=lambda item: item["relevance_score"], reverse=True)
 
+    stories = ranked[:6]
     worth = [item for item in ranked if "world" in item["topics"] and item["importance"] >= 0.72][:2]
     worth_ids = {item["id"] for item in worth}
     for_you = [item for item in ranked if item["id"] not in worth_ids][:3]
     # Keep the overall editorial package small even if two world stories qualify.
     remaining = max(0, 5 - len(for_you))
     worth = worth[:remaining]
-    return {"for_you": for_you, "worth_knowing": worth}
+    return {"stories": stories, "for_you": for_you, "worth_knowing": worth}
 
 
 def source_url_is_reachable(url, timeout=8):
@@ -283,15 +284,19 @@ def source_url_is_reachable(url, timeout=8):
 
 def verify_selected_links(selection, checker=None):
     checker = checker or source_url_is_reachable
-    stories = list(selection.get("for_you") or []) + list(selection.get("worth_knowing") or [])
+    stories = list(selection.get("stories") or [])
     if not stories:
-        return {"for_you": [], "worth_knowing": []}
+        stories = list(selection.get("for_you") or []) + list(selection.get("worth_knowing") or [])
+    if not stories:
+        return {"stories": [], "for_you": [], "worth_knowing": []}
     with ThreadPoolExecutor(max_workers=min(5, len(stories))) as pool:
         reachable = dict(zip((item["id"] for item in stories), pool.map(lambda item: checker(item["url"]), stories)))
-    return {
+    result = {
         key: [item for item in selection.get(key) or [] if reachable.get(item["id"])]
         for key in ("for_you", "worth_knowing")
     }
+    result["stories"] = [item for item in selection.get("stories") or [] if reachable.get(item["id"])]
+    return result
 
 
 def previous_stories(conn, limit_days=14):
@@ -306,7 +311,7 @@ def previous_stories(conn, limit_days=14):
             content = json.loads(row["content"])
         except (TypeError, json.JSONDecodeError):
             continue
-        for key in ("for_you", "worth_knowing", "items"):
+        for key in ("stories", "for_you", "worth_knowing", "items"):
             value = content.get(key) or []
             if isinstance(value, dict):
                 value = [value]
