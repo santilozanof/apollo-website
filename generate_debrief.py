@@ -469,7 +469,7 @@ def generate(force=False):
     conn = db()
 
     existing = conn.execute("""
-        SELECT id
+        SELECT id, content
         FROM daily_debriefs
         WHERE local_date = ?
           AND timezone = ?
@@ -481,7 +481,12 @@ def generate(force=False):
     conn.close()
 
     if existing and not force:
-        return False
+        try:
+            existing_content = json.loads(existing["content"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            existing_content = {}
+        if existing_content.get("news_status") != "unavailable":
+            return False
 
     weather = get_weather(
         time_zone
@@ -669,6 +674,7 @@ RULES:
             "today": today,
             "for_you": selected["for_you"],
             "worth_knowing": selected["worth_knowing"],
+            "news_status": "ready",
         }
 
         if weather:
@@ -688,6 +694,7 @@ RULES:
             "today": today,
             "for_you": [],
             "worth_knowing": [],
+            "news_status": "unavailable",
         }
         if weather:
             fallback["weather"] = weather

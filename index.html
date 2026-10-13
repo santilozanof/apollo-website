@@ -25311,14 +25311,27 @@ function apolloRenderPersonalDebrief(element, brief) {
 }
 
 
+// APOLLO_DEBRIEF_CONTENT_PARSER_START
+function apolloParseDebriefContent(content) {
+    let parsed = content;
+    for (let depth = 0; depth < 2 && typeof parsed === "string"; depth += 1) {
+        try {
+            parsed = JSON.parse(parsed);
+        } catch (_) {
+            return null;
+        }
+    }
+    return parsed && typeof parsed === "object" ? parsed : null;
+}
+// APOLLO_DEBRIEF_CONTENT_PARSER_END
+
+
 function apolloRenderDebrief(element, content, feedbackByStory = {}) {
 
-    let brief = null;
+    const brief = apolloParseDebriefContent(content);
 
-    try {
-        brief = JSON.parse(content);
-    } catch (_) {
-        element.textContent = content;
+    if (!brief) {
+        element.textContent = typeof content === "string" ? content : "";
         return;
     }
 
