@@ -41,6 +41,13 @@ console.log(JSON.stringify(results));
         result = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
         self.assertEqual(json.loads(result.stdout), [payload, payload, payload, legacy])
 
+    def test_saved_football_and_fifa_stories_are_filtered_before_rendering(self):
+        source = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn("function apolloDebriefStoryIsExcluded(item)", source)
+        self.assertIn("football|soccer|fifa|uefa|world cup", source)
+        self.assertIn("const visibleStories = stories.filter(", source)
+        self.assertIn("apolloRenderOriginalDebrief(element, visibleStories);", source)
+
     def test_failed_news_is_not_saved_as_a_complete_debrief(self):
         source = (ROOT / "generate_debrief.py").read_text(encoding="utf-8")
         self.assertIn('existing_content.get("news_status") != "unavailable"', source)

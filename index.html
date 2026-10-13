@@ -25275,6 +25275,23 @@ function apolloRenderOriginalDebrief(element, stories) {
 }
 
 
+function apolloDebriefStoryIsExcluded(item) {
+
+    const topics = Array.isArray(item.topics)
+        ? item.topics.join(" ")
+        : "";
+
+    return /\b(?:football|soccer|fifa|uefa|world cup)\b/i.test(
+        [
+            item.category || "",
+            item.headline || "",
+            item.source || "",
+            topics
+        ].join(" ")
+    );
+}
+
+
 // APOLLO_DEBRIEF_CONTENT_PARSER_START
 function apolloParseDebriefContent(content) {
     let parsed = content;
@@ -25313,11 +25330,15 @@ function apolloRenderDebrief(element, content, feedbackByStory = {}) {
             )
         ];
 
-    stories.slice(0, 6).forEach(item => {
+    const visibleStories = stories.filter(
+        item => !apolloDebriefStoryIsExcluded(item)
+    );
+
+    visibleStories.slice(0, 6).forEach(item => {
         item.user_feedback = feedbackByStory[item.id] || null;
     });
 
-    apolloRenderOriginalDebrief(element, stories);
+    apolloRenderOriginalDebrief(element, visibleStories);
 }
 requestAnimationFrame(() => {
     setTimeout(
