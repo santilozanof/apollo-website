@@ -38349,6 +38349,13 @@ html[data-theme="light"]
 .apollo-queue-sheet-handle { display: none; }
 .apollo-queue-header { display:flex; align-items:center; min-height:58px; padding:12px 16px 8px; gap:8px; }
 .apollo-queue-heading { flex:1; color:var(--text); font-size:11px; font-weight:680; letter-spacing:.14em; text-transform:uppercase; }
+.apollo-queue-build-status {
+    display:flex; align-items:center; gap:6px; padding:0 18px 8px;
+    color:var(--dim); font-size:10px; line-height:1.2;
+}
+.apollo-queue-build-status[hidden] { display:none; }
+.apollo-queue-build-dot { width:5px; height:5px; border-radius:50%; background:var(--text); opacity:.5; animation:apolloQueueBuild 1.2s ease-in-out infinite; }
+@keyframes apolloQueueBuild { 50% { opacity:1; transform:scale(1.25); } }
 .apollo-queue-icon { width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:50%; background:transparent; color:var(--dim); cursor:pointer; }
 .apollo-queue-icon:hover, .apollo-queue-icon:focus-visible { color:var(--text); background:var(--surface-hover); outline:none; }
 .apollo-queue-icon.active { color:var(--text); background:var(--surface-hover); }
@@ -38595,6 +38602,7 @@ html[data-theme="light"]
 @media (prefers-reduced-motion: reduce) {
     .apollo-queue-panel, .apollo-queue-scrim, .apollo-music-inner, .apollo-queue-row, .apollo-queue-edge::after { transition-duration:1ms !important; }
     .apollo-queue-eq i { animation:none; height:7px; }
+    .apollo-queue-build-dot { animation:none; }
 }
 
 </style>
@@ -38798,6 +38806,10 @@ html[data-theme="light"]
                                     </button>
                                     <button class="apollo-queue-icon" id="apolloQueueActions" type="button" aria-label="Queue actions" title="Queue actions">•••</button>
                                 </div>
+                                <div class="apollo-queue-build-status" id="apolloQueueBuildStatus" role="status" aria-live="polite" hidden>
+                                    <span class="apollo-queue-build-dot" aria-hidden="true"></span>
+                                    <span id="apolloQueueBuildText">Building your queue…</span>
+                                </div>
                                 <div class="apollo-queue-scroll" id="apolloQueueScroll">
                                     <div class="apollo-queue-list" id="apolloQueueList"></div>
                                 </div>
@@ -38995,6 +39007,8 @@ html[data-theme="light"]
     const queueSearchInput = musicView.querySelector("#apolloQueueSearchInput");
     const queueResults = musicView.querySelector("#apolloQueueResults");
     const queuePrompt = musicView.querySelector("#apolloQueuePrompt");
+    const queueBuildStatus = musicView.querySelector("#apolloQueueBuildStatus");
+    const queueBuildText = musicView.querySelector("#apolloQueueBuildText");
     const presence = document.getElementById("apolloPresence");
     const presenceHome = presence?.parentNode || null;
     const presenceNextSibling = presence?.nextSibling || null;
@@ -39021,6 +39035,8 @@ html[data-theme="light"]
     let queueMutationRunning = false;
     let queueCloseTimer = null;
     let queueTransitionTimer = null;
+    let queueJobTimer = null;
+    let queueJobRevision = "";
     let queuePinned = localStorage.getItem("apollo.music.queue.pinned") === "1";
     let queueSearchTimer = null;
     let queueMenu = null;
@@ -39776,6 +39792,61 @@ html[data-theme="light"]
         }
     }
 
+    async function pollQueueJob() {
+        if (!queuePanel.classList.contains("open")) return;
+        try {
+            const response = await fetch("/api/spotify/curation-job", {cache: "no-store"});
+            const data = await response.json();
+            if (!response.ok) return;
+            const job = data.job || {};
+            const active = job.status === "queued" || job.status === "building";
+            if (active) {
+                const added = Number(job.added || 0);
+                const target = Number(job.target || 0);
+                queueBuildText.textContent = target && added
+                    ? `Building your queue… ${added}/${target}`
+                    : "Building your queue…";
+                queueBuildStatus.hidden = false;
+                const revision = `${job.id || ""}:${added}:${Number(job.preserved || 0)}`;
+                if (queueJobRevision && revision !== queueJobRevision) loadQueue(true);
+                queueJobRevision = revision;
+                return;
+            }
+            if (queueJobRevision && job.status === "complete") await loadQueue(true);
+            if (job.status === "partial" || job.status === "failed") {
+                const terminalRevision = `terminal:${job.id || ""}:${job.status}`;
+                if (queueJobRevision !== terminalRevision) {
+                    queueBuildText.textContent = job.status === "partial"
+                        ? `Queue paused after ${Number(job.added || 0)} track${Number(job.added || 0) === 1 ? "" : "s"}.`
+                        : "Spotify couldn’t finish the queue.";
+                    queueBuildStatus.hidden = false;
+                    window.setTimeout(() => {
+                        if (queueJobRevision === terminalRevision) queueBuildStatus.hidden = true;
+                    }, 3200);
+                }
+                queueJobRevision = terminalRevision;
+                return;
+            }
+            queueJobRevision = "";
+            queueBuildStatus.hidden = true;
+        } catch (error) {
+            console.error("Apollo Spotify queue job:", error);
+        }
+    }
+
+    function startQueueJobPolling() {
+        clearInterval(queueJobTimer);
+        pollQueueJob();
+        queueJobTimer = window.setInterval(pollQueueJob, 1200);
+    }
+
+    function stopQueueJobPolling() {
+        clearInterval(queueJobTimer);
+        queueJobTimer = null;
+        queueJobRevision = "";
+        queueBuildStatus.hidden = true;
+    }
+
     function syncQueueBounds() {
         if (!nowPlaying || window.matchMedia("(max-width: 760px)").matches) return;
         const bounds = nowPlaying.getBoundingClientRect();
@@ -39807,6 +39878,7 @@ html[data-theme="light"]
             musicView.classList.add("queue-open");
         });
         queueTrigger.setAttribute("aria-expanded", "true");
+        startQueueJobPolling();
         if (!wasOpen) loadQueue();
     }
 
@@ -39821,6 +39893,7 @@ html[data-theme="light"]
             if (!queuePanel.classList.contains("open")) {
                 queuePanel.hidden = true;
                 restoreMusicPrompt();
+                stopQueueJobPolling();
             }
         }, 320);
     }
@@ -40458,6 +40531,7 @@ html[data-theme="light"]
         queuePanel.hidden = true;
         queueTrigger.setAttribute("aria-expanded", "false");
         restoreMusicPrompt();
+        stopQueueJobPolling();
 
         musicView.classList.remove(
             "active"

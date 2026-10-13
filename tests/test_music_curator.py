@@ -1,7 +1,10 @@
 import ast
+from collections import Counter
 import json
 import re
 import subprocess
+import threading
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -140,7 +143,8 @@ class MusicIntentTests(unittest.TestCase):
             "subprocess": Runner,
             "SPOTIFY_PYTHON": "python",
             "SPOTIFY_TOOL": "spotify_tool.py",
-            "get_now_playing": lambda: {"title": "Confirmed"},
+            "get_now_playing": lambda **_kwargs: {"title": "Confirmed"},
+            "apollo_spotify_invalidate_caches": lambda: None,
         })
         play("Play my Night Bus playlist")
         play("Play Grace by Jeff Buckley")
@@ -163,6 +167,145 @@ class TrackValidationTests(unittest.TestCase):
 
 
 class QueueExecutionTests(unittest.TestCase):
+    def test_retry_after_is_respected_instead_of_capped_to_one_second(self):
+        calls = []
+        sleeps = []
+
+        class RateLimit(Exception):
+            http_status = 429
+            headers = {"Retry-After": "3"}
+
+        def operation():
+            calls.append(1)
+            if len(calls) == 1:
+                raise RateLimit("rate limited")
+            return {"ok": True}
+
+        original_sleep = spotify_curator_tool.time.sleep
+        spotify_curator_tool.time.sleep = sleeps.append
+        try:
+            self.assertEqual(spotify_curator_tool.spotify_read(operation), {"ok": True})
+        finally:
+            spotify_curator_tool.time.sleep = original_sleep
+        self.assertEqual(sleeps, [3.0])
+
+    def test_opener_is_verified_and_playing_before_phase_one_returns(self):
+        calls = []
+        opener = spotify_api_track(1)
+
+        class Spotify:
+            def queue(self):
+                calls.append("queue")
+                return {"queue": [spotify_api_track(8)]}
+
+            def search(self, **_kwargs):
+                calls.append("search")
+                return {"tracks": {"items": [opener]}}
+
+            def devices(self):
+                calls.append("devices")
+                return {"devices": [{"id": "device", "is_active": True, "is_restricted": False}]}
+
+            def start_playback(self, **_kwargs):
+                calls.append("play")
+
+            def current_playback(self):
+                calls.append("confirm")
+                return {"is_playing": True, "item": opener}
+
+        result = spotify_curator_tool.start_curated_playback(Spotify(), {
+            "candidates": [
+                {"title": "Track 1", "artist": "Artist"},
+                {"title": "Track 2", "artist": "Artist"},
+            ],
+        })
+        self.assertTrue(result["playback_started"])
+        self.assertEqual(result["opener"]["id"], opener["id"])
+        self.assertEqual(calls, ["queue", "search", "devices", "play", "confirm"])
+
+    def test_background_builder_preserves_queue_and_adds_progressively_in_order(self):
+        calls = []
+        events = []
+        lookup = {f'Track {number}': spotify_api_track(number, f"Artist {number}") for number in (2, 3)}
+
+        class Spotify:
+            def devices(self):
+                return {"devices": [{"id": "device", "is_active": True, "is_restricted": False}]}
+
+            def queue(self):
+                return {"queue": []}
+
+            def search(self, q, **_kwargs):
+                return {"tracks": {"items": [item for title, item in lookup.items() if title in q]}}
+
+            def add_to_queue(self, uri, device_id=None):
+                calls.append(uri)
+
+        existing = [track(8)["uri"], track(9)["uri"]]
+        built = spotify_curator_tool.build_curated_queue(Spotify(), {
+            "existing_queue_uris": existing,
+            "opener_id": track(1)["id"],
+            "maximum": 2,
+            "candidates": [
+                {"title": "Track 2", "artist": "Artist 2"},
+                {"title": "Track 3", "artist": "Artist 3"},
+            ],
+        }, emit=events.append)
+        self.assertEqual(calls, existing + [track(2)["uri"], track(3)["uri"]])
+        self.assertEqual([item["id"] for item in built], [track(2)["id"], track(3)["id"]])
+        self.assertEqual([event["event"] for event in events], [
+            "preserved", "preserved", "added", "added", "complete",
+        ])
+
+    def test_ambiguous_add_timeout_checks_queue_before_retrying(self):
+        uri = track(4)["uri"]
+        calls = []
+
+        class Spotify:
+            def add_to_queue(self, value, device_id=None):
+                calls.append(value)
+                raise TimeoutError("timed out after Spotify accepted it")
+
+            def queue(self):
+                return {"queue": [spotify_api_track(4)]}
+
+        counts = Counter()
+        spotify_curator_tool.add_to_queue_safely(Spotify(), uri, "device", counts)
+        self.assertEqual(calls, [uri])
+        self.assertEqual(counts[uri], 1)
+
+    def test_partial_queue_failure_keeps_confirmed_progress_for_recovery(self):
+        events = []
+        added = []
+
+        class Spotify:
+            def devices(self):
+                return {"devices": [{"id": "device", "is_active": True, "is_restricted": False}]}
+
+            def queue(self):
+                return {"queue": []}
+
+            def search(self, q, **_kwargs):
+                if "Track 2" in q:
+                    return {"tracks": {"items": [spotify_api_track(2, "Artist 2")]}}
+                raise RuntimeError("permanent search failure")
+
+            def add_to_queue(self, uri, device_id=None):
+                added.append(uri)
+
+        with self.assertRaisesRegex(RuntimeError, "permanent"):
+            spotify_curator_tool.build_curated_queue(Spotify(), {
+                "opener_id": track(1)["id"],
+                "maximum": 2,
+                "candidates": [
+                    {"title": "Track 2", "artist": "Artist 2"},
+                    {"title": "Track 3", "artist": "Artist 3"},
+                ],
+            }, emit=events.append)
+        self.assertEqual(added, [track(2)["uri"]])
+        self.assertEqual(events[-1]["event"], "added")
+        self.assertEqual(events[-1]["added"], 1)
+
     def test_retry_excludes_tracks_already_present_in_spotify_queue(self):
         queued = spotify_api_track(2)
         fresh = spotify_api_track(3)
@@ -320,6 +463,8 @@ class MusicQueueFrontendTests(unittest.TestCase):
         self.assertIn("const bounds = nowPlaying.getBoundingClientRect();", source)
         self.assertIn('--apollo-queue-top", `${Math.max(12, bounds.top)}px`', source)
         self.assertIn('--apollo-queue-bottom", `${Math.max(12, window.innerHeight - bounds.bottom)}px`', source)
+        self.assertIn("padding-bottom:calc(12px + var(--apollo-mobile-nav-h, 64px)", source)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", source)
 
     def test_existing_music_prompt_is_docked_without_duplication(self):
         source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
@@ -329,16 +474,129 @@ class MusicQueueFrontendTests(unittest.TestCase):
         self.assertIn("queuePrompt.appendChild(presence);", source)
         self.assertIn("restoreMusicPrompt();", source)
 
+    def test_progressive_worker_status_uses_existing_drawer(self):
+        source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="apolloQueueBuildStatus"', source)
+        self.assertIn('fetch("/api/spotify/curation-job"', source)
+        self.assertIn("Building your queue…", source)
+        self.assertIn("window.setInterval(pollQueueJob, 1200)", source)
+
+
+class TwoPhaseCuratorTests(unittest.TestCase):
+    def test_background_worker_restores_existing_queue_before_full_planning(self):
+        source = SERVER.read_text(encoding="utf-8")
+        start = source.index("def apollo_music_queue_worker")
+        end = source.index("def apollo_music_start_queue_job", start)
+        worker = source[start:end]
+        self.assertLess(worker.index('"restore-queue"'), worker.index("apollo_music_plan_background_queue"))
+
+    def test_first_track_returns_before_slow_background_queue(self):
+        events = []
+        background_done = threading.Event()
+        full_finished = []
+        opener = track(1, "Opening Artist")
+
+        class Runner:
+            TimeoutExpired = subprocess.TimeoutExpired
+
+            @staticmethod
+            def run(args, **_kwargs):
+                self.assertEqual(args[2], "start-curation")
+                time.sleep(.025)
+                events.append("playback_confirmed")
+                return type("Result", (), {
+                    "returncode": 0,
+                    "stdout": json.dumps({
+                        "ok": True,
+                        "opener": opener,
+                        "playback_started": True,
+                        "existing_queue_uris": [track(8)["uri"]],
+                        "existing_queue_count": 1,
+                    }),
+                    "stderr": "",
+                })()
+
+        def start_job(payload, *_args):
+            events.append("background_started")
+
+            def finish():
+                time.sleep(.16)
+                full_finished.append(time.monotonic())
+                background_done.set()
+
+            threading.Thread(target=finish, daemon=True).start()
+            return {"id": "job", "status": "queued", "target": 9}
+
+        failure = load_function("apollo_music_curator_failure", {"json": json})
+        curate = load_function("apollo_music_curate", {
+            "json": json,
+            "time": time,
+            "ask_hermes": lambda _messages, **_kwargs: json.dumps({
+                "summary": "coffeehouse melancholy",
+                "why": "A precise opener",
+                "opener_candidates": [
+                    {"title": "Track 1", "artist": "Opening Artist", "reason": "fit"},
+                    {"title": "Track 2", "artist": "Fallback", "reason": "fallback"},
+                ],
+            }),
+            "apollo_music_json": json.loads,
+            "get_now_playing": lambda: {"track_id": "current"},
+            "subprocess": Runner,
+            "SPOTIFY_PYTHON": "python",
+            "SPOTIFY_CURATOR_TOOL": "tool",
+            "music_curator": music_curator,
+            "SPOTIFY_CURATOR_START_LOCK": threading.Lock(),
+            "apollo_music_cancel_active_job": lambda: None,
+            "apollo_music_curator_failure": failure,
+            "apollo_music_save_curator_context": lambda *_args: None,
+            "apollo_spotify_invalidate_caches": lambda: None,
+            "apollo_music_start_queue_job": start_job,
+        })
+        started = time.monotonic()
+        result = curate("black coffee and cigarettes", chat_id=7)
+        returned = time.monotonic()
+        self.assertEqual(events, ["playback_confirmed", "background_started"])
+        self.assertTrue(result["spotify"]["queue_building"])
+        self.assertEqual(result["curation"]["tracks"][0]["id"], opener["id"])
+        self.assertFalse(background_done.is_set())
+        self.assertTrue(background_done.wait(1))
+        self.assertLess(returned - started, full_finished[0] - started)
+
+    def test_new_curator_request_terminates_the_prior_background_worker(self):
+        terminated = []
+        updates = []
+
+        class Process:
+            def poll(self):
+                return None
+
+            def terminate(self):
+                terminated.append(True)
+
+        jobs = {"old": {"status": "building", "process": Process()}}
+        cancel = load_function("apollo_music_cancel_active_job", {
+            "SPOTIFY_CURATOR_JOB_LOCK": threading.RLock(),
+            "SPOTIFY_CURATOR_ACTIVE_JOB_ID": "old",
+            "SPOTIFY_CURATOR_JOBS": jobs,
+            "apollo_music_update_job": lambda job_id, **values: updates.append((job_id, values)),
+        })
+        cancel()
+        self.assertTrue(jobs["old"]["cancelled"])
+        self.assertEqual(terminated, [True])
+        self.assertEqual(updates[-1][1]["status"], "superseded")
+
 
 class CuratorFailureTests(unittest.TestCase):
     def function(self, result):
+        failure = load_function("apollo_music_curator_failure", {"json": json})
         return load_function("apollo_music_curate", {
             "json": json,
             "datetime": datetime,
             "timezone": timezone,
-            "ask_hermes": lambda _messages: json.dumps({
+            "time": time,
+            "ask_hermes": lambda _messages, **_kwargs: json.dumps({
                 "summary": "dark and textural", "why": "A precise opener",
-                "candidates": [{"title": f"Song {i}", "artist": f"Artist {i}", "reason": "fit"} for i in range(10)],
+                "opener_candidates": [{"title": f"Song {i}", "artist": f"Artist {i}", "reason": "fit"} for i in range(3)],
             }),
             "apollo_music_json": json.loads,
             "get_now_playing": lambda: {"track_id": "current"},
@@ -346,6 +604,9 @@ class CuratorFailureTests(unittest.TestCase):
             "SPOTIFY_PYTHON": "python", "SPOTIFY_CURATOR_TOOL": "tool",
             "music_curator": music_curator,
             "apollo_music_save_curator_context": lambda *_args: None,
+            "SPOTIFY_CURATOR_START_LOCK": threading.Lock(),
+            "apollo_music_cancel_active_job": lambda: None,
+            "apollo_music_curator_failure": failure,
         })
 
     def test_rate_limit_is_reported_accurately(self):

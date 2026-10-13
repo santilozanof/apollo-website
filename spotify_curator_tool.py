@@ -6,6 +6,7 @@ URIs and validates every selection before any playback mutation occurs.
 
 import json
 import hashlib
+from collections import Counter
 import os
 import re
 import sys
@@ -58,9 +59,15 @@ def spotify_read(operation, attempts=3):
             retry_after = getattr(error, "headers", {}).get("Retry-After") \
                 if getattr(error, "headers", None) else None
             try:
-                delay = min(1.0, max(.2, float(retry_after)))
+                # Spotify's 429 recovery contract is the Retry-After value.
+                # Keep it bounded, but never shorten ordinary retry windows to
+                # the old one-second cap (which immediately caused another 429).
+                retry_delay = float(retry_after)
+                if retry_delay > 10.0:
+                    raise last_error
+                delay = max(.2, retry_delay)
             except (TypeError, ValueError):
-                delay = .25 * (attempt + 1)
+                delay = min(2.0, .25 * (2 ** attempt))
             time.sleep(delay)
     raise last_error
 
@@ -113,7 +120,192 @@ def resolve_candidates(spotify, candidates, excluded_ids=(), maximum=10):
             "popularity": best.get("popularity"),
             "reason": suggestion.get("reason"),
         })
+        if len(normalize_curated_tracks(resolved, excluded, maximum)) >= max(1, int(maximum)):
+            break
     return normalize_curated_tracks(resolved, excluded, maximum)
+
+
+def active_device(spotify):
+    devices = (spotify_read(spotify.devices) or {}).get("devices") or []
+    device = next(
+        (item for item in devices if item.get("is_active") and not item.get("is_restricted")),
+        None,
+    )
+    if not device:
+        raise RuntimeError("No active, controllable Spotify device is available")
+    return device
+
+
+def confirm_track_playback(spotify, track_id, attempts=4):
+    """Confirm Spotify reports the requested opener as actively playing."""
+    for attempt in range(max(1, int(attempts))):
+        state = spotify_read(spotify.current_playback, attempts=2) or {}
+        item = state.get("item") if isinstance(state.get("item"), dict) else {}
+        if item.get("id") == track_id and state.get("is_playing") is True:
+            return state
+        if attempt + 1 < attempts:
+            time.sleep(.18 * (attempt + 1))
+    raise RuntimeError("Spotify did not confirm playback of the opening track")
+
+
+def start_curated_playback(spotify, payload):
+    """Resolve one opener, start it, and confirm it before returning."""
+    queued_ids, existing_queue_uris = existing_queue_state(spotify)
+    excluded = list(payload.get("exclude_track_ids") or []) + queued_ids
+    current_id = str(payload.get("current_track_id") or "").strip()
+    if current_id:
+        excluded.append(current_id)
+    opener = None
+    opener_index = None
+    candidates = payload.get("candidates") or []
+    for index, suggestion in enumerate(candidates):
+        tracks = resolve_candidates(
+            spotify,
+            [suggestion],
+            excluded_ids=excluded,
+            maximum=1,
+        )
+        if tracks:
+            opener = tracks[0]
+            opener_index = index
+            break
+    if opener is None:
+        raise RuntimeError("No verified Spotify track matched the requested direction")
+    device = active_device(spotify)
+    spotify.start_playback(
+        device_id=device.get("id"),
+        uris=[opener["uri"]],
+        position_ms=0,
+    )
+    confirm_track_playback(spotify, opener["id"])
+    return {
+        "ok": True,
+        "opener": opener,
+        "remaining_candidates": candidates[(opener_index or 0) + 1:],
+        "playback_started": True,
+        "existing_queue_uris": existing_queue_uris,
+        "existing_queue_count": len(existing_queue_uris),
+        "queue_preserved": True,
+    }
+
+
+def _temporary_spotify_error(error):
+    status = getattr(error, "http_status", None)
+    detail = str(error).casefold()
+    return status in {429, 500, 502, 503, 504} or isinstance(
+        error, (TimeoutError, ConnectionError)
+    ) or any(marker in detail for marker in (
+        "timed out", "timeout", "temporarily unavailable", "connection reset",
+    ))
+
+
+def add_to_queue_safely(spotify, uri, device_id, known_counts, attempts=3):
+    """Retry an ambiguous queue mutation only after proving it did not land."""
+    target_count = known_counts.get(uri, 0) + 1
+    last_error = None
+    for attempt in range(max(1, int(attempts))):
+        try:
+            spotify.add_to_queue(uri, device_id=device_id)
+            known_counts[uri] = target_count
+            return
+        except Exception as error:
+            last_error = error
+            if not _temporary_spotify_error(error):
+                raise
+            # A timeout may happen after Spotify accepted the mutation. Read
+            # the queue before retrying so recovery cannot create duplicates.
+            _ids, observed_uris = existing_queue_state(spotify)
+            observed = Counter(observed_uris)
+            if observed.get(uri, 0) >= target_count:
+                known_counts.update(observed)
+                return
+            if attempt + 1 >= attempts:
+                raise
+            retry_after = getattr(error, "headers", {}).get("Retry-After") \
+                if getattr(error, "headers", None) else None
+            try:
+                retry_delay = float(retry_after)
+                if retry_delay > 10.0:
+                    raise last_error
+                delay = max(.2, retry_delay)
+            except (TypeError, ValueError):
+                delay = min(2.0, .25 * (2 ** attempt))
+            time.sleep(delay)
+    raise last_error
+
+
+def emit_event(event):
+    print(json.dumps(event, ensure_ascii=False), flush=True)
+
+
+def build_curated_queue(spotify, payload, emit=emit_event):
+    """Restore the existing queue, then verify and append curated tracks in order."""
+    device = active_device(spotify)
+    _current_ids, current_uris = existing_queue_state(spotify)
+    known_counts = Counter(current_uris)
+    preserved = 0
+    for uri in payload.get("existing_queue_uris") or []:
+        add_to_queue_safely(spotify, uri, device.get("id"), known_counts)
+        preserved += 1
+        emit({"event": "preserved", "preserved": preserved})
+
+    excluded = {
+        str(value) for value in (payload.get("exclude_track_ids") or []) if value
+    }
+    opener_id = str(payload.get("opener_id") or "")
+    if opener_id:
+        excluded.add(opener_id)
+    accepted = []
+    maximum = max(1, min(10, int(payload.get("maximum", 9))))
+    candidates = payload.get("candidates") or []
+    for suggestion in candidates:
+        if len(accepted) >= maximum:
+            break
+        resolved = resolve_candidates(
+            spotify,
+            [suggestion],
+            excluded_ids=excluded | {track["id"] for track in accepted},
+            maximum=1,
+        )
+        if not resolved:
+            continue
+        proposed = normalize_curated_tracks(
+            accepted + resolved,
+            excluded_ids=excluded,
+            maximum=maximum,
+        )
+        if len(proposed) == len(accepted):
+            continue
+        track = proposed[-1]
+        add_to_queue_safely(spotify, track["uri"], device.get("id"), known_counts)
+        accepted = proposed
+        emit({
+            "event": "added",
+            "added": len(accepted),
+            "target": maximum,
+            "track": track,
+        })
+    emit({
+        "event": "complete",
+        "added": len(accepted),
+        "preserved": preserved,
+        "tracks": accepted,
+    })
+    return accepted
+
+
+def restore_existing_queue(spotify, uris):
+    """Restore the pre-play queue before complementary curation can fail."""
+    device = active_device(spotify)
+    _current_ids, current_uris = existing_queue_state(spotify)
+    known_counts = Counter(current_uris)
+    restored = 0
+    for uri in uris or []:
+        if not str(uri).startswith("spotify:track:"):
+            continue
+        add_to_queue_safely(spotify, uri, device.get("id"), known_counts)
+        restored += 1
+    return {"ok": True, "preserved": restored}
 
 
 def existing_queue_state(spotify):
@@ -248,12 +440,14 @@ def run(payload, play=False):
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command not in {
-        "context", "resolve", "play-queue", "queue", "queue-play",
+        "context", "resolve", "play-queue", "start-curation", "restore-queue", "build-curation",
+        "queue", "queue-play",
         "queue-add", "track-search",
     }:
         raise SystemExit(
             "Usage: spotify_curator_tool.py "
-            "context|resolve|play-queue|queue|queue-play|queue-add|track-search [JSON]"
+            "context|resolve|play-queue|start-curation|restore-queue|build-curation|queue|"
+            "queue-play|queue-add|track-search [JSON]"
         )
     try:
         if command == "context":
@@ -262,6 +456,22 @@ def main():
             if len(sys.argv) < 3:
                 raise ValueError("Missing music request")
             result = run(json.loads(sys.argv[2]), play=command == "play-queue")
+        elif command == "start-curation":
+            if len(sys.argv) < 3:
+                raise ValueError("Missing music request")
+            result = start_curated_playback(spotify_client(), json.loads(sys.argv[2]))
+        elif command == "restore-queue":
+            payload = json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
+            result = restore_existing_queue(
+                spotify_client(), payload.get("existing_queue_uris") or []
+            )
+        elif command == "build-curation":
+            if len(sys.argv) < 3:
+                raise ValueError("Missing queue request")
+            # Progress is newline-delimited JSON. The server consumes it as a
+            # managed background job and updates the existing queue drawer.
+            build_curated_queue(spotify_client(), json.loads(sys.argv[2]))
+            return
         elif command == "queue":
             spotify = spotify_client()
             result = queue_snapshot(spotify_read(spotify.queue))

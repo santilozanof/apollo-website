@@ -65,6 +65,19 @@ SPOTIFY_PYTHON = "/usr/local/lib/hermes-agent/venv/bin/python"
 SPOTIFY_TOOL = "/root/spotify_tool.py"
 SPOTIFY_CURATOR_TOOL = BASE_DIR / "spotify_curator_tool.py"
 
+# Spotify is a single-user playback surface. Deduplicate read bursts and keep
+# one managed curator job so concurrent prompts cannot interleave queue writes.
+SPOTIFY_PLAYBACK_CACHE = {"value": None, "at": 0.0}
+SPOTIFY_PLAYBACK_CACHE_LOCK = threading.Lock()
+SPOTIFY_PLAYBACK_REFRESH_LOCK = threading.Lock()
+SPOTIFY_QUEUE_CACHE = {"value": None, "at": 0.0}
+SPOTIFY_QUEUE_CACHE_LOCK = threading.Lock()
+SPOTIFY_QUEUE_REFRESH_LOCK = threading.Lock()
+SPOTIFY_CURATOR_START_LOCK = threading.Lock()
+SPOTIFY_CURATOR_JOB_LOCK = threading.RLock()
+SPOTIFY_CURATOR_JOBS = {}
+SPOTIFY_CURATOR_ACTIVE_JOB_ID = None
+
 # Created after all Apollo data adapters are available.  The worker remains
 # part of this process so systemd only needs to keep the existing backend
 # service alive; individual automations never become OS cron entries.
@@ -1942,7 +1955,7 @@ def _apollo_build_hermes_payload(messages, stream=False):
     return payload
 
 
-def ask_hermes(messages):
+def ask_hermes(messages, timeout=600):
     payload = json.dumps(
         _apollo_build_hermes_payload(
             messages,
@@ -1961,7 +1974,7 @@ def ask_hermes(messages):
         method="POST"
     )
 
-    with urllib.request.urlopen(request, timeout=600) as response:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         result = json.loads(
             response.read().decode("utf-8")
         )
@@ -5801,7 +5814,7 @@ def spotify_player_result(diagnostics):
     }
 
 
-def get_now_playing():
+def _get_now_playing_uncached():
     """Return Spotify playback, retaining auth and request failures distinctly."""
     try:
         result, diagnostics = spotify_current_with_player_probe()
@@ -5835,6 +5848,37 @@ def get_now_playing():
     except Exception as error:
         print(f"[Apollo] Spotify error: {error}")
         return spotify_playback_state(error=error)
+
+
+def get_now_playing(force=False):
+    """Return a short-lived single-flight playback snapshot.
+
+    The Music UI polls every five seconds, while chat and playback controls may
+    ask for the same state at the same moment. Reusing a two-second result avoids
+    three-probe Spotify bursts without making the player feel stale.
+    """
+    now = time.monotonic()
+    with SPOTIFY_PLAYBACK_CACHE_LOCK:
+        cached = SPOTIFY_PLAYBACK_CACHE.get("value")
+        if not force and cached is not None and now - SPOTIFY_PLAYBACK_CACHE["at"] < 2.0:
+            return dict(cached)
+    with SPOTIFY_PLAYBACK_REFRESH_LOCK:
+        now = time.monotonic()
+        with SPOTIFY_PLAYBACK_CACHE_LOCK:
+            cached = SPOTIFY_PLAYBACK_CACHE.get("value")
+            if not force and cached is not None and now - SPOTIFY_PLAYBACK_CACHE["at"] < 2.0:
+                return dict(cached)
+        value = _get_now_playing_uncached()
+        with SPOTIFY_PLAYBACK_CACHE_LOCK:
+            SPOTIFY_PLAYBACK_CACHE.update(value=dict(value), at=time.monotonic())
+        return value
+
+
+def apollo_spotify_invalidate_caches():
+    with SPOTIFY_PLAYBACK_CACHE_LOCK:
+        SPOTIFY_PLAYBACK_CACHE.update(value=None, at=0.0)
+    with SPOTIFY_QUEUE_CACHE_LOCK:
+        SPOTIFY_QUEUE_CACHE.update(value=None, at=0.0)
 
 
 def get_spotify_recent_contexts():
@@ -6058,10 +6102,11 @@ def spotify_playback_command(action, position_ms=None):
             or "Spotify command failed"
         )
 
+    apollo_spotify_invalidate_caches()
     return {
         "ok": True,
         "action": action,
-        "playback": get_now_playing()
+        "playback": get_now_playing(force=True)
     }
 
 
@@ -6812,11 +6857,41 @@ def apollo_spotify_queue_command(command, argument=None):
             "Spotify took too long to respond. Try again in a moment."
         ) from error
     if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        try:
+            failure = json.loads(detail.splitlines()[-1])
+        except (ValueError, TypeError, IndexError):
+            failure = {}
+        if failure.get("status") == 429:
+            retry = failure.get("retry_after")
+            raise RuntimeError(
+                "Spotify rate-limited the request"
+                + (f"; retry after {retry} seconds" if retry else "")
+            )
         raise RuntimeError("Spotify is temporarily unavailable. Try again in a moment.")
     try:
         return json.loads(result.stdout.strip() or "{}")
     except json.JSONDecodeError as error:
         raise RuntimeError("Spotify returned an invalid queue response.") from error
+
+
+def apollo_spotify_queue_snapshot(force=False):
+    """Deduplicate simultaneous drawer refreshes without blocking curator jobs."""
+    now = time.monotonic()
+    with SPOTIFY_QUEUE_CACHE_LOCK:
+        cached = SPOTIFY_QUEUE_CACHE.get("value")
+        if not force and cached is not None and now - SPOTIFY_QUEUE_CACHE["at"] < 1.25:
+            return dict(cached)
+    with SPOTIFY_QUEUE_REFRESH_LOCK:
+        now = time.monotonic()
+        with SPOTIFY_QUEUE_CACHE_LOCK:
+            cached = SPOTIFY_QUEUE_CACHE.get("value")
+            if not force and cached is not None and now - SPOTIFY_QUEUE_CACHE["at"] < 1.25:
+                return dict(cached)
+        value = apollo_spotify_queue_command("queue")
+        with SPOTIFY_QUEUE_CACHE_LOCK:
+            SPOTIFY_QUEUE_CACHE.update(value=dict(value), at=time.monotonic())
+        return value
 
 
 def apollo_spotify_queue_play(uris):
@@ -6828,17 +6903,21 @@ def apollo_spotify_queue_play(uris):
         )
     ):
         raise ValueError("Invalid queue sequence")
-    return apollo_spotify_queue_command(
+    result = apollo_spotify_queue_command(
         "queue-play",
         json.dumps({"uris": uris}, ensure_ascii=False),
     )
+    apollo_spotify_invalidate_caches()
+    return result
 
 
 def apollo_spotify_queue_add(uri):
     uri = str(uri or "")
     if not uri.startswith("spotify:track:"):
         raise ValueError("Invalid track")
-    return apollo_spotify_queue_command("queue-add", uri)
+    result = apollo_spotify_queue_command("queue-add", uri)
+    apollo_spotify_invalidate_caches()
+    return result
 
 
 def apollo_spotify_track_search(query):
@@ -6848,39 +6927,324 @@ def apollo_spotify_track_search(query):
     return apollo_spotify_queue_command("track-search", query[:160])
 
 
+def apollo_music_curator_failure(result, fallback="Spotify could not complete the request"):
+    detail = str(result.stderr or "").strip() or str(result.stdout or "").strip() or fallback
+    try:
+        failure = json.loads(detail.splitlines()[-1])
+    except (ValueError, TypeError, IndexError):
+        failure = {}
+    message = str(failure.get("error") or detail)
+    if failure.get("status") == 429:
+        retry = failure.get("retry_after")
+        return "Spotify rate-limited the request" + (
+            f"; retry after {retry} seconds" if retry else ""
+        )
+    return message
+
+
+def apollo_music_public_job(job):
+    if not isinstance(job, dict):
+        return {"status": "idle"}
+    return {
+        key: job.get(key)
+        for key in (
+            "id", "status", "added", "target", "preserved", "error",
+            "first_play_latency_ms", "full_queue_latency_ms", "updated_at",
+        )
+        if job.get(key) is not None
+    }
+
+
+def apollo_music_persist_job(job):
+    try:
+        app_state_set(
+            "music_curator_job_latest",
+            json.dumps(apollo_music_public_job(job), ensure_ascii=False),
+        )
+    except Exception as error:
+        print(f"[Apollo Music Curator] Could not persist job status: {error}")
+
+
+def apollo_music_update_job(job_id, **updates):
+    with SPOTIFY_CURATOR_JOB_LOCK:
+        job = SPOTIFY_CURATOR_JOBS.get(job_id)
+        if not job:
+            return None
+        job.update(updates)
+        job["updated_at"] = datetime.now(timezone.utc).isoformat()
+        snapshot = dict(job)
+    apollo_music_persist_job(snapshot)
+    return snapshot
+
+
+def apollo_music_curator_job_status():
+    with SPOTIFY_CURATOR_JOB_LOCK:
+        job_id = SPOTIFY_CURATOR_ACTIVE_JOB_ID
+        job = dict(SPOTIFY_CURATOR_JOBS.get(job_id) or {}) if job_id else {}
+    if job:
+        return apollo_music_public_job(job)
+    try:
+        stored = json.loads(app_state_get("music_curator_job_latest", "{}") or "{}")
+    except (TypeError, json.JSONDecodeError):
+        stored = {}
+    return apollo_music_public_job(stored)
+
+
+def apollo_music_recover_job_status():
+    """Mark an interrupted worker honestly after a process restart."""
+    try:
+        stored = json.loads(app_state_get("music_curator_job_latest", "{}") or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return
+    if stored.get("status") in {"queued", "building"}:
+        stored.update({
+            "status": "partial" if stored.get("added") else "failed",
+            "error": "Queue building was interrupted. Try the request again.",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        app_state_set("music_curator_job_latest", json.dumps(stored, ensure_ascii=False))
+
+
+def apollo_music_cancel_active_job():
+    with SPOTIFY_CURATOR_JOB_LOCK:
+        job_id = SPOTIFY_CURATOR_ACTIVE_JOB_ID
+        job = SPOTIFY_CURATOR_JOBS.get(job_id) if job_id else None
+        if not job or job.get("status") not in {"queued", "building"}:
+            return
+        job["cancelled"] = True
+        process = job.get("process")
+    if process is not None and process.poll() is None:
+        try:
+            process.terminate()
+        except OSError:
+            pass
+    apollo_music_update_job(job_id, status="superseded")
+
+
+def apollo_music_plan_background_queue(payload):
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are Apollo's expert Spotify queue curator. The opening track is already "
+                "playing. Build 10 to 14 complementary REAL released tracks in intended order. "
+                "Interpret mood, production, instrumentation, artist influence, energy, and "
+                "all explicit exclusions. Do not repeat the opener or prior tracks, use no "
+                "artist more than twice, and mix recognizable with lesser-known choices. "
+                "Do not invent Spotify IDs; Spotify verifies title and artist independently. "
+                "Return JSON ONLY: {\"candidates\":[{\"title\":\"exact title\","
+                "\"artist\":\"primary artist\",\"reason\":\"brief transition reason\"}]}"
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "REQUEST:\n" + str(payload.get("request") or "")
+                + "\n\nOPENING TRACK:\n"
+                + json.dumps(payload.get("opener") or {}, ensure_ascii=False)
+                + "\n\nPRIOR CURATION:\n"
+                + json.dumps(payload.get("prior_context") or {}, ensure_ascii=False)[:12000]
+            ),
+        },
+    ]
+    plan = apollo_music_json(ask_hermes(messages, timeout=75))
+    candidates = plan.get("candidates") if isinstance(plan, dict) else None
+    if not isinstance(candidates, list) or not candidates:
+        raise RuntimeError("Apollo did not produce complementary queue tracks")
+    return candidates[:14]
+
+
+def apollo_music_queue_worker(job_id, payload, saved_context, chat_id, request_started):
+    process = None
+    timeout_timer = None
+    timed_out = threading.Event()
+    tracks = []
+    try:
+        apollo_music_update_job(job_id, status="building")
+        payload = dict(payload)
+        existing_queue_uris = list(payload.get("existing_queue_uris") or [])
+        if existing_queue_uris:
+            process = subprocess.Popen(
+                [
+                    SPOTIFY_PYTHON,
+                    str(SPOTIFY_CURATOR_TOOL),
+                    "restore-queue",
+                    json.dumps({"existing_queue_uris": existing_queue_uris}, ensure_ascii=False),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            apollo_music_update_job(job_id, process=process)
+            try:
+                restore_stdout, restore_stderr = process.communicate(timeout=45)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                process.communicate()
+                raise RuntimeError("Spotify took too long to restore the existing queue")
+            with SPOTIFY_CURATOR_JOB_LOCK:
+                if SPOTIFY_CURATOR_JOBS.get(job_id, {}).get("cancelled"):
+                    apollo_music_update_job(job_id, status="superseded", process=None)
+                    return
+            if process.returncode != 0:
+                failure = type("Result", (), {
+                    "stderr": restore_stderr,
+                    "stdout": restore_stdout,
+                })()
+                raise RuntimeError(apollo_music_curator_failure(failure))
+            restored = json.loads(restore_stdout.strip() or "{}")
+            apollo_spotify_invalidate_caches()
+            apollo_music_update_job(
+                job_id,
+                preserved=int(restored.get("preserved") or 0),
+                process=None,
+            )
+        payload["existing_queue_uris"] = []
+        payload["candidates"] = apollo_music_plan_background_queue(payload)
+        with SPOTIFY_CURATOR_JOB_LOCK:
+            if SPOTIFY_CURATOR_JOBS.get(job_id, {}).get("cancelled"):
+                apollo_music_update_job(job_id, status="superseded")
+                return
+        process = subprocess.Popen(
+            [
+                SPOTIFY_PYTHON,
+                str(SPOTIFY_CURATOR_TOOL),
+                "build-curation",
+                json.dumps(payload, ensure_ascii=False),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        apollo_music_update_job(job_id, process=process)
+        def stop_overlong_job():
+            if process.poll() is None:
+                timed_out.set()
+                process.terminate()
+        timeout_timer = threading.Timer(150, stop_overlong_job)
+        timeout_timer.daemon = True
+        timeout_timer.start()
+        for line in process.stdout or ():
+            with SPOTIFY_CURATOR_JOB_LOCK:
+                if SPOTIFY_CURATOR_JOBS.get(job_id, {}).get("cancelled"):
+                    process.terminate()
+                    break
+            try:
+                event = json.loads(line)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            kind = event.get("event")
+            if kind == "preserved":
+                apollo_spotify_invalidate_caches()
+                apollo_music_update_job(job_id, preserved=int(event.get("preserved") or 0))
+            elif kind == "added" and isinstance(event.get("track"), dict):
+                tracks.append(event["track"])
+                apollo_spotify_invalidate_caches()
+                apollo_music_update_job(
+                    job_id,
+                    added=int(event.get("added") or len(tracks)),
+                    target=int(event.get("target") or payload.get("maximum") or 9),
+                )
+            elif kind == "complete":
+                tracks = event.get("tracks") if isinstance(event.get("tracks"), list) else tracks
+        return_code = process.wait()
+        with SPOTIFY_CURATOR_JOB_LOCK:
+            cancelled = bool(SPOTIFY_CURATOR_JOBS.get(job_id, {}).get("cancelled"))
+        if cancelled:
+            apollo_music_update_job(job_id, status="superseded", process=None)
+            return
+        if timed_out.is_set():
+            raise RuntimeError("Spotify queue building took too long")
+        if return_code != 0:
+            stderr = process.stderr.read() if process.stderr else ""
+            failure = type("Result", (), {"stderr": stderr, "stdout": ""})()
+            raise RuntimeError(apollo_music_curator_failure(failure))
+        completed_context = dict(saved_context)
+        completed_context["tracks"] = list(saved_context.get("tracks") or []) + tracks
+        apollo_music_save_curator_context(chat_id, completed_context)
+        apollo_music_update_job(
+            job_id,
+            status="complete",
+            added=len(tracks),
+            full_queue_latency_ms=round((time.monotonic() - request_started) * 1000),
+            process=None,
+        )
+    except Exception as error:
+        with SPOTIFY_CURATOR_JOB_LOCK:
+            cancelled = bool(SPOTIFY_CURATOR_JOBS.get(job_id, {}).get("cancelled"))
+        if not cancelled:
+            print(f"[Apollo Music Curator] Background queue failed: {error}")
+            apollo_music_update_job(
+                job_id,
+                status="partial" if tracks else "failed",
+                added=len(tracks),
+                error=apollo_music_user_error(error),
+                full_queue_latency_ms=round((time.monotonic() - request_started) * 1000),
+                process=None,
+            )
+    finally:
+        if timeout_timer is not None:
+            timeout_timer.cancel()
+
+
+def apollo_music_start_queue_job(payload, saved_context, chat_id, request_started, first_play_latency_ms):
+    global SPOTIFY_CURATOR_ACTIVE_JOB_ID
+    job_id = uuid.uuid4().hex
+    job = {
+        "id": job_id,
+        "status": "queued",
+        "added": 0,
+        "target": int(payload.get("maximum") or 9),
+        "preserved": 0,
+        "first_play_latency_ms": first_play_latency_ms,
+        "cancelled": False,
+        "process": None,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with SPOTIFY_CURATOR_JOB_LOCK:
+        while len(SPOTIFY_CURATOR_JOBS) >= 20:
+            oldest_id = next(iter(SPOTIFY_CURATOR_JOBS))
+            if oldest_id == SPOTIFY_CURATOR_ACTIVE_JOB_ID:
+                break
+            SPOTIFY_CURATOR_JOBS.pop(oldest_id, None)
+        SPOTIFY_CURATOR_JOBS[job_id] = job
+        SPOTIFY_CURATOR_ACTIVE_JOB_ID = job_id
+    apollo_music_persist_job(job)
+    thread = threading.Thread(
+        target=apollo_music_queue_worker,
+        args=(job_id, payload, saved_context, chat_id, request_started),
+        name=f"apollo-music-{job_id[:8]}",
+        daemon=True,
+    )
+    job["thread"] = thread
+    thread.start()
+    return apollo_music_public_job(job)
+
+
 def apollo_music_curate(user_request, chat_id=None, prior_context=None, dry_run=False):
-    """Plan semantically, resolve on Spotify, then play only verified tracks."""
+    """Start one verified track, then build the remaining queue in the background."""
+    request_started = time.monotonic()
     context = prior_context if isinstance(prior_context, dict) else {}
     playback = get_now_playing() or {}
-    listening_context = {}
-    try:
-        context_result = subprocess.run(
-            [SPOTIFY_PYTHON, str(SPOTIFY_CURATOR_TOOL), "context", "{}"],
-            capture_output=True, text=True, timeout=25,
-        )
-        if context_result.returncode == 0:
-            listening_context = json.loads(context_result.stdout.strip() or "{}")
-    except Exception as error:
-        print(f"[Apollo Music Curator] Listening context unavailable: {error}")
     planner_messages = [
         {
             "role": "system",
             "content": (
-                "You are Apollo's expert music curator. Interpret informal language, "
+                "You are Apollo's fast opening-track curator. Interpret informal language, "
                 "artist influences, mood, instrumentation, sampling, production style, "
                 "energy, and explicit exclusions. A request for 'songs by X' is direct; "
                 "'X type', 'like X', or 'X-style' asks for sonic relatives and should not "
                 "become a list dominated by X. Use CURRENT PLAYBACK and PRIOR CURATION for "
                 "follow-ups such as 'darker', 'more like the third song', 'another 10', or "
-                "'keep this vibe going'. Choose a strong opener followed by coherent "
-                "transitions. Mix recognizable and lesser-known music, use no artist more "
-                "than twice, honor constraints exactly, and avoid all prior/current tracks. "
-                "Suggest 10 to 14 REAL released tracks that you confidently know. Do not "
+                "'keep this vibe going'. Choose one strong opener and two fallback openers. "
+                "Honor constraints exactly and avoid all prior/current tracks. "
+                "Suggest exactly 3 REAL released tracks that you confidently know. Do not "
                 "invent Spotify IDs or claim audio analysis. Spotify will independently "
                 "verify every title and artist; invalid suggestions are discarded. "
                 "Return JSON ONLY with: {\"summary\":\"brief sonic direction\","
                 "\"why\":\"one brief explanation of the opening choice\","
-                "\"candidates\":[{\"title\":\"exact title\",\"artist\":\"primary artist\","
+                "\"opener_candidates\":[{\"title\":\"exact title\",\"artist\":\"primary artist\","
                 "\"reason\":\"very short transition/relevance reason\"}]}"
             ),
         },
@@ -6894,16 +7258,14 @@ def apollo_music_curate(user_request, chat_id=None, prior_context=None, dry_run=
                 }, ensure_ascii=False)
                 + "\n\nPRIOR CURATION:\n"
                 + json.dumps(context, ensure_ascii=False)[:12000]
-                + "\n\nPERMITTED SPOTIFY LISTENING CONTEXT:\n"
-                + json.dumps(listening_context, ensure_ascii=False)[:8000]
             ),
         },
     ]
     try:
-        plan = apollo_music_json(ask_hermes(planner_messages))
+        plan = apollo_music_json(ask_hermes(planner_messages, timeout=45))
     except Exception as error:
         raise RuntimeError(f"Apollo could not build a music direction: {error}")
-    candidates = plan.get("candidates") if isinstance(plan, dict) else None
+    candidates = plan.get("opener_candidates") if isinstance(plan, dict) else None
     if not isinstance(candidates, list) or not candidates:
         raise RuntimeError("Apollo did not produce any music candidates")
 
@@ -6915,56 +7277,117 @@ def apollo_music_curate(user_request, chat_id=None, prior_context=None, dry_run=
         "candidates": candidates,
         "exclude_track_ids": prior_ids[-30:],
         "current_track_id": playback.get("track_id"),
-        "minimum": 4,
-        "maximum": 10,
+        "minimum": 1,
+        "maximum": 10 if dry_run else 1,
     }
     try:
-        result = subprocess.run(
-            [
-                SPOTIFY_PYTHON,
-                str(SPOTIFY_CURATOR_TOOL),
-                "resolve" if dry_run else "play-queue",
-                json.dumps(payload, ensure_ascii=False),
-            ],
-            capture_output=True, text=True, timeout=55,
-        )
+        if dry_run:
+            result = subprocess.run(
+                [
+                    SPOTIFY_PYTHON,
+                    str(SPOTIFY_CURATOR_TOOL),
+                    "resolve",
+                    json.dumps(payload, ensure_ascii=False),
+                ],
+                capture_output=True, text=True, timeout=45,
+            )
+        else:
+            # Only the playback transition is serialized. Queue construction
+            # continues independently after this request returns.
+            with SPOTIFY_CURATOR_START_LOCK:
+                apollo_music_cancel_active_job()
+                result = subprocess.run(
+                    [
+                        SPOTIFY_PYTHON,
+                        str(SPOTIFY_CURATOR_TOOL),
+                        "start-curation",
+                        json.dumps(payload, ensure_ascii=False),
+                    ],
+                    capture_output=True, text=True, timeout=30,
+                )
     except subprocess.TimeoutExpired as error:
         raise RuntimeError(
             "Spotify did not respond in time. Please try again in a moment."
         ) from error
     if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "Spotify could not build the queue"
-        try:
-            failure = json.loads(detail.splitlines()[-1])
-            message = str(failure.get("error") or detail)
-            if failure.get("status") == 429:
-                retry = failure.get("retry_after")
-                message = "Spotify rate-limited the request" + (f"; retry after {retry} seconds" if retry else "")
-            detail = message
-        except (ValueError, TypeError, AttributeError):
-            pass
-        raise RuntimeError(detail)
+        raise RuntimeError(apollo_music_curator_failure(result, "Spotify could not start playback"))
     try:
         spotify_result = json.loads(result.stdout.strip())
     except json.JSONDecodeError:
-        raise RuntimeError("Spotify returned an invalid queue result")
-    tracks = music_curator.normalize_curated_tracks(spotify_result.get("tracks"), prior_ids, 10)
-    if len(tracks) < 4 or (not dry_run and not spotify_result.get("playback_started")):
-        raise RuntimeError("Spotify did not confirm playback of a verified curated queue")
+        raise RuntimeError("Spotify returned an invalid curator result")
+
+    if dry_run:
+        tracks = music_curator.normalize_curated_tracks(spotify_result.get("tracks"), prior_ids, 10)
+        if not tracks:
+            raise RuntimeError("Spotify did not verify any curated tracks")
+        return {
+            "ok": True,
+            "intent": {"type": "curation", "mode": "curate", "query": str(user_request)},
+            "spotify": {**spotify_result, "type": "curation", "tracks": tracks},
+            "curation": {
+                "request": str(user_request),
+                "summary": str(plan.get("summary") or "").strip(),
+                "why": str(plan.get("why") or "").strip(),
+                "tracks": tracks,
+            },
+            "playback": playback,
+        }
+
+    opener_values = music_curator.normalize_curated_tracks(
+        [spotify_result.get("opener")], prior_ids, 1
+    )
+    if not opener_values or spotify_result.get("playback_started") is not True:
+        raise RuntimeError("Spotify did not confirm playback of a verified opening track")
+    opener = opener_values[0]
+    first_play_latency_ms = round((time.monotonic() - request_started) * 1000)
     saved = {
         "request": str(user_request),
         "summary": str(plan.get("summary") or "").strip(),
         "why": str(plan.get("why") or "").strip(),
-        "tracks": tracks,
+        "tracks": [opener],
     }
-    if not dry_run:
-        apollo_music_save_curator_context(chat_id, saved)
+    apollo_music_save_curator_context(chat_id, saved)
+    apollo_spotify_invalidate_caches()
+    background_payload = {
+        "request": str(user_request),
+        "opener": opener,
+        "prior_context": context,
+        "exclude_track_ids": prior_ids[-30:],
+        "opener_id": opener["id"],
+        "existing_queue_uris": spotify_result.get("existing_queue_uris") or [],
+        "maximum": 9,
+    }
+    job = apollo_music_start_queue_job(
+        background_payload,
+        saved,
+        chat_id,
+        request_started,
+        first_play_latency_ms,
+    )
+    confirmed_playback = {
+        "title": opener.get("title"),
+        "artists": ", ".join(opener.get("artists") or []),
+        "album": opener.get("album"),
+        "artwork": opener.get("artwork"),
+        "track_id": opener.get("id"),
+        "playing": True,
+        "playback_state": "playing",
+        "connection_state": "connected",
+    }
     return {
         "ok": True,
         "intent": {"type": "curation", "mode": "curate", "query": str(user_request)},
-        "spotify": {**spotify_result, "type": "curation", "tracks": tracks},
+        "spotify": {
+            **spotify_result,
+            "type": "curation",
+            "tracks": [opener],
+            "queue_building": True,
+            "job_id": job.get("id"),
+            "first_play_latency_ms": first_play_latency_ms,
+        },
         "curation": saved,
-        "playback": get_now_playing(),
+        "playback": confirmed_playback,
+        "queue_job": job,
     }
 
 
@@ -7222,11 +7645,12 @@ def apollo_music_play_request(user_request, chat_id=None):
         raise RuntimeError("Spotify did not confirm playback")
 
 
+    apollo_spotify_invalidate_caches()
     return {
         "ok": True,
         "intent": payload,
         "spotify": spotify_result,
-        "playback": get_now_playing()
+        "playback": get_now_playing(force=True)
     }
 
 
@@ -18116,12 +18540,19 @@ class ApolloHandler(BaseHTTPRequestHandler):
             return
 
 
+        if route == "/api/spotify/curation-job":
+
+            json_response(self, {"job": apollo_music_curator_job_status()})
+            return
+
+
         if route == "/api/spotify/queue":
 
             try:
+                force = urllib.parse.parse_qs(parsed_url.query).get("refresh", ["0"])[0] == "1"
                 json_response(
                     self,
-                    apollo_spotify_queue_command("queue")
+                    apollo_spotify_queue_snapshot(force=force)
                 )
             except Exception as exc:
                 print(f"[Apollo Spotify Queue] {exc}")
@@ -21343,13 +21774,14 @@ class ApolloHandler(BaseHTTPRequestHandler):
                             raise RuntimeError("Spotify did not confirm playback")
 
 
+                        apollo_spotify_invalidate_caches()
                         music_result = {
                             "ok": True,
                             "intent": payload,
                             "spotify":
                                 spotify_result,
                             "playback":
-                                get_now_playing()
+                                get_now_playing(force=True)
                         }
 
 
@@ -21407,15 +21839,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
                         why = str(curation.get("why") or curation.get("summary") or "").strip()
                         if why:
                             music_reply += " " + why
-                        if len(tracks) > 1:
-                            music_reply += f" I added {len(tracks) - 1} verified tracks to Spotify's queue."
-                        existing_count = int(spotify_result.get("existing_queue_count") or 0)
-                        if existing_count:
-                            music_reply += (
-                                f" I preserved the {existing_count} item"
-                                + ("s" if existing_count != 1 else "")
-                                + " already queued, so Apollo's remaining tracks follow them."
-                            )
+                        if spotify_result.get("queue_building"):
+                            music_reply += " I’m building the rest of your queue in the background."
 
 
                     # For playlists / albums / artists, confirm
@@ -22459,6 +22884,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
 
     init_db()
+    apollo_music_recover_job_status()
 
     # One-time-safe migration of the existing Canvas cache into external task
     # rows. The UID index makes this idempotent on every restart.

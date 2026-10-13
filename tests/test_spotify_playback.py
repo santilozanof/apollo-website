@@ -1,5 +1,6 @@
 import ast
 import json
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -65,7 +66,7 @@ class SpotifyPlaybackStateTests(unittest.TestCase):
             }
 
         state = self.state()
-        current = load_function("get_now_playing", {
+        current = load_function("_get_now_playing_uncached", {
             "json": json,
             "spotify_playback_state": state,
             "spotify_current_with_player_probe": probe,
@@ -101,3 +102,28 @@ class SpotifyPlaybackStateTests(unittest.TestCase):
         self.assertEqual(response["progress_ms"], 45678)
         self.assertEqual(response["sampled_at_ms"], 1234567890)
         self.assertEqual(response["device_key"], "device-key")
+
+    def test_concurrent_polling_uses_one_spotify_refresh(self):
+        calls = []
+        cache = {"value": None, "at": 0.0}
+
+        def refresh():
+            calls.append(1)
+            time.sleep(.03)
+            return {"title": "One read"}
+
+        current = load_function("get_now_playing", {
+            "time": time,
+            "SPOTIFY_PLAYBACK_CACHE": cache,
+            "SPOTIFY_PLAYBACK_CACHE_LOCK": threading.Lock(),
+            "SPOTIFY_PLAYBACK_REFRESH_LOCK": threading.Lock(),
+            "_get_now_playing_uncached": refresh,
+        })
+        results = []
+        threads = [threading.Thread(target=lambda: results.append(current())) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual([item["title"] for item in results], ["One read"] * 4)
