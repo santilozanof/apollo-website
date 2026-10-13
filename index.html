@@ -38366,47 +38366,54 @@ html[data-theme="light"]
     transform: none;
 }
 
-.apollo-queue { margin-left: auto; }
-.apollo-queue-trigger { display: none; }
-.apollo-queue-edge {
-    position: fixed; z-index: 1198; top: 0; right: 0; width: 24px; height: 100%;
-    transform: none; border: 0; background: transparent; cursor: pointer;
-}
-.apollo-queue-edge::after {
-    content: ""; position: absolute; top: 50%; right: 6px; width: 2px; height: 54px;
-    border-radius: 9px; background: var(--text); opacity: .12; transform: translateY(-50%);
-    transition: opacity 180ms ease, height 280ms cubic-bezier(.22,1,.36,1);
-}
-.apollo-queue-edge:hover::after, .apollo-queue-edge:focus-visible::after { opacity: .42; height: 72px; }
+.apollo-queue { margin-left:auto; }
+.apollo-queue-trigger { display:inline-grid; }
 .apollo-music-stage {
-    display:grid; grid-template-columns:minmax(0,1fr) 0; gap:0;
-    align-items:stretch; min-width:0;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 0;
+    gap:0;
+    align-items:stretch;
+    min-width:0;
     transition:grid-template-columns 320ms var(--ease), gap 320ms var(--ease);
 }
 .apollo-music-view.queue-open .apollo-music-stage {
-    grid-template-columns:minmax(0,1fr) clamp(278px,25vw,318px); gap:16px;
+    grid-template-columns:minmax(0,1fr) clamp(286px,25vw,324px);
+    gap:16px;
 }
 .apollo-music-stage .apollo-now-playing { min-width:0; height:100%; }
-.apollo-queue-scrim {
-    position:fixed; inset:0; z-index:1199; display:block;
-    background:rgba(0,0,0,.12); opacity:0; pointer-events:none;
+.apollo-play-queue-scrim {
+    position:fixed;
+    inset:0;
+    z-index:1199;
+    background:rgba(0,0,0,.38);
+    opacity:0;
+    pointer-events:none;
     transition:opacity 220ms ease;
 }
-.apollo-queue-panel {
-    position: relative; z-index:5; width:100%; min-width:0; height:100%;
-    overflow: hidden; display: flex; flex-direction: column; padding: 0;
-    border: 1px solid var(--border); border-radius:18px;
-    background: color-mix(in srgb, var(--bg) 93%, transparent);
-    box-shadow: 0 18px 44px rgba(0,0,0,.14);
-    backdrop-filter: blur(24px); opacity:0; transform:translate3d(14px,0,0); pointer-events:none;
+.apollo-play-queue {
+    position:relative;
+    z-index:5;
+    width:100%;
+    min-width:0;
+    height:100%;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    border:1px solid var(--border);
+    border-radius:18px;
+    background:var(--surface);
+    opacity:0;
+    transform:translate3d(12px,0,0);
+    pointer-events:none;
     will-change:transform,opacity;
-    transition: opacity 220ms ease, transform 320ms var(--ease);
+    transition:opacity 220ms ease, transform 320ms var(--ease);
 }
-.apollo-queue-panel.open { opacity: 1; transform: translate3d(0,0,0); pointer-events: auto; }
-.apollo-queue-panel[hidden], .apollo-queue-search[hidden], .apollo-queue-results[hidden], .apollo-queue-add[hidden] { display:none; }
-.apollo-queue-sheet-handle { display: none; }
-.apollo-queue-header { display:flex; align-items:center; min-height:58px; padding:12px 16px 8px; gap:8px; }
-.apollo-queue-heading { flex:1; color:var(--text); font-size:11px; font-weight:680; letter-spacing:.14em; text-transform:uppercase; }
+.apollo-play-queue.is-open { opacity:1; transform:translate3d(0,0,0); pointer-events:auto; }
+.apollo-play-queue[hidden], .apollo-queue-search[hidden], .apollo-queue-results[hidden], .apollo-queue-add[hidden] { display:none; }
+.apollo-queue-sheet-handle { display:none; }
+.apollo-queue-header { display:flex; align-items:center; min-height:58px; padding:12px 12px 8px 16px; gap:4px; border-bottom:1px solid transparent; }
+.apollo-queue-heading { flex:1; color:var(--text); font-size:13px; font-weight:650; letter-spacing:-.01em; }
+.apollo-queue-count { color:var(--dim); font-size:10px; font-variant-numeric:tabular-nums; }
 .apollo-queue-build-status {
     display:flex; align-items:center; gap:6px; padding:0 18px 8px;
     color:var(--dim); font-size:10px; line-height:1.2;
@@ -38414,15 +38421,15 @@ html[data-theme="light"]
 .apollo-queue-build-status[hidden] { display:none; }
 .apollo-queue-build-dot { width:5px; height:5px; border-radius:50%; background:var(--text); opacity:.5; animation:apolloQueueBuild 1.2s ease-in-out infinite; }
 @keyframes apolloQueueBuild { 50% { opacity:1; transform:scale(1.25); } }
-.apollo-queue-icon { width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:50%; background:transparent; color:var(--dim); cursor:pointer; }
+.apollo-queue-icon { width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:9px; background:transparent; color:var(--dim); cursor:pointer; }
 .apollo-queue-icon:hover, .apollo-queue-icon:focus-visible { color:var(--text); background:var(--surface-hover); outline:none; }
 .apollo-queue-icon.active { color:var(--text); background:var(--surface-hover); }
 .apollo-queue-icon svg { width:15px; height:15px; }
-.apollo-queue-scroll { position:relative; flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:0 12px 18px; scrollbar-width:thin; scrollbar-color:transparent transparent; }
+.apollo-queue-scroll { position:relative; flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:0 10px 12px; scrollbar-width:thin; scrollbar-color:transparent transparent; }
 .apollo-queue-scroll:hover { scrollbar-color:var(--border-hover) transparent; }
-.apollo-queue-section-label { position:sticky; top:0; z-index:2; padding:12px 8px 8px; color:var(--dim); background:linear-gradient(var(--bg) 72%, transparent); font-size:9px; font-weight:650; letter-spacing:.14em; text-transform:uppercase; }
+.apollo-queue-section-label { position:sticky; top:0; z-index:2; padding:11px 8px 7px; color:var(--dim); background:linear-gradient(var(--surface) 75%, transparent); font-size:9px; font-weight:650; letter-spacing:.13em; text-transform:uppercase; }
 .apollo-queue-list { min-height:72px; }
-.apollo-queue-row { position:relative; width:100%; min-width:0; display:grid; grid-template-columns:16px 44px minmax(0,1fr) auto; align-items:center; gap:9px; padding:7px 6px; border:0; border-radius:11px; background:transparent; color:var(--text); text-align:left; transition:background 150ms ease, transform 180ms ease, opacity 150ms ease; }
+.apollo-queue-row { position:relative; width:100%; min-width:0; display:grid; grid-template-columns:14px 42px minmax(0,1fr) auto; align-items:center; gap:9px; padding:7px 6px; border:0; border-radius:11px; background:transparent; color:var(--text); text-align:left; transition:background 150ms ease, transform 220ms var(--ease), opacity 150ms ease; }
 .apollo-queue-row:hover, .apollo-queue-row:focus-within, .apollo-queue-row:focus-visible { background:var(--surface-hover); outline:none; }
 .apollo-queue-row.current { grid-template-columns:8px 36px minmax(0,1fr); margin-bottom:2px; padding:4px 6px; background:transparent; }
 .apollo-queue-row.current .apollo-queue-art-wrap { width:36px; height:36px; }
@@ -38432,7 +38439,7 @@ html[data-theme="light"]
 .apollo-queue-row.drop-before::before { content:""; position:absolute; left:8px; right:8px; top:-2px; height:1px; background:var(--text); opacity:.65; }
 .apollo-queue-drag { width:16px; height:28px; border:0; padding:0; color:var(--dim); background:transparent; cursor:grab; opacity:0; touch-action:none; font-size:13px; }
 .apollo-queue-row:hover .apollo-queue-drag, .apollo-queue-drag:focus-visible { opacity:.7; }
-.apollo-queue-art-wrap { position:relative; width:44px; height:44px; }
+.apollo-queue-art-wrap { position:relative; width:42px; height:42px; }
 .apollo-queue-art { width:100%; height:100%; display:block; border-radius:7px; object-fit:cover; background:var(--surface-hover); }
 .apollo-queue-art-play { position:absolute; inset:0; display:grid; place-items:center; border:0; border-radius:7px; color:white; background:rgba(0,0,0,.46); opacity:0; transition:opacity 140ms ease; }
 .apollo-queue-row:hover .apollo-queue-art-play { opacity:1; }
@@ -38448,7 +38455,7 @@ html[data-theme="light"]
 .apollo-queue-eq i { width:2px; height:5px; border-radius:2px; background:var(--text); opacity:.62; animation:apolloQueueEq .8s ease-in-out infinite alternate; }
 .apollo-queue-eq i:nth-child(2){animation-delay:-.3s}.apollo-queue-eq i:nth-child(3){animation-delay:-.55s}
 @keyframes apolloQueueEq { to { height:10px; } }
-.apollo-queue-footer { padding:10px 12px max(12px, env(safe-area-inset-bottom)); border-top:1px solid var(--border); }
+.apollo-queue-footer { flex:none; padding:9px 10px max(10px, env(safe-area-inset-bottom)); border-top:1px solid var(--border); background:var(--surface); }
 .apollo-queue-prompt { margin-bottom:5px; }
 #apolloPresence.apollo-presence-queue {
     position:relative !important; inset:auto !important; z-index:2; width:100% !important;
@@ -38481,7 +38488,7 @@ html[data-theme="light"]
 .apollo-queue-menu button,.apollo-queue-menu a { width:100%; min-height:34px; display:flex; align-items:center; padding:0 10px; border:0; border-radius:7px; background:transparent; color:var(--text); text-decoration:none; font:inherit; font-size:11px; cursor:pointer; }
 .apollo-queue-menu button:hover,.apollo-queue-menu a:hover { background:var(--surface-hover); }
 .apollo-queue-menu .danger { color:#d98282; }
-.apollo-queue-status { padding:30px 10px; color:var(--muted); font-size:12px; line-height:1.55; text-align:center; }
+.apollo-queue-status { max-width:220px; margin:0 auto; padding:26px 10px; color:var(--muted); font-size:12px; line-height:1.5; text-align:center; white-space:pre-line; }
 .apollo-queue-status button { margin-top:8px; border:0; background:transparent; color:var(--text); cursor:pointer; font:inherit; font-size:11px; }
 .apollo-queue-warning {
     display:flex; align-items:center; justify-content:space-between; gap:8px;
@@ -38490,16 +38497,20 @@ html[data-theme="light"]
 }
 .apollo-queue-warning button { padding:0; border:0; background:transparent; color:var(--text); font:inherit; font-size:10px; cursor:pointer; }
 
-@media (max-width: 900px) {
+@media (max-width:900px) {
     .apollo-music-stage,
     .apollo-music-view.queue-open .apollo-music-stage { grid-template-columns:minmax(0,1fr); gap:0; }
-    .apollo-queue-panel {
-        position:fixed; z-index:1200; top:auto; right:0; bottom:0; left:0;
-        width:auto; height:min(82vh,720px); border-bottom:0; border-radius:22px 22px 0 0;
+    .apollo-play-queue {
+        position:fixed;
+        z-index:1200;
+        inset:auto 0 0;
+        width:auto;
+        height:min(78vh,680px);
+        border-radius:22px 22px 0 0;
         transform:translate3d(0,calc(100% + 12px),0);
     }
-    .apollo-queue-panel.open { transform:translate3d(0,0,0); }
-    .apollo-music-view.queue-open .apollo-queue-scrim { opacity:1; pointer-events:auto; }
+    .apollo-play-queue.is-open { transform:translate3d(0,0,0); }
+    .apollo-music-view.queue-open .apollo-play-queue-scrim { opacity:1; pointer-events:auto; }
 }
 
 
@@ -38628,24 +38639,17 @@ html[data-theme="light"]
 
 @media (max-width: 760px) {
 
-    .apollo-queue-panel {
-        top: auto; right: 0; bottom: 0; left: 0; width: auto; height: min(82vh, 720px);
-        border: 1px solid var(--border); border-bottom: 0; border-radius: 22px 22px 0 0;
-        transform: translate3d(0,calc(100% + 12px),0);
-    }
-    .apollo-queue-panel.open { transform:translate3d(0,0,0); }
+    .apollo-play-queue { height:min(80vh,680px); }
     .apollo-queue-header { align-items:center; min-height:64px; padding:16px 20px 10px; }
     .apollo-queue-footer {
         padding-bottom:calc(12px + var(--apollo-mobile-nav-h, 64px) + env(safe-area-inset-bottom, 0px));
     }
     .apollo-queue-sheet-handle { display:block; width:36px; height:4px; margin:9px auto 0; border-radius:9px; background:var(--border-hover); }
-    .apollo-queue-edge { display:none; }
     .apollo-queue-trigger { display:grid; width:40px; padding:0; }
     .apollo-queue-trigger span { display:none; }
     .apollo-now-empty .apollo-queue-trigger { margin:12px auto 0; }
     .apollo-music-view.queue-open .apollo-music-inner { transform:none; }
-    .apollo-queue-scrim { background:rgba(0,0,0,.42); }
-    .apollo-music-view.queue-open .apollo-queue-scrim { opacity:1; pointer-events:auto; }
+    .apollo-music-view.queue-open .apollo-play-queue-scrim { opacity:1; pointer-events:auto; }
 
     .apollo-music-inner {
         padding:
@@ -38677,7 +38681,7 @@ html[data-theme="light"]
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .apollo-queue-panel, .apollo-queue-scrim, .apollo-music-stage, .apollo-queue-row, .apollo-queue-edge::after { transition-duration:1ms !important; }
+    .apollo-play-queue, .apollo-play-queue-scrim, .apollo-music-stage, .apollo-queue-row { transition-duration:1ms !important; }
     .apollo-queue-eq i { animation:none; height:7px; }
     .apollo-queue-build-dot { animation:none; }
 }
@@ -38868,8 +38872,8 @@ html[data-theme="light"]
                                 <span>Queue</span>
                             </button>
 
-                            <div
-                                class="apollo-queue-panel"
+                            <aside
+                                class="apollo-play-queue"
                                 id="apolloQueuePanel"
                                 role="dialog"
                                 aria-label="Spotify queue"
@@ -38878,10 +38882,14 @@ html[data-theme="light"]
                                 <div class="apollo-queue-sheet-handle" aria-hidden="true"></div>
                                 <div class="apollo-queue-header">
                                     <div class="apollo-queue-heading">Queue</div>
-                                    <button class="apollo-queue-icon" id="apolloQueuePin" type="button" aria-label="Pin queue" title="Pin queue">
-                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 4 8 0-1 6 3 3v2H6v-2l3-3-1-6Zm4 11v5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                    <span class="apollo-queue-count" id="apolloQueueCount"></span>
+                                    <button class="apollo-queue-icon" id="apolloQueueRefresh" type="button" aria-label="Refresh queue" title="Refresh queue">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8a7 7 0 1 0 1 5M19 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                                     </button>
                                     <button class="apollo-queue-icon" id="apolloQueueActions" type="button" aria-label="Queue actions" title="Queue actions">•••</button>
+                                    <button class="apollo-queue-icon" id="apolloQueueClose" type="button" aria-label="Close queue" title="Close queue">
+                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                                    </button>
                                 </div>
                                 <div class="apollo-queue-build-status" id="apolloQueueBuildStatus" role="status" aria-live="polite" hidden>
                                     <span class="apollo-queue-build-dot" aria-hidden="true"></span>
@@ -38898,7 +38906,7 @@ html[data-theme="light"]
                                     </div>
                                     <div class="apollo-queue-results" id="apolloQueueResults" hidden></div>
                                 </div>
-                            </div>
+                            </aside>
                         </div>
 
                     </div>
@@ -38985,14 +38993,8 @@ html[data-theme="light"]
     musicPlayer.before(musicStage);
     musicStage.append(musicPlayer, musicQueuePanel);
 
-    const queueEdgeElement = document.createElement("button");
-    queueEdgeElement.type = "button";
-    queueEdgeElement.className = "apollo-queue-edge";
-    queueEdgeElement.id = "apolloQueueEdge";
-    queueEdgeElement.setAttribute("aria-label", "Open music queue");
-    musicView.appendChild(queueEdgeElement);
     const queueScrimElement = document.createElement("div");
-    queueScrimElement.className = "apollo-queue-scrim";
+    queueScrimElement.className = "apollo-play-queue-scrim";
     musicView.appendChild(queueScrimElement);
 
 
@@ -39090,9 +39092,10 @@ html[data-theme="light"]
     const queuePanel = musicView.querySelector("#apolloQueuePanel");
     const queueList = musicView.querySelector("#apolloQueueList");
     const queueScroll = musicView.querySelector("#apolloQueueScroll");
-    const queueEdge = musicView.querySelector("#apolloQueueEdge");
-    const queueScrim = musicView.querySelector(".apollo-queue-scrim");
-    const queuePin = musicView.querySelector("#apolloQueuePin");
+    const queueScrim = musicView.querySelector(".apollo-play-queue-scrim");
+    const queueClose = musicView.querySelector("#apolloQueueClose");
+    const queueRefresh = musicView.querySelector("#apolloQueueRefresh");
+    const queueCount = musicView.querySelector("#apolloQueueCount");
     const queueActions = musicView.querySelector("#apolloQueueActions");
     const queueAdd = musicView.querySelector("#apolloQueueAdd");
     const queueSearch = musicView.querySelector("#apolloQueueSearch");
@@ -39127,11 +39130,9 @@ html[data-theme="light"]
     let queueFetchedAt = 0;
     let queueRequest = 0;
     let queueMutationRunning = false;
-    let queueCloseTimer = null;
     let queueTransitionTimer = null;
     let queueJobTimer = null;
     let queueJobRevision = "";
-    let queuePinned = localStorage.getItem("apollo.music.queue.pinned") === "1";
     let queueSearchTimer = null;
     let queueMenu = null;
     let draggedQueueIndex = -1;
@@ -39509,7 +39510,7 @@ html[data-theme="light"]
         if (trackChanged) {
 
             queueFetchedAt = 0;
-            if (queuePanel.classList.contains("open")) {
+            if (queuePanel.classList.contains("is-open")) {
                 loadQueue(true);
             }
 
@@ -39871,6 +39872,9 @@ html[data-theme="light"]
 
     function renderQueue() {
         queueList.replaceChildren();
+        queueCount.textContent = queueData?.queue?.length
+            ? `${queueData.queue.length} up next`
+            : "";
         if (!queueData) {
             queueStatus("Loading queue…");
             return;
@@ -39938,7 +39942,7 @@ html[data-theme="light"]
     }
 
     async function pollQueueJob() {
-        if (!queuePanel.classList.contains("open")) return;
+        if (!queuePanel.classList.contains("is-open")) return;
         try {
             const response = await fetch("/api/spotify/curation-job", {cache: "no-store"});
             const data = await response.json();
@@ -40005,29 +40009,28 @@ html[data-theme="light"]
     }
 
     function openQueue() {
-        clearTimeout(queueCloseTimer);
         clearTimeout(queueTransitionTimer);
-        const wasOpen = queuePanel.classList.contains("open");
+        const wasOpen = queuePanel.classList.contains("is-open");
         dockMusicPrompt();
         queuePanel.hidden = false;
         requestAnimationFrame(() => {
-            queuePanel.classList.add("open");
+            queuePanel.classList.add("is-open");
             musicView.classList.add("queue-open");
         });
         queueTrigger.setAttribute("aria-expanded", "true");
+        queueTrigger.setAttribute("aria-label", "Close Spotify queue");
         startQueueJobPolling();
         if (!wasOpen) loadQueue();
     }
 
     function closeQueue() {
-        clearTimeout(queueCloseTimer);
-        if (queuePinned) return;
         clearTimeout(queueTransitionTimer);
-        queuePanel.classList.remove("open");
+        queuePanel.classList.remove("is-open");
         musicView.classList.remove("queue-open");
         queueTrigger.setAttribute("aria-expanded", "false");
+        queueTrigger.setAttribute("aria-label", "Open Spotify queue");
         queueTransitionTimer = window.setTimeout(() => {
-            if (!queuePanel.classList.contains("open")) {
+            if (!queuePanel.classList.contains("is-open")) {
                 queuePanel.hidden = true;
                 restoreMusicPrompt();
                 stopQueueJobPolling();
@@ -40035,35 +40038,16 @@ html[data-theme="light"]
         }, 320);
     }
 
-    function scheduleQueueClose() {
-        clearTimeout(queueCloseTimer);
-        if (!queuePinned && draggedQueueIndex < 0) {
-            queueCloseTimer = window.setTimeout(closeQueue, 320);
-        }
-    }
-
-    queueEdge.addEventListener("pointerenter", openQueue);
-    queueEdge.addEventListener("pointerleave", event => {
-        if (!queuePanel.contains(event.relatedTarget)) scheduleQueueClose();
-    });
-    queueEdge.addEventListener("focus", openQueue);
     queueTrigger.addEventListener("click", event => {
         event.stopPropagation();
-        openQueue();
-    });
-    queuePanel.addEventListener("pointerenter", () => clearTimeout(queueCloseTimer));
-    queuePanel.addEventListener("pointerleave", event => {
-        if (!queueEdge.contains(event.relatedTarget)) scheduleQueueClose();
+        if (queuePanel.classList.contains("is-open")) closeQueue();
+        else openQueue();
     });
     queueScrim.addEventListener("click", closeQueue);
-    queuePin.classList.toggle("active", queuePinned);
-    queuePin.setAttribute("aria-pressed", String(queuePinned));
-    queuePin.addEventListener("click", () => {
-        queuePinned = !queuePinned;
-        queuePin.classList.toggle("active", queuePinned);
-        queuePin.setAttribute("aria-pressed", String(queuePinned));
-        localStorage.setItem("apollo.music.queue.pinned", queuePinned ? "1" : "0");
-        if (queuePinned) openQueue();
+    queueClose.addEventListener("click", closeQueue);
+    queueRefresh.addEventListener("click", () => {
+        localStorage.removeItem("apollo.music.queue.order");
+        loadQueue(true);
     });
 
     async function playQueueIndex(index) {
@@ -40271,9 +40255,6 @@ html[data-theme="light"]
         if (queueMenu && !queueMenu.contains(event.target) && !event.target.closest(".apollo-queue-more,#apolloQueueActions")) {
             closeQueueMenu();
         }
-        if (queuePanel.classList.contains("open") && !queuePanel.contains(event.target) && !queueEdge.contains(event.target) && !queueTrigger.contains(event.target) && !queuePinned) {
-            scheduleQueueClose();
-        }
     });
     document.addEventListener("keydown", event => {
         if (event.key !== "Escape") return;
@@ -40288,11 +40269,8 @@ html[data-theme="light"]
             queueSearchInput.value = "";
             return;
         }
-        if (queuePanel.classList.contains("open")) {
-            const wasPinned = queuePinned;
-            queuePinned = false;
+        if (queuePanel.classList.contains("is-open")) {
             closeQueue();
-            queuePinned = wasPinned;
             queueTrigger.focus();
         }
     });
@@ -40477,7 +40455,7 @@ html[data-theme="light"]
 
 
         loadNowPlaying();
-        if (queuePanel.classList.contains("open")) {
+        if (queuePanel.classList.contains("is-open")) {
             loadQueue(true);
         }
 
@@ -40647,7 +40625,7 @@ html[data-theme="light"]
     function hideMusic() {
 
         clearTimeout(queueTransitionTimer);
-        queuePanel.classList.remove("open");
+        queuePanel.classList.remove("is-open");
         musicView.classList.remove("queue-open");
         queuePanel.hidden = true;
         queueTrigger.setAttribute("aria-expanded", "false");

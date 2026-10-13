@@ -475,12 +475,16 @@ class MusicQueueFrontendTests(unittest.TestCase):
         self.assertNotIn("queueData.queue.push(item)", source)
         self.assertIn("await loadQueue(true);", source)
 
-    def test_drawer_reuses_apollo_motion_and_resizes_the_player_grid(self):
+    def test_queue_rebuild_reuses_apollo_motion_and_resizes_the_player_grid(self):
         source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
-        self.assertIn("transition: opacity 220ms ease, transform 320ms var(--ease);", source)
+        self.assertIn("transition:opacity 220ms ease, transform 320ms var(--ease);", source)
         self.assertIn(".apollo-music-stage {", source)
-        self.assertIn("grid-template-columns:minmax(0,1fr) clamp(278px,25vw,318px); gap:16px;", source)
+        self.assertIn("grid-template-columns:minmax(0,1fr) clamp(286px,25vw,324px);", source)
+        self.assertIn("gap:16px;", source)
         self.assertIn('musicStage.append(musicPlayer, musicQueuePanel);', source)
+        self.assertIn('class="apollo-play-queue"', source)
+        self.assertNotIn("apollo-queue-edge", source)
+        self.assertNotIn("apollo.music.queue.pinned", source)
         self.assertNotIn("const bounds = nowPlaying.getBoundingClientRect();", source)
         self.assertIn("padding-bottom:calc(12px + var(--apollo-mobile-nav-h, 64px)", source)
         self.assertIn("@media (prefers-reduced-motion: reduce)", source)
