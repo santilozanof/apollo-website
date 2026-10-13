@@ -88,6 +88,7 @@ class DebriefRankingTests(unittest.TestCase):
         source = (ROOT / "generate_debrief.py").read_text(encoding="utf-8")
         self.assertIn('if not content and any(today.values()):', source)
         self.assertIn('"for_you": []', source)
+        self.assertIn('"instruction": "Search the web for current news and verified direct sources."', source)
 
     def test_unreachable_source_links_are_removed_before_display(self):
         good = personalization.normalize_candidate(candidate("Verified jazz release", "music", url="https://pitchfork.com/good"))

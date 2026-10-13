@@ -561,6 +561,7 @@ RULES:
             "role": "user",
             "content": json.dumps(
                 {
+                    "instruction": "Search the web for current news and verified direct sources.",
                     "local_date": local_date,
                     "local_time": now.isoformat(),
                     "timezone": time_zone,
