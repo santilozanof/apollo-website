@@ -84,6 +84,16 @@ def db():
     return conn
 
 
+def canonical_api_request_path(raw_path):
+    """Restore the public /api prefix removed by the production proxy."""
+    value = str(raw_path or "/")
+    parsed = urllib.parse.urlsplit(value)
+    path = parsed.path or "/"
+    if not path.startswith("/api"):
+        path = "/api" + (path if path.startswith("/") else "/" + path)
+    return urllib.parse.urlunsplit(("", "", path, parsed.query, parsed.fragment))
+
+
 def init_db():
     conn = db()
 
@@ -1740,6 +1750,12 @@ def _apollo_choose_hermes_toolsets(messages):
     ):
         selected.add("cronjob")
 
+    calendar_signals = (
+        "calendar", "schedule", "event", "appointment", "meeting",
+    )
+    if any(signal in lower for signal in calendar_signals):
+        selected.add("calendar")
+
     # If the current message explicitly identifies a capability,
     # keep the efficient narrow toolset.
     if selected:
@@ -1787,6 +1803,13 @@ def _apollo_choose_hermes_toolsets(messages):
         "delete it",
         "remove it",
         "add it",
+        "same day",
+        "same days",
+        "same time",
+        "same schedule",
+        "other day",
+        "other days",
+        "those days",
     )
 
     capability_context = (
@@ -1828,6 +1851,11 @@ def _apollo_choose_hermes_toolsets(messages):
     )
 
     if looks_contextual and recent_has_capability:
+        if any(
+            signal in recent_lower
+            for signal in ("calendar", "event", "schedule", "appointment", "meeting")
+        ):
+            return ["calendar"]
         return None
 
     return []
@@ -1840,13 +1868,13 @@ def _apollo_build_hermes_payload(messages, stream=False):
         messages
     )
 
-    if toolsets is None:
+    if toolsets is None or "calendar" in toolsets:
         recent_text = "\n".join(
             str(item.get("content", ""))
             for item in messages[-6:]
             if isinstance(item, dict)
         ).lower()
-        if any(
+        if (toolsets is not None and "calendar" in toolsets) or any(
             signal in recent_text
             for signal in (
                 "calendar",
@@ -10593,15 +10621,46 @@ def google_calendar_create_event(data):
         partial=False
     )
 
-    event = google_calendar_api_request(
-        "POST",
-        body=body,
-        calendar_id=data.get("calendar_id", "primary")
-    )
+    idempotency_key = str(
+        data.get("_idempotency_key")
+        or data.get("idempotency_key")
+        or ""
+    ).strip()
+    event_id = None
+    if idempotency_key:
+        # Google accepts caller-supplied event IDs using base32hex-compatible
+        # characters. A deterministic ID closes the retry window where Google
+        # accepted a POST but Apollo did not receive the response.
+        event_id = "apollo" + hashlib.sha256(
+            idempotency_key.encode("utf-8")
+        ).hexdigest()
+        body["id"] = event_id
+
+    calendar_id = data.get("calendar_id", "primary")
+    try:
+        event = google_calendar_api_request(
+            "POST",
+            body=body,
+            calendar_id=calendar_id
+        )
+    except RuntimeError as error:
+        if not event_id or " 409 " not in f" {error} ":
+            raise
+        # A 409 for our deterministic ID means an earlier identical request
+        # reached Google. Read the actual event before reporting success.
+        event = google_calendar_get_event(
+            event_id,
+            calendar_id=calendar_id
+        )
+        for field in ("summary", "start", "end", "recurrence"):
+            if field in body and event.get(field) != body.get(field):
+                raise RuntimeError(
+                    "Google Calendar retry found a non-matching event"
+                )
 
     return clean_google_event(
         event,
-        data.get("calendar_id", "primary")
+        calendar_id
     )
 
 
@@ -11630,6 +11689,25 @@ def calendar_maybe_related(
 
     if has_calendar_context:
 
+        # Scheduling shorthand is common after several successful creates.
+        # Keep it on Apollo's database/API-backed Calendar path instead of
+        # falling through to ordinary chat, where tool availability is a
+        # per-request optimization and must never define account capability.
+        contextual_schedule_terms = (
+            " same day",
+            " same days",
+            " same time",
+            " same schedule",
+            " other day",
+            " other days",
+            " those days",
+            " at that time",
+            " at the same time",
+        )
+
+        if any(term in value for term in contextual_schedule_terms):
+            return True
+
         # A real calendar event was just created or edited in this chat.
         # Let the semantic calendar interpreter resolve natural follow-ups
         # instead of requiring literal pronouns like "it" or "that".
@@ -11875,6 +11953,7 @@ For CREATE:
   "confirmation": "Add “Title” on Wednesday from 6:30–7:30 PM?",
   "action": {
     "summary": "Title",
+    "calendar_id": "primary",
     "start": "YYYY-MM-DDTHH:MM",
     "end": "YYYY-MM-DDTHH:MM",
     "location": "",
@@ -11998,6 +12077,18 @@ relevant date and destination there as available source material, including
 on a later clarification turn. Do not say the attachment or its facts are
 missing, and do not ask for a re-upload unless those facts explicitly say a
 required field is unreadable.
+
+15. Contextual create requests remain Calendar requests. Resolve phrases such
+as "same days", "same time", "same schedule", "those days", and "the other
+days" from the supplied real events plus RECENT CONVERSATION FACTS. Copy the
+referenced event's wall-clock start/end, timezone, recurrence BYDAY values,
+and calendar_id unless the user explicitly changes one of them. "The other
+days" means the complementary days established by the immediately preceding
+class requests; if that set is not unambiguous, clarify instead of guessing.
+
+16. calendar_capability is shared account state, not per-message state. If it
+says can_write=true, never claim that Calendar cannot be modified from this
+chat. If a real execution later fails, Apollo will report that API failure.
 """
         },
         {
@@ -12547,6 +12638,25 @@ def calendar_batch_result_summary(
 # APOLLO RECURRING CONTEXT FIX V5
 # =========================================================
 
+def calendar_create_idempotency_key(chat_id, action):
+    """Stable key for one semantic create inside a chat."""
+    fields = {
+        key: action.get(key)
+        for key in (
+            "summary", "calendar_id", "start", "end", "start_date",
+            "end_date", "all_day", "time_zone", "location",
+            "description", "recurrence",
+        )
+    }
+    canonical = json.dumps(
+        {"chat_id": int(chat_id), "event": fields},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def calendar_prepare_action(
     chat_id,
     interpreted,
@@ -12827,6 +12937,12 @@ def calendar_prepare_action(
         "update"
     ):
 
+        if intent == "create":
+            action["_idempotency_key"] = calendar_create_idempotency_key(
+                chat_id,
+                action
+            )
+
         try:
 
             return calendar_execute_pending(
@@ -12842,6 +12958,13 @@ def calendar_prepare_action(
             return (
                 "Your Google Calendar connection needs to be reconnected. "
                 "Open Settings and choose Reconnect."
+            )
+
+        except GoogleCalendarReadOnlyError:
+
+            return (
+                "That calendar is read-only, so I couldn't add or change "
+                "the event. Your Google Calendar connection is still active."
             )
 
         except Exception as error:
@@ -17105,8 +17228,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
         # Tailscale Serve mounted at /api strips that prefix.
         # Restore it so existing Apollo routes continue to work.
-        if not self.path.startswith("/api"):
-            self.path = "/api" + self.path
+        self.path = canonical_api_request_path(self.path)
 
         # ─────────────────────────────
         # GOOGLE CALENDAR
@@ -18412,9 +18534,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
 
-        routine_route = urllib.parse.urlparse(self.path).path
-        if routine_route == "/routines/action":
-            routine_route = "/api/routines/action"
+        routine_route = urllib.parse.urlparse(
+            canonical_api_request_path(self.path)
+        ).path
         if routine_route == "/api/routines/action":
             try:
                 routine_data = read_json(self)
@@ -18684,8 +18806,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
         # Tailscale Serve mounted at /api strips that prefix.
         # Restore it so existing Apollo routes continue to work.
-        if not self.path.startswith("/api"):
-            self.path = "/api" + self.path
+        self.path = canonical_api_request_path(self.path)
 
         # ─────────────────────────────
         # APOLLO CHAT ATTACHMENT UPLOAD

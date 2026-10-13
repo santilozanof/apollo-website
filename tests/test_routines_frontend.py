@@ -43,6 +43,14 @@ class RoutinesFrontendIntegrationTests(unittest.TestCase):
         self.assertLess(script.index(hydrated), script.index(metadata))
         self.assertIn('target.closest("[data-step-toggle]").disabled = true', script)
 
+    def test_routine_writes_are_serialized_and_reload_committed_state(self):
+        script = (ROOT / "routines.js").read_text(encoding="utf-8")
+        self.assertIn("saveQueue: Promise.resolve()", script)
+        self.assertIn("state.saveQueue.then(async () =>", script)
+        self.assertIn("await api(payload);", script)
+        self.assertIn("await load(true);", script)
+        self.assertNotIn("state.data = previousData", script)
+
     def test_routines_reuses_the_canonical_apollo_eyebrow(self):
         script = (ROOT / "routines.js").read_text(encoding="utf-8")
         self.assertIn('<div class="apollo-page-eyebrow">APOLLO</div>', script)

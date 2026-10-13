@@ -1,5 +1,6 @@
 import sqlite3
 import unittest
+from datetime import date, timedelta
 
 import routines
 
@@ -86,7 +87,9 @@ class RoutineTests(unittest.TestCase):
         old = routines.get_state(self.conn, "2026-10-10", "UTC")["routines"][0]
         routines.add_step(self.conn, routine["id"], {"title": "New step"})
         historical = routines.get_state(self.conn, "2026-10-10", "UTC")["routines"][0]
-        current = routines.get_state(self.conn, "2026-10-12", "UTC")["routines"][0]
+        current = routines.get_state(
+            self.conn, routines.local_day("UTC"), "UTC"
+        )["routines"][0]
         self.assertEqual(len(old["steps"]), 2)
         self.assertEqual(len(historical["steps"]), 2)
         self.assertEqual(len(current["steps"]), 3)
@@ -141,7 +144,9 @@ class RoutineTests(unittest.TestCase):
             "Europe/Zurich",
         )
         self.assertIn("with 4 steps", reply)
-        state = routines.get_state(self.conn, "2026-10-12", "Europe/Zurich")
+        state = routines.get_state(
+            self.conn, routines.local_day("Europe/Zurich"), "Europe/Zurich"
+        )
         item = state["routines"][0]
         self.assertEqual(item["title"], "Qa Morning")
         self.assertEqual([step["title"] for step in item["steps"]], ["Cleanse", "Serum", "Moisturize", "Sunscreen"])
@@ -153,7 +158,9 @@ class RoutineTests(unittest.TestCase):
         )
         reply = routines.chat_action(self.conn, request, "Europe/Zurich")
         self.assertIn("with 4 steps", reply)
-        item = routines.get_state(self.conn, "2026-10-12", "Europe/Zurich")["routines"][0]
+        item = routines.get_state(
+            self.conn, routines.local_day("Europe/Zurich"), "Europe/Zurich"
+        )["routines"][0]
         self.assertEqual(
             [step["title"] for step in item["steps"]],
             ["Cleanser", "Niacinamide serum", "Hydrating cream", "SPF sunscreen"],
@@ -240,7 +247,7 @@ Make each step individually checkable and verify that all four steps were saved 
         )
         self.assertIn("Added flossing", reply)
         titles = [item["title"] for item in routines.get_state(
-            self.conn, "2026-10-12", "Europe/Zurich"
+            self.conn, routines.local_day("Europe/Zurich"), "Europe/Zurich"
         )["routines"][0]["steps"]]
         self.assertEqual(titles, ["Brush my teeth", "flossing", "Prepare for bed"])
 
@@ -309,13 +316,16 @@ Make each step individually checkable and verify that all four steps were saved 
         routine = self.routine(steps=[{"title": "Retinol"}])
         historical = routines.get_state(self.conn, "2026-10-08", "UTC")["routines"][0]
         step_id = routine["steps"][0]["id"]
-        routines.set_step_exception(self.conn, routine["id"], step_id, "2026-10-12", "substitute", "Azelaic acid")
-        substituted = routines.get_state(self.conn, "2026-10-12", "UTC")["routines"][0]
+        today = date.fromisoformat(routines.local_day("UTC"))
+        substitute_day = today.isoformat()
+        skip_day = (today + timedelta(days=1)).isoformat()
+        routines.set_step_exception(self.conn, routine["id"], step_id, substitute_day, "substitute", "Azelaic acid")
+        substituted = routines.get_state(self.conn, substitute_day, "UTC")["routines"][0]
         self.assertEqual(substituted["steps"][0]["title"], "Azelaic acid")
         self.assertEqual(substituted["steps"][0]["original_title"], "Retinol")
         self.assertEqual(routines.get_state(self.conn, "2026-10-08", "UTC")["routines"][0]["steps"][0]["title"], historical["steps"][0]["title"])
-        routines.set_step_exception(self.conn, routine["id"], step_id, "2026-10-13", "skip")
-        self.assertEqual(routines.get_state(self.conn, "2026-10-13", "UTC")["routines"][0]["steps"], [])
+        routines.set_step_exception(self.conn, routine["id"], step_id, skip_day, "skip")
+        self.assertEqual(routines.get_state(self.conn, skip_day, "UTC")["routines"][0]["steps"], [])
 
     def test_chat_moves_step_between_weekdays_and_context_has_week(self):
         routine = self.routine(steps=[{

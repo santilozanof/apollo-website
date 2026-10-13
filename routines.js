@@ -9,6 +9,7 @@
         showAll: new Set(),
         openMenu: null,
         loadToken: 0,
+        saveQueue: Promise.resolve(),
         modal: null
     };
 
@@ -331,9 +332,20 @@
     });
 
     async function save(payload) {
-        const previousData = state.data;
-        try { await api(payload); await load(true); }
-        catch (error) { state.data = previousData; render(); toast(error.message); }
+        const operation = state.saveQueue.then(async () => {
+            await api(payload);
+            // The database response is authoritative. Reload only after the
+            // committed write so a slower earlier request cannot overwrite a
+            // later check/uncheck or a routine switch.
+            await load(true);
+        });
+        state.saveQueue = operation.catch(() => {});
+        try { await operation; }
+        catch (error) {
+            // No optimistic state was applied, so retain the last confirmed
+            // snapshot and surface the real backend failure.
+            toast(error.message || "Could not save that change");
+        }
     }
 
     function renderHydration() {
