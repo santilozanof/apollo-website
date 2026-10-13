@@ -314,6 +314,21 @@ class MusicQueueFrontendTests(unittest.TestCase):
         self.assertNotIn("queueData.queue.push(item)", source)
         self.assertIn("await loadQueue(true);", source)
 
+    def test_drawer_reuses_apollo_motion_and_now_playing_bounds(self):
+        source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
+        self.assertIn("transition: opacity 220ms ease, transform 320ms var(--ease);", source)
+        self.assertIn("const bounds = nowPlaying.getBoundingClientRect();", source)
+        self.assertIn('--apollo-queue-top", `${Math.max(12, bounds.top)}px`', source)
+        self.assertIn('--apollo-queue-bottom", `${Math.max(12, window.innerHeight - bounds.bottom)}px`', source)
+
+    def test_existing_music_prompt_is_docked_without_duplication(self):
+        source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
+        self.assertEqual(source.count('id="apolloPresence"'), 1)
+        self.assertIn('id="apolloQueuePrompt"', source)
+        self.assertIn('presence.classList.add("apollo-presence-queue")', source)
+        self.assertIn("queuePrompt.appendChild(presence);", source)
+        self.assertIn("restoreMusicPrompt();", source)
+
 
 class CuratorFailureTests(unittest.TestCase):
     def function(self, result):
