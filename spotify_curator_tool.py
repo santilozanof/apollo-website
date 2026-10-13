@@ -38,6 +38,14 @@ def candidate_score(track, wanted_title, wanted_artist):
     return title_score * 0.72 + artist_score * 0.28
 
 
+def spotify_retry_after(error):
+    headers = getattr(error, "headers", None) or {}
+    for key, value in headers.items():
+        if str(key).casefold() == "retry-after":
+            return value
+    return None
+
+
 def spotify_read(operation, attempts=3):
     """Retry only idempotent Spotify reads; playback mutations run once."""
     last_error = None
@@ -56,8 +64,7 @@ def spotify_read(operation, attempts=3):
             )
             if not temporary or attempt + 1 >= attempts:
                 raise
-            retry_after = getattr(error, "headers", {}).get("Retry-After") \
-                if getattr(error, "headers", None) else None
+            retry_after = spotify_retry_after(error)
             try:
                 # Spotify's 429 recovery contract is the Retry-After value.
                 # Keep it bounded, but never shorten ordinary retry windows to
@@ -221,8 +228,7 @@ def add_to_queue_safely(spotify, uri, device_id, known_counts, attempts=3):
                 return
             if attempt + 1 >= attempts:
                 raise
-            retry_after = getattr(error, "headers", {}).get("Retry-After") \
-                if getattr(error, "headers", None) else None
+            retry_after = spotify_retry_after(error)
             try:
                 retry_delay = float(retry_after)
                 if retry_delay > 10.0:
@@ -513,7 +519,7 @@ def main():
         print(json.dumps(result))
     except Exception as error:
         status = getattr(error, "http_status", None)
-        retry_after = getattr(error, "headers", {}).get("Retry-After") if getattr(error, "headers", None) else None
+        retry_after = spotify_retry_after(error)
         print(json.dumps({"ok": False, "error": str(error), "status": status, "retry_after": retry_after}), file=sys.stderr)
         raise SystemExit(2)
 

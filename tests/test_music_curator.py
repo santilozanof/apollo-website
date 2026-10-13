@@ -173,7 +173,7 @@ class QueueExecutionTests(unittest.TestCase):
 
         class RateLimit(Exception):
             http_status = 429
-            headers = {"Retry-After": "3"}
+            headers = {"retry-after": "3"}
 
         def operation():
             calls.append(1)

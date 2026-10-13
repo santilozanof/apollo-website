@@ -73,6 +73,8 @@ SPOTIFY_PLAYBACK_REFRESH_LOCK = threading.Lock()
 SPOTIFY_QUEUE_CACHE = {"value": None, "at": 0.0}
 SPOTIFY_QUEUE_CACHE_LOCK = threading.Lock()
 SPOTIFY_QUEUE_REFRESH_LOCK = threading.Lock()
+SPOTIFY_RATE_LIMIT = {"until": 0.0, "retry_after": 0.0}
+SPOTIFY_RATE_LIMIT_LOCK = threading.Lock()
 SPOTIFY_CURATOR_START_LOCK = threading.Lock()
 SPOTIFY_CURATOR_JOB_LOCK = threading.RLock()
 SPOTIFY_CURATOR_JOBS = {}
@@ -6840,8 +6842,33 @@ def apollo_music_save_curator_context(chat_id, value):
         app_state_set(f"music_curator_chat_{chat_id}", encoded)
 
 
+def apollo_spotify_rate_limit_remaining():
+    """Return the shared Spotify cooldown without making another API call."""
+    with SPOTIFY_RATE_LIMIT_LOCK:
+        return max(0.0, SPOTIFY_RATE_LIMIT.get("until", 0.0) - time.monotonic())
+
+
+def apollo_spotify_set_rate_limit(retry_after):
+    try:
+        delay = float(retry_after)
+    except (TypeError, ValueError):
+        delay = 5.0
+    delay = min(300.0, max(1.0, delay))
+    with SPOTIFY_RATE_LIMIT_LOCK:
+        SPOTIFY_RATE_LIMIT.update(
+            until=time.monotonic() + delay,
+            retry_after=delay,
+        )
+    return delay
+
+
 def apollo_spotify_queue_command(command, argument=None):
     """Read or mutate Spotify's real queue through the curator auth adapter."""
+    remaining = apollo_spotify_rate_limit_remaining()
+    if remaining > 0:
+        raise RuntimeError(
+            f"Spotify rate-limited the request; retry after {max(1, int(remaining + .999))} seconds"
+        )
     args = [SPOTIFY_PYTHON, str(SPOTIFY_CURATOR_TOOL), command]
     if argument is not None:
         args.append(argument)
@@ -6863,10 +6890,10 @@ def apollo_spotify_queue_command(command, argument=None):
         except (ValueError, TypeError, IndexError):
             failure = {}
         if failure.get("status") == 429:
-            retry = failure.get("retry_after")
+            retry = apollo_spotify_set_rate_limit(failure.get("retry_after"))
             raise RuntimeError(
                 "Spotify rate-limited the request"
-                + (f"; retry after {retry} seconds" if retry else "")
+                + f"; retry after {max(1, int(retry + .999))} seconds"
             )
         raise RuntimeError("Spotify is temporarily unavailable. Try again in a moment.")
     try:
@@ -6880,6 +6907,8 @@ def apollo_spotify_queue_snapshot(force=False):
     now = time.monotonic()
     with SPOTIFY_QUEUE_CACHE_LOCK:
         cached = SPOTIFY_QUEUE_CACHE.get("value")
+        if cached is not None and apollo_spotify_rate_limit_remaining() > 0:
+            return dict(cached)
         if not force and cached is not None and now - SPOTIFY_QUEUE_CACHE["at"] < 1.25:
             return dict(cached)
     with SPOTIFY_QUEUE_REFRESH_LOCK:

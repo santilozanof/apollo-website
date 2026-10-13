@@ -1,5 +1,6 @@
 import ast
 import json
+import subprocess
 import threading
 import time
 import unittest
@@ -127,3 +128,37 @@ class SpotifyPlaybackStateTests(unittest.TestCase):
             thread.join()
         self.assertEqual(len(calls), 1)
         self.assertEqual([item["title"] for item in results], ["One read"] * 4)
+
+    def test_rate_limit_starts_shared_cooldown_and_prevents_repeat_call(self):
+        calls = []
+        cooldown = {"remaining": 0.0}
+
+        class Runner:
+            TimeoutExpired = subprocess.TimeoutExpired
+
+            @staticmethod
+            def run(*_args, **_kwargs):
+                calls.append(1)
+                return type("Result", (), {
+                    "returncode": 1,
+                    "stdout": "",
+                    "stderr": json.dumps({"status": 429, "retry_after": "7"}),
+                })()
+
+        def set_cooldown(value):
+            cooldown["remaining"] = float(value)
+            return float(value)
+
+        command = load_function("apollo_spotify_queue_command", {
+            "json": json,
+            "subprocess": Runner,
+            "SPOTIFY_PYTHON": "python",
+            "SPOTIFY_CURATOR_TOOL": Path("spotify_curator_tool.py"),
+            "apollo_spotify_rate_limit_remaining": lambda: cooldown["remaining"],
+            "apollo_spotify_set_rate_limit": set_cooldown,
+        })
+        with self.assertRaisesRegex(RuntimeError, "retry after 7 seconds"):
+            command("queue")
+        with self.assertRaisesRegex(RuntimeError, "retry after 7 seconds"):
+            command("queue")
+        self.assertEqual(calls, [1])
