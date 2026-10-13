@@ -6071,30 +6071,36 @@ def spotify_playback_command(action, position_ms=None):
 # ============================================================
 
 def apollo_spotify_personal_playlists():
+    result = None
+    for attempt in range(2):
+        try:
+            result = subprocess.run(
+                [SPOTIFY_PYTHON, SPOTIFY_TOOL, "list-playlists"],
+                capture_output=True,
+                text=True,
+                timeout=8
+            )
+        except subprocess.TimeoutExpired:
+            print(
+                "[Apollo Music Alias] Spotify playlist lookup timed out"
+                f" (attempt {attempt + 1}/2)"
+            )
+            if attempt == 0:
+                time.sleep(.25)
+                continue
+            return []
 
-    result = subprocess.run(
-        [
-            SPOTIFY_PYTHON,
-            SPOTIFY_TOOL,
-            "list-playlists"
-        ],
-        capture_output=True,
-        text=True,
-        timeout=20
-    )
-
-
-    if result.returncode != 0:
+        if result.returncode == 0:
+            break
 
         print(
-            "[Apollo Music Alias] "
-            "Could not load Spotify playlists: "
-            + (
-                result.stderr.strip()
-                or result.stdout.strip()
-            )
+            "[Apollo Music Alias] Could not load Spotify playlists"
+            f" (attempt {attempt + 1}/2)"
         )
+        if attempt == 0:
+            time.sleep(.25)
 
+    if result is None or result.returncode != 0:
         return []
 
 
@@ -6438,6 +6444,12 @@ def apollo_music_alias_candidate(
         "the playlist i always play",
         "the playlist i usually play",
         "my playlist",
+        "my jams",
+        "my shit",
+        "my usual",
+        "the usual",
+        "the main one",
+        "play my main",
     )
 
 
@@ -6445,6 +6457,31 @@ def apollo_music_alias_candidate(
         alias in value
         for alias in aliases
     )
+
+
+def apollo_music_playlist_lookup_requested(user_request):
+    """Only load the user's playlists for an actual personal-playlist request."""
+    value = " ".join(str(user_request or "").casefold().split())
+    if not value:
+        return False
+    if "playlist" in value or apollo_music_alias_candidate(value):
+        return True
+    return bool(
+        re.match(r"^(?:please\s+)?(?:play|put on|start|shuffle)\s+my\s+", value)
+        and len(value.split()) <= 10
+    )
+
+
+def apollo_music_user_error(error):
+    """Return a concise music error without leaking process or filesystem details."""
+    message = str(error or "").casefold()
+    if "no active" in message and "spotify" in message:
+        return "Open Spotify on a device, then try that again."
+    if "understand the music request" in message:
+        return "I couldn't understand that music request. Try naming a song, artist, playlist, or vibe."
+    if "rate" in message and "limit" in message:
+        return "Spotify is busy right now. Please try again in a moment."
+    return "Spotify is temporarily unavailable. Please try again in a moment."
 
 
 def apollo_music_recent_personal_context(
@@ -6881,15 +6918,20 @@ def apollo_music_curate(user_request, chat_id=None, prior_context=None, dry_run=
         "minimum": 4,
         "maximum": 10,
     }
-    result = subprocess.run(
-        [
-            SPOTIFY_PYTHON,
-            str(SPOTIFY_CURATOR_TOOL),
-            "resolve" if dry_run else "play-queue",
-            json.dumps(payload, ensure_ascii=False),
-        ],
-        capture_output=True, text=True, timeout=55,
-    )
+    try:
+        result = subprocess.run(
+            [
+                SPOTIFY_PYTHON,
+                str(SPOTIFY_CURATOR_TOOL),
+                "resolve" if dry_run else "play-queue",
+                json.dumps(payload, ensure_ascii=False),
+            ],
+            capture_output=True, text=True, timeout=55,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(
+            "Spotify did not respond in time. Please try again in a moment."
+        ) from error
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or "Spotify could not build the queue"
         try:
@@ -7132,20 +7174,25 @@ def apollo_music_play_request(user_request, chat_id=None):
     }
 
 
-    result = subprocess.run(
-        [
-            SPOTIFY_PYTHON,
-            SPOTIFY_TOOL,
-            "play-request",
-            json.dumps(
-                payload,
-                ensure_ascii=False
-            )
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30
-    )
+    try:
+        result = subprocess.run(
+            [
+                SPOTIFY_PYTHON,
+                SPOTIFY_TOOL,
+                "play-request",
+                json.dumps(
+                    payload,
+                    ensure_ascii=False
+                )
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(
+            "Spotify did not respond in time. Please try again in a moment."
+        ) from error
 
 
     if result.returncode != 0:
@@ -7167,10 +7214,12 @@ def apollo_music_play_request(user_request, chat_id=None):
             else {}
         )
 
-    except Exception:
-        spotify_result = {
-            "ok": True
-        }
+    except Exception as error:
+        raise RuntimeError("Spotify returned an invalid playback confirmation") from error
+
+
+    if not isinstance(spotify_result, dict) or spotify_result.get("ok") is not True:
+        raise RuntimeError("Spotify did not confirm playback")
 
 
     return {
@@ -20321,7 +20370,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 json_response(
                     self,
                     {
-                        "error": str(exc)
+                        "error": apollo_music_user_error(exc)
                     },
                     500
                 )
@@ -21209,23 +21258,28 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     )
 
 
-                    # First: literal / near-literal names from
-                    # the user's REAL Spotify playlists.
+                    # Playlist enumeration is intentionally gated. Descriptive
+                    # artist-style and mood requests must reach the semantic
+                    # curator without waiting on the legacy playlist helper.
+                    playlist_lookup = apollo_music_playlist_lookup_requested(
+                        user_message
+                    )
                     resolved_playlist = (
-                        apollo_music_match_personal_playlist(
-                            user_message
-                        )
+                        apollo_music_match_personal_playlist(user_message)
+                        if playlist_lookup
+                        else None
                     )
 
 
-                    # Second: personal semantic aliases such as
-                    # "my main playlist" -> "₄".
-                    if not resolved_playlist:
-
-                        resolved_playlist = (
-                            apollo_music_resolve_personal_alias(
-                                user_message
-                            )
+                    # Personal semantic aliases such as "my main playlist" ->
+                    # "₄" are the only fallback that needs playlist history.
+                    if (
+                        not resolved_playlist
+                        and playlist_lookup
+                        and apollo_music_alias_candidate(user_message)
+                    ):
+                        resolved_playlist = apollo_music_resolve_personal_alias(
+                            user_message
                         )
 
 
@@ -21276,14 +21330,17 @@ class ApolloHandler(BaseHTTPRequestHandler):
                                 or "{}"
                             )
 
-                        except Exception:
+                        except Exception as error:
+                            raise RuntimeError(
+                                "Spotify returned an invalid playback confirmation"
+                            ) from error
 
-                            spotify_result = {
-                                "ok": True,
-                                "type": "playlist",
-                                "name":
-                                    resolved_playlist
-                            }
+
+                        if (
+                            not isinstance(spotify_result, dict)
+                            or spotify_result.get("ok") is not True
+                        ):
+                            raise RuntimeError("Spotify did not confirm playback")
 
 
                         music_result = {
@@ -21446,10 +21503,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     apollo_send_direct_sse(
                         self,
                         chat_id,
-                        (
-                            "I couldn't play that. "
-                            + str(error)
-                        )
+                        apollo_music_user_error(error)
                     )
 
                     return

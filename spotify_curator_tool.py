@@ -9,6 +9,7 @@ import hashlib
 import os
 import re
 import sys
+import time
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -36,6 +37,34 @@ def candidate_score(track, wanted_title, wanted_artist):
     return title_score * 0.72 + artist_score * 0.28
 
 
+def spotify_read(operation, attempts=3):
+    """Retry only idempotent Spotify reads; playback mutations run once."""
+    last_error = None
+    for attempt in range(max(1, int(attempts))):
+        try:
+            return operation()
+        except Exception as error:
+            last_error = error
+            status = getattr(error, "http_status", None)
+            detail = str(error).casefold()
+            temporary = status in {429, 500, 502, 503, 504} or isinstance(
+                error, (TimeoutError, ConnectionError)
+            ) or any(
+                marker in detail
+                for marker in ("timed out", "timeout", "temporarily unavailable", "connection reset")
+            )
+            if not temporary or attempt + 1 >= attempts:
+                raise
+            retry_after = getattr(error, "headers", {}).get("Retry-After") \
+                if getattr(error, "headers", None) else None
+            try:
+                delay = min(1.0, max(.2, float(retry_after)))
+            except (TypeError, ValueError):
+                delay = .25 * (attempt + 1)
+            time.sleep(delay)
+    raise last_error
+
+
 def resolve_candidates(spotify, candidates, excluded_ids=(), maximum=10):
     resolved = []
     excluded = {str(value) for value in excluded_ids if value}
@@ -49,7 +78,9 @@ def resolve_candidates(spotify, candidates, excluded_ids=(), maximum=10):
         searches = [f'track:"{title}" artist:"{artist}"']
         found = {}
         for query in searches:
-            response = spotify.search(q=query, type="track", limit=8)
+            response = spotify_read(
+                lambda query=query: spotify.search(q=query, type="track", limit=8)
+            )
             for item in (response.get("tracks") or {}).get("items") or []:
                 if item.get("id") and item.get("id") not in excluded:
                     found[item["id"]] = item
@@ -59,7 +90,9 @@ def resolve_candidates(spotify, candidates, excluded_ids=(), maximum=10):
             [candidate_score(item, title, artist) for item in found.values()] or [0]
         )
         if best_strict < 0.82:
-            response = spotify.search(q=f"{title} {artist}", type="track", limit=8)
+            response = spotify_read(
+                lambda: spotify.search(q=f"{title} {artist}", type="track", limit=8)
+            )
             for item in (response.get("tracks") or {}).get("items") or []:
                 if item.get("id") and item.get("id") not in excluded:
                     found[item["id"]] = item
@@ -83,13 +116,15 @@ def resolve_candidates(spotify, candidates, excluded_ids=(), maximum=10):
     return normalize_curated_tracks(resolved, excluded, maximum)
 
 
-def existing_queue_ids(spotify):
-    try:
-        data = spotify.queue() or {}
-    except Exception:
-        return [], 0
+def existing_queue_state(spotify):
+    data = spotify_read(spotify.queue) or {}
     items = [item for item in data.get("queue") or [] if isinstance(item, dict)]
-    return [item.get("id") for item in items if item.get("id")], len(items)
+    ids = [item.get("id") for item in items if item.get("id")]
+    uris = [
+        item.get("uri") for item in items
+        if str(item.get("uri") or "").startswith("spotify:track:")
+    ]
+    return ids, uris
 
 
 def compact_queue_item(item):
@@ -133,8 +168,8 @@ def queue_snapshot(data):
     }
 
 
-def play_resolved_queue(spotify, tracks, devices):
-    """Start the opener, then append the verified tracks in their plan order."""
+def play_resolved_queue(spotify, tracks, devices, existing_queue_uris=()):
+    """Start the opener, restore the prior queue, then append the curated tracks."""
     active = next(
         (item for item in devices or [] if item.get("is_active") and not item.get("is_restricted")),
         None,
@@ -142,6 +177,8 @@ def play_resolved_queue(spotify, tracks, devices):
     if not active:
         raise RuntimeError("No active, controllable Spotify device is available")
     spotify.start_playback(device_id=active.get("id"), uris=[tracks[0]["uri"]], position_ms=0)
+    for uri in existing_queue_uris or []:
+        spotify.add_to_queue(uri, device_id=active.get("id"))
     for track in tracks[1:]:
         spotify.add_to_queue(track["uri"], device_id=active.get("id"))
     return len(tracks) - 1
@@ -159,13 +196,15 @@ def spotify_client():
         client_secret=os.environ["SPOTIFY_CLIENT_SECRET"],
         redirect_uri="http://127.0.0.1:8888/callback", scope=SCOPES,
         open_browser=False, cache_path="/root/.spotify-apollo-cache",
-    ))
+    ), requests_timeout=8, retries=0, status_retries=0, backoff_factor=0)
 
 
 def listening_context(spotify):
     """Return compact permitted listening signals, never private token data."""
-    recent = spotify.current_user_recently_played(limit=15) or {}
-    top = spotify.current_user_top_artists(limit=10, time_range="short_term") or {}
+    recent = spotify_read(lambda: spotify.current_user_recently_played(limit=15)) or {}
+    top = spotify_read(
+        lambda: spotify.current_user_top_artists(limit=10, time_range="short_term")
+    ) or {}
     return {
         "recent_tracks": [
             {
@@ -181,7 +220,7 @@ def listening_context(spotify):
 
 def run(payload, play=False):
     spotify = spotify_client()
-    queued_ids, existing_count = existing_queue_ids(spotify)
+    queued_ids, existing_queue_uris = existing_queue_state(spotify)
     excluded = list(payload.get("exclude_track_ids") or []) + queued_ids
     current_id = str(payload.get("current_track_id") or "").strip()
     if current_id:
@@ -193,12 +232,15 @@ def run(payload, play=False):
     playback_started = False
     queued = 0
     if play:
-        devices = (spotify.devices() or {}).get("devices") or []
-        queued = play_resolved_queue(spotify, tracks, devices)
+        devices = (spotify_read(spotify.devices) or {}).get("devices") or []
+        queued = play_resolved_queue(
+            spotify, tracks, devices,
+            existing_queue_uris=existing_queue_uris,
+        )
         playback_started = True
     return {
         "ok": True, "tracks": tracks, "playback_started": playback_started,
-        "queued": queued, "existing_queue_count": existing_count,
+        "queued": queued, "existing_queue_count": len(existing_queue_uris),
         "queue_preserved": True,
     }
 
@@ -221,7 +263,8 @@ def main():
                 raise ValueError("Missing music request")
             result = run(json.loads(sys.argv[2]), play=command == "play-queue")
         elif command == "queue":
-            result = queue_snapshot(spotify_client().queue())
+            spotify = spotify_client()
+            result = queue_snapshot(spotify_read(spotify.queue))
         elif command == "queue-play":
             payload = json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
             uris = payload.get("uris") or []
@@ -246,7 +289,10 @@ def main():
             if not query:
                 result = {"tracks": []}
             else:
-                response = spotify_client().search(q=query, type="track", limit=8)
+                spotify = spotify_client()
+                response = spotify_read(
+                    lambda: spotify.search(q=query, type="track", limit=8)
+                )
                 tracks = [
                     compact for compact in (
                         compact_queue_item(item)
