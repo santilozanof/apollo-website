@@ -5553,7 +5553,7 @@ def spotify_current_with_player_probe():
     token.  It never writes, returns, or logs the bearer token.
     """
     hook = r'''
-import atexit, json, os, re, subprocess, urllib.error, urllib.request
+import atexit, hashlib, json, os, re, subprocess, time, urllib.error, urllib.request
 trace_path = os.environ.get("APOLLO_SPOTIFY_TRACE_FILE")
 state = {"currently_playing": {}, "player": {}, "devices": {}, "granted_scopes": [], "helper_requests": []}
 latest_authorization = None
@@ -5606,10 +5606,18 @@ def player_probe(authorization):
                 data = original_json_loads(payload)
                 item = data.get("item") if isinstance(data, dict) else {}
                 device = data.get("device") if isinstance(data, dict) else {}
+                device_id = str(device.get("id") or "") if isinstance(device, dict) else ""
                 state["player"].update({
                     "is_playing": data.get("is_playing") if isinstance(data, dict) else None,
+                    "progress_ms": data.get("progress_ms") if isinstance(data, dict) else None,
+                    "timestamp": data.get("timestamp") if isinstance(data, dict) else None,
+                    "sampled_at_ms": int(time.time() * 1000),
                     "item": item if isinstance(item, dict) else {},
-                    "device": {"name": device.get("name"), "type": device.get("type")} if isinstance(device, dict) else {},
+                    "device": {
+                        "name": device.get("name"),
+                        "type": device.get("type"),
+                        "key": hashlib.sha256(device_id.encode()).hexdigest()[:16] if device_id else None,
+                    } if isinstance(device, dict) else {},
                 })
     except urllib.error.HTTPError as error:
         state["player"] = {"status": error.code, "error": error.read().decode("utf-8", errors="replace")[:500]}
@@ -5633,6 +5641,9 @@ def currently_playing_probe(authorization):
                 item = data.get("item") if isinstance(data, dict) else {}
                 state["currently_playing"].update({
                     "is_playing": data.get("is_playing") if isinstance(data, dict) else None,
+                    "progress_ms": data.get("progress_ms") if isinstance(data, dict) else None,
+                    "timestamp": data.get("timestamp") if isinstance(data, dict) else None,
+                    "sampled_at_ms": int(time.time() * 1000),
                     "item": item if isinstance(item, dict) else {},
                 })
     except urllib.error.HTTPError as error:
@@ -5776,10 +5787,12 @@ def spotify_player_result(diagnostics):
         "artists": artists,
         "album": album.get("name"),
         "artwork": (images[0] or {}).get("url") if images and isinstance(images[0], dict) else None,
-        "progress_ms": 0,
+        "progress_ms": player.get("progress_ms") or 0,
         "duration_ms": item.get("duration_ms") or 0,
+        "sampled_at_ms": player.get("sampled_at_ms"),
         "device": device.get("name"),
         "device_type": device.get("type"),
+        "device_key": device.get("key"),
         "track_id": item.get("id"),
     }
 
@@ -5801,6 +5814,10 @@ def get_now_playing():
             player_data = spotify_player_result(diagnostics)
             if player_data:
                 playback = spotify_playback_state(player_data)
+        playback["sampled_at_ms"] = (
+            playback.get("sampled_at_ms")
+            or int(time.time() * 1000)
+        )
         playback["spotify_diagnostics"] = diagnostics
         print(
             "[Apollo Spotify] "

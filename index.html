@@ -39007,6 +39007,74 @@ html[data-theme="light"]
     }
 
 
+    // APOLLO_MUSIC_PROGRESS_RECONCILER_START
+    function reconcilePlaybackProgress({
+        localProgress,
+        incomingProgress,
+        playing,
+        sampledAt,
+        now,
+        hardSync
+    }) {
+
+        const reported =
+            Number(incomingProgress);
+
+
+        if (!Number.isFinite(reported)) {
+            return hardSync ? 0 : localProgress;
+        }
+
+
+        const sampleAge =
+            playing
+            ? Math.max(
+                0,
+                Math.min(
+                    30000,
+                    now - (Number(sampledAt) || now)
+                )
+            )
+            : 0;
+
+
+        const authoritative =
+            Math.max(0, reported)
+            + sampleAge;
+
+
+        if (hardSync) {
+            return authoritative;
+        }
+
+
+        const drift =
+            authoritative
+            - localProgress;
+
+
+        // A multi-second difference is a real seek or an external player
+        // change. Smaller clock/network differences are corrected gradually
+        // so the bar never flickers or jumps on an ordinary poll.
+        if (Math.abs(drift) >= 2000) {
+            return authoritative;
+        }
+
+
+        if (Math.abs(drift) < 200) {
+            return localProgress;
+        }
+
+
+        return localProgress
+            + Math.max(
+                -250,
+                Math.min(250, drift)
+            );
+    }
+    // APOLLO_MUSIC_PROGRESS_RECONCILER_END
+
+
     function renderProgress() {
 
         if (!playback) {
@@ -39053,6 +39121,14 @@ html[data-theme="light"]
         data
     ) {
 
+        const previousPlayback =
+            playback;
+
+
+        const localProgress =
+            currentProgress();
+
+
         playback =
             data || {};
 
@@ -39071,6 +39147,39 @@ html[data-theme="light"]
                 lastRenderedTrackId
                 && nextTrackId
                 && lastRenderedTrackId !== nextTrackId
+            );
+
+
+        const previousDevice =
+            previousPlayback
+            ? [
+                previousPlayback.device_key || "",
+                previousPlayback.device || "",
+                previousPlayback.device_type || ""
+            ].join("::")
+            : "";
+
+
+        const nextDevice =
+            [
+                playback.device_key || "",
+                playback.device || "",
+                playback.device_type || ""
+            ].join("::");
+
+
+        const deviceChanged =
+            Boolean(
+                previousPlayback
+                && previousDevice !== nextDevice
+            );
+
+
+        const playStateChanged =
+            Boolean(
+                previousPlayback
+                && Boolean(previousPlayback.playing)
+                    !== Boolean(playback.playing)
             );
 
 
@@ -39179,14 +39288,31 @@ html[data-theme="light"]
         }
 
 
+        const progressNow =
+            Date.now();
+
+
         progressAnchor =
-            Number(
-                playback.progress_ms
-            ) || 0;
+            reconcilePlaybackProgress({
+                localProgress,
+                incomingProgress:
+                    playback.progress_ms,
+                playing:
+                    Boolean(playback.playing),
+                sampledAt:
+                    playback.sampled_at_ms,
+                now:
+                    progressNow,
+                hardSync:
+                    !previousPlayback
+                    || trackChanged
+                    || deviceChanged
+                    || playStateChanged
+            });
 
 
         progressAnchorTime =
-            Date.now();
+            progressNow;
 
 
         playButton.innerHTML =

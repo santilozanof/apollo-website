@@ -1,5 +1,6 @@
 import ast
 import json
+import time
 import unittest
 from pathlib import Path
 
@@ -69,6 +70,7 @@ class SpotifyPlaybackStateTests(unittest.TestCase):
             "spotify_playback_state": state,
             "spotify_current_with_player_probe": probe,
             "spotify_player_result": lambda _diagnostics: None,
+            "time": time,
         })
 
         response = current()
@@ -83,7 +85,9 @@ class SpotifyPlaybackStateTests(unittest.TestCase):
             "player": {
                 "status": 200,
                 "is_playing": True,
-                "device": {"name": "Kitchen", "type": "Speaker"},
+                "progress_ms": 45678,
+                "sampled_at_ms": 1234567890,
+                "device": {"name": "Kitchen", "type": "Speaker", "key": "device-key"},
                 "item": {
                     "id": "track", "name": "Live track", "duration_ms": 123,
                     "artists": [{"name": "Artist"}],
@@ -94,3 +98,6 @@ class SpotifyPlaybackStateTests(unittest.TestCase):
         self.assertEqual(response["title"], "Live track")
         self.assertTrue(response["playing"])
         self.assertEqual(response["playback_state"], "playing")
+        self.assertEqual(response["progress_ms"], 45678)
+        self.assertEqual(response["sampled_at_ms"], 1234567890)
+        self.assertEqual(response["device_key"], "device-key")
