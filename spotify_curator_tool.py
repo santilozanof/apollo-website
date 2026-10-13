@@ -5,6 +5,7 @@ URIs and validates every selection before any playback mutation occurs.
 """
 
 import json
+import hashlib
 import os
 import re
 import sys
@@ -91,6 +92,47 @@ def existing_queue_ids(spotify):
     return [item.get("id") for item in items if item.get("id")], len(items)
 
 
+def compact_queue_item(item):
+    if not isinstance(item, dict):
+        return None
+    album = item.get("album") if isinstance(item.get("album"), dict) else {}
+    images = album.get("images") if isinstance(album.get("images"), list) else []
+    artists = item.get("artists") if isinstance(item.get("artists"), list) else []
+    return {
+        "id": item.get("id"),
+        "uri": item.get("uri"),
+        "type": item.get("type"),
+        "name": item.get("name"),
+        "artists": ", ".join(
+            artist.get("name", "") for artist in artists
+            if isinstance(artist, dict) and artist.get("name")
+        ),
+        "artwork": images[0].get("url") if images and isinstance(images[0], dict) else None,
+        "duration_ms": item.get("duration_ms") or 0,
+        "album_uri": album.get("uri"),
+        "artist_uri": artists[0].get("uri") if artists and isinstance(artists[0], dict) else None,
+        "spotify_url": (item.get("external_urls") or {}).get("spotify"),
+    }
+
+
+def queue_snapshot(data):
+    current = compact_queue_item((data or {}).get("currently_playing"))
+    queued = [
+        compact for compact in (
+            compact_queue_item(item) for item in ((data or {}).get("queue") or [])
+        ) if compact and compact.get("uri")
+    ]
+    signature = "\n".join(
+        [current.get("uri", "") if current else ""]
+        + [item.get("uri", "") for item in queued]
+    )
+    return {
+        "current": current,
+        "queue": queued,
+        "revision": hashlib.sha256(signature.encode("utf-8")).hexdigest()[:20],
+    }
+
+
 def play_resolved_queue(spotify, tracks, devices):
     """Start the opener, then append the verified tracks in their plan order."""
     active = next(
@@ -163,11 +205,55 @@ def run(payload, play=False):
 
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
-    if command not in {"context", "resolve", "play-queue"} or len(sys.argv) < 3:
-        raise SystemExit("Usage: spotify_curator_tool.py context|resolve|play-queue JSON")
-    payload = json.loads(sys.argv[2])
+    if command not in {
+        "context", "resolve", "play-queue", "queue", "queue-play",
+        "queue-add", "track-search",
+    }:
+        raise SystemExit(
+            "Usage: spotify_curator_tool.py "
+            "context|resolve|play-queue|queue|queue-play|queue-add|track-search [JSON]"
+        )
     try:
-        result = listening_context(spotify_client()) if command == "context" else run(payload, play=command == "play-queue")
+        if command == "context":
+            result = listening_context(spotify_client())
+        elif command in {"resolve", "play-queue"}:
+            if len(sys.argv) < 3:
+                raise ValueError("Missing music request")
+            result = run(json.loads(sys.argv[2]), play=command == "play-queue")
+        elif command == "queue":
+            result = queue_snapshot(spotify_client().queue())
+        elif command == "queue-play":
+            payload = json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
+            uris = payload.get("uris") or []
+            if (
+                not isinstance(uris, list) or not uris or len(uris) > 100
+                or any(
+                    not isinstance(uri, str) or not uri.startswith("spotify:track:")
+                    for uri in uris
+                )
+            ):
+                raise ValueError("Invalid queue sequence")
+            spotify_client().start_playback(uris=uris)
+            result = {"ok": True}
+        elif command == "queue-add":
+            uri = str(sys.argv[2] if len(sys.argv) > 2 else "")
+            if not uri.startswith("spotify:track:"):
+                raise ValueError("Invalid track")
+            spotify_client().add_to_queue(uri)
+            result = {"ok": True}
+        else:
+            query = str(sys.argv[2] if len(sys.argv) > 2 else "").strip()
+            if not query:
+                result = {"tracks": []}
+            else:
+                response = spotify_client().search(q=query, type="track", limit=8)
+                tracks = [
+                    compact for compact in (
+                        compact_queue_item(item)
+                        for item in ((response.get("tracks") or {}).get("items") or [])
+                    ) if compact and compact.get("uri")
+                ]
+                result = {"tracks": tracks}
         print(json.dumps(result))
     except Exception as error:
         status = getattr(error, "http_status", None)

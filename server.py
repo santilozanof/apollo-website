@@ -6758,6 +6758,59 @@ def apollo_music_save_curator_context(chat_id, value):
         app_state_set(f"music_curator_chat_{chat_id}", encoded)
 
 
+def apollo_spotify_queue_command(command, argument=None):
+    """Read or mutate Spotify's real queue through the curator auth adapter."""
+    args = [SPOTIFY_PYTHON, str(SPOTIFY_CURATOR_TOOL), command]
+    if argument is not None:
+        args.append(argument)
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(
+            "Spotify took too long to respond. Try again in a moment."
+        ) from error
+    if result.returncode != 0:
+        raise RuntimeError("Spotify is temporarily unavailable. Try again in a moment.")
+    try:
+        return json.loads(result.stdout.strip() or "{}")
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Spotify returned an invalid queue response.") from error
+
+
+def apollo_spotify_queue_play(uris):
+    if (
+        not isinstance(uris, list) or not uris or len(uris) > 100
+        or any(
+            not isinstance(uri, str) or not uri.startswith("spotify:track:")
+            for uri in uris
+        )
+    ):
+        raise ValueError("Invalid queue sequence")
+    return apollo_spotify_queue_command(
+        "queue-play",
+        json.dumps({"uris": uris}, ensure_ascii=False),
+    )
+
+
+def apollo_spotify_queue_add(uri):
+    uri = str(uri or "")
+    if not uri.startswith("spotify:track:"):
+        raise ValueError("Invalid track")
+    return apollo_spotify_queue_command("queue-add", uri)
+
+
+def apollo_spotify_track_search(query):
+    query = str(query or "").strip()
+    if not query:
+        return {"tracks": []}
+    return apollo_spotify_queue_command("track-search", query[:160])
+
+
 def apollo_music_curate(user_request, chat_id=None, prior_context=None, dry_run=False):
     """Plan semantically, resolve on Spotify, then play only verified tracks."""
     context = prior_context if isinstance(prior_context, dict) else {}
@@ -18014,6 +18067,31 @@ class ApolloHandler(BaseHTTPRequestHandler):
             return
 
 
+        if route == "/api/spotify/queue":
+
+            try:
+                json_response(
+                    self,
+                    apollo_spotify_queue_command("queue")
+                )
+            except Exception as exc:
+                print(f"[Apollo Spotify Queue] {exc}")
+                json_response(self, {"error": str(exc)}, 503)
+
+            return
+
+
+        if route == "/api/spotify/search":
+
+            try:
+                query = urllib.parse.parse_qs(parsed_url.query).get("q", [""])[0]
+                json_response(self, apollo_spotify_track_search(query))
+            except Exception as exc:
+                json_response(self, {"error": str(exc)}, 503)
+
+            return
+
+
         # ─────────────────────────────
         # APOLLO STUDIO V1
         # ─────────────────────────────
@@ -20174,6 +20252,32 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
 
         # ─────────────────────────────
+        if self.path == "/api/spotify/queue/play":
+
+            try:
+                data = read_json(self)
+                json_response(self, apollo_spotify_queue_play(data.get("uris")))
+            except ValueError as exc:
+                json_response(self, {"error": str(exc)}, 400)
+            except Exception as exc:
+                json_response(self, {"error": str(exc)}, 503)
+
+            return
+
+
+        if self.path == "/api/spotify/queue/add":
+
+            try:
+                data = read_json(self)
+                json_response(self, apollo_spotify_queue_add(data.get("uri")))
+            except ValueError as exc:
+                json_response(self, {"error": str(exc)}, 400)
+            except Exception as exc:
+                json_response(self, {"error": str(exc)}, 503)
+
+            return
+
+
         # MUSIC — NATURAL LANGUAGE PLAYBACK
         # ─────────────────────────────
 

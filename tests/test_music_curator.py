@@ -59,6 +59,27 @@ class TrackValidationTests(unittest.TestCase):
 
 
 class QueueExecutionTests(unittest.TestCase):
+    def test_spotify_queue_snapshot_preserves_returned_order(self):
+        first = {
+            "id": "first", "uri": "spotify:track:first", "type": "track",
+            "name": "First", "artists": [{"name": "One"}],
+            "album": {"images": [], "uri": "spotify:album:one"},
+        }
+        second = {
+            "id": "second", "uri": "spotify:track:second", "type": "track",
+            "name": "Second", "artists": [{"name": "Two"}],
+            "album": {"images": [], "uri": "spotify:album:two"},
+        }
+        snapshot = spotify_curator_tool.queue_snapshot({
+            "currently_playing": first,
+            "queue": [second, first],
+        })
+        self.assertEqual(snapshot["current"]["name"], "First")
+        self.assertEqual(
+            [item["uri"] for item in snapshot["queue"]],
+            ["spotify:track:second", "spotify:track:first"],
+        )
+
     def test_opener_and_queue_order_are_preserved(self):
         calls = []
 
@@ -79,6 +100,21 @@ class QueueExecutionTests(unittest.TestCase):
     def test_missing_device_fails_before_playback(self):
         with self.assertRaisesRegex(RuntimeError, "No active"):
             spotify_curator_tool.play_resolved_queue(object(), [track(1)], [])
+
+
+class MusicQueueFrontendTests(unittest.TestCase):
+    def test_curated_card_is_removed_and_spotify_drawer_is_used(self):
+        source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn("apolloCurationCard", source)
+        self.assertNotIn("Apollo Queue", source)
+        self.assertIn('id="apolloQueuePanel"', source)
+        self.assertIn('fetch(\n                `/api/spotify/queue', source)
+        self.assertIn("loadQueue(true)", source)
+
+    def test_added_tracks_are_refreshed_from_spotify_not_injected(self):
+        source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn("queueData.queue.push(item)", source)
+        self.assertIn("await loadQueue(true);", source)
 
 
 class CuratorFailureTests(unittest.TestCase):
