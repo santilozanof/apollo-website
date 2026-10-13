@@ -461,6 +461,35 @@ class QueueExecutionTests(unittest.TestCase):
         self.assertEqual(calls, ["play", "queue"])
 
 
+class SpotifyShuffleTests(unittest.TestCase):
+    def test_shuffle_requires_a_real_playback_context(self):
+        class Spotify:
+            def current_playback(self):
+                return {"device": {"id": "device"}, "context": None}
+
+        result = spotify_curator_tool.set_playback_shuffle(Spotify(), True)
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["supported"])
+
+    def test_shuffle_is_confirmed_from_spotify(self):
+        states = iter([
+            {"device": {"id": "device"}, "context": {"type": "playlist"}, "shuffle_state": False},
+            {"device": {"id": "device"}, "context": {"type": "playlist"}, "shuffle_state": True},
+        ])
+        calls = []
+
+        class Spotify:
+            def current_playback(self):
+                return next(states)
+
+            def shuffle(self, state, device_id=None):
+                calls.append((state, device_id))
+
+        result = spotify_curator_tool.set_playback_shuffle(Spotify(), True)
+        self.assertEqual(calls, [(True, "device")])
+        self.assertTrue(result["shuffle_state"])
+
+
 class MusicQueueFrontendTests(unittest.TestCase):
     def test_curated_card_is_removed_and_spotify_drawer_is_used(self):
         source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
@@ -481,6 +510,8 @@ class MusicQueueFrontendTests(unittest.TestCase):
         self.assertIn(".apollo-music-stage {", source)
         self.assertIn("grid-template-columns:minmax(0,1fr) clamp(286px,25vw,324px);", source)
         self.assertIn("gap:16px;", source)
+        self.assertIn("height:clamp(470px,58vh,540px);", source)
+        self.assertIn(".apollo-queue-scroll { position:relative; flex:1; min-height:0; overflow-y:auto;", source)
         self.assertIn('musicStage.append(musicPlayer, musicQueuePanel);', source)
         self.assertIn('class="apollo-play-queue"', source)
         self.assertNotIn("apollo-queue-edge", source)
@@ -497,13 +528,20 @@ class MusicQueueFrontendTests(unittest.TestCase):
         self.assertIn("data-retry-recent", source)
         self.assertIn("queueRefreshError", source)
 
-    def test_existing_music_prompt_is_docked_without_duplication(self):
+    def test_existing_music_prompt_remains_floating_without_duplication(self):
         source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
         self.assertEqual(source.count('id="apolloPresence"'), 1)
-        self.assertIn('id="apolloQueuePrompt"', source)
-        self.assertIn('presence.classList.add("apollo-presence-queue")', source)
-        self.assertIn("queuePrompt.appendChild(presence);", source)
-        self.assertIn("restoreMusicPrompt();", source)
+        self.assertNotIn('id="apolloQueuePrompt"', source)
+        self.assertNotIn("apollo-presence-queue", source)
+        self.assertIn("body.apollo-music-queue-open #apolloPresence", source)
+
+    def test_shuffle_uses_spotify_and_never_reorders_the_browser_array(self):
+        source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
+        self.assertIn('fetch("/api/spotify/shuffle"', source)
+        self.assertIn("Turn on Spotify shuffle", source)
+        self.assertNotIn("Math.random() * (i + 1)", source)
+        self.assertNotIn("queueData.queue.splice", source)
+        self.assertNotIn("apollo.music.queue.order", source)
 
     def test_progressive_worker_status_uses_existing_drawer(self):
         source = (SERVER.parent / "index.html").read_text(encoding="utf-8")

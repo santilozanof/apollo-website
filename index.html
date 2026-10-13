@@ -38371,16 +38371,18 @@ html[data-theme="light"]
 .apollo-music-stage {
     display:grid;
     grid-template-columns:minmax(0,1fr) 0;
+    grid-template-rows:minmax(0,1fr);
     gap:0;
     align-items:stretch;
     min-width:0;
+    height:clamp(470px,58vh,540px);
     transition:grid-template-columns 320ms var(--ease), gap 320ms var(--ease);
 }
 .apollo-music-view.queue-open .apollo-music-stage {
     grid-template-columns:minmax(0,1fr) clamp(286px,25vw,324px);
     gap:16px;
 }
-.apollo-music-stage .apollo-now-playing { min-width:0; height:100%; }
+.apollo-music-stage .apollo-now-playing { min-width:0; min-height:0; height:100%; }
 .apollo-play-queue-scrim {
     position:fixed;
     inset:0;
@@ -38395,6 +38397,7 @@ html[data-theme="light"]
     z-index:5;
     width:100%;
     min-width:0;
+    min-height:0;
     height:100%;
     display:flex;
     flex-direction:column;
@@ -38429,16 +38432,12 @@ html[data-theme="light"]
 .apollo-queue-scroll:hover { scrollbar-color:var(--border-hover) transparent; }
 .apollo-queue-section-label { position:sticky; top:0; z-index:2; padding:11px 8px 7px; color:var(--dim); background:linear-gradient(var(--surface) 75%, transparent); font-size:9px; font-weight:650; letter-spacing:.13em; text-transform:uppercase; }
 .apollo-queue-list { min-height:72px; }
-.apollo-queue-row { position:relative; width:100%; min-width:0; display:grid; grid-template-columns:14px 42px minmax(0,1fr) auto; align-items:center; gap:9px; padding:7px 6px; border:0; border-radius:11px; background:transparent; color:var(--text); text-align:left; transition:background 150ms ease, transform 220ms var(--ease), opacity 150ms ease; }
+.apollo-queue-row { position:relative; width:100%; min-width:0; display:grid; grid-template-columns:42px minmax(0,1fr) auto; align-items:center; gap:9px; padding:7px 6px; border:0; border-radius:11px; background:transparent; color:var(--text); text-align:left; transition:background 150ms ease, transform 220ms var(--ease), opacity 150ms ease; }
 .apollo-queue-row:hover, .apollo-queue-row:focus-within, .apollo-queue-row:focus-visible { background:var(--surface-hover); outline:none; }
 .apollo-queue-row.current { grid-template-columns:8px 36px minmax(0,1fr); margin-bottom:2px; padding:4px 6px; background:transparent; }
 .apollo-queue-row.current .apollo-queue-art-wrap { width:36px; height:36px; }
 .apollo-queue-row.current .apollo-queue-title { font-size:12px; }
 .apollo-queue-row.current .apollo-queue-artist { margin-top:2px; font-size:10px; }
-.apollo-queue-row.dragging { z-index:3; transform:scale(1.018); box-shadow:0 14px 36px rgba(0,0,0,.28); opacity:.92; }
-.apollo-queue-row.drop-before::before { content:""; position:absolute; left:8px; right:8px; top:-2px; height:1px; background:var(--text); opacity:.65; }
-.apollo-queue-drag { width:16px; height:28px; border:0; padding:0; color:var(--dim); background:transparent; cursor:grab; opacity:0; touch-action:none; font-size:13px; }
-.apollo-queue-row:hover .apollo-queue-drag, .apollo-queue-drag:focus-visible { opacity:.7; }
 .apollo-queue-art-wrap { position:relative; width:42px; height:42px; }
 .apollo-queue-art { width:100%; height:100%; display:block; border-radius:7px; object-fit:cover; background:var(--surface-hover); }
 .apollo-queue-art-play { position:absolute; inset:0; display:grid; place-items:center; border:0; border-radius:7px; color:white; background:rgba(0,0,0,.46); opacity:0; transition:opacity 140ms ease; }
@@ -38457,24 +38456,6 @@ html[data-theme="light"]
 @keyframes apolloQueueEq { to { height:10px; } }
 .apollo-queue-footer { flex:none; padding:9px 10px max(10px, env(safe-area-inset-bottom)); border-top:1px solid var(--border); background:var(--surface); }
 .apollo-queue-prompt { margin-bottom:5px; }
-#apolloPresence.apollo-presence-queue {
-    position:relative !important; inset:auto !important; z-index:2; width:100% !important;
-    opacity:1; visibility:visible; pointer-events:auto; transform:none !important; transition:none;
-}
-#apolloPresence.apollo-presence-queue .apollo-presence-composer {
-    min-height:42px; padding:3px 4px 3px 8px; border-radius:12px;
-    background:var(--surface); box-shadow:none; backdrop-filter:none; -webkit-backdrop-filter:none;
-}
-#apolloPresence.apollo-presence-queue .apollo-presence-handle {
-    width:22px; height:32px; flex-basis:22px; margin-right:2px; cursor:default; pointer-events:none;
-}
-#apolloPresence.apollo-presence-queue #apolloPresenceInput { height:34px; padding:0 6px; font-size:11px; }
-#apolloPresence.apollo-presence-queue #apolloPresenceSend {
-    width:34px; height:34px; flex-basis:34px; border-radius:10px;
-}
-#apolloPresence.apollo-presence-queue #apolloPresenceStatus {
-    top:auto; bottom:calc(100% + 6px); left:8px; max-width:calc(100% - 16px);
-}
 .apollo-queue-add { width:100%; min-height:38px; border:0; border-radius:10px; background:transparent; color:var(--muted); text-align:left; cursor:pointer; font:inherit; font-size:12px; }
 .apollo-queue-add:hover { color:var(--text); }
 .apollo-queue-search { display:flex; gap:7px; }
@@ -38499,7 +38480,7 @@ html[data-theme="light"]
 
 @media (max-width:900px) {
     .apollo-music-stage,
-    .apollo-music-view.queue-open .apollo-music-stage { grid-template-columns:minmax(0,1fr); gap:0; }
+    .apollo-music-view.queue-open .apollo-music-stage { grid-template-columns:minmax(0,1fr); gap:0; height:auto; }
     .apollo-play-queue {
         position:fixed;
         z-index:1200;
@@ -38511,6 +38492,12 @@ html[data-theme="light"]
     }
     .apollo-play-queue.is-open { transform:translate3d(0,0,0); }
     .apollo-music-view.queue-open .apollo-play-queue-scrim { opacity:1; pointer-events:auto; }
+    body.apollo-music-queue-open #apolloPresence {
+        opacity:0;
+        visibility:hidden;
+        pointer-events:none;
+        transform:translateY(8px);
+    }
 }
 
 
@@ -38899,7 +38886,6 @@ html[data-theme="light"]
                                     <div class="apollo-queue-list" id="apolloQueueList"></div>
                                 </div>
                                 <div class="apollo-queue-footer" id="apolloQueueFooter">
-                                    <div class="apollo-queue-prompt" id="apolloQueuePrompt"></div>
                                     <button class="apollo-queue-add" id="apolloQueueAdd" type="button">＋ Add song</button>
                                     <div class="apollo-queue-search" id="apolloQueueSearch" hidden>
                                         <input id="apolloQueueSearchInput" type="search" placeholder="Search songs…" autocomplete="off" aria-label="Search Spotify songs">
@@ -39101,12 +39087,8 @@ html[data-theme="light"]
     const queueSearch = musicView.querySelector("#apolloQueueSearch");
     const queueSearchInput = musicView.querySelector("#apolloQueueSearchInput");
     const queueResults = musicView.querySelector("#apolloQueueResults");
-    const queuePrompt = musicView.querySelector("#apolloQueuePrompt");
     const queueBuildStatus = musicView.querySelector("#apolloQueueBuildStatus");
     const queueBuildText = musicView.querySelector("#apolloQueueBuildText");
-    const presence = document.getElementById("apolloPresence");
-    const presenceHome = presence?.parentNode || null;
-    const presenceNextSibling = presence?.nextSibling || null;
 
 
     /* =====================================================
@@ -39135,7 +39117,6 @@ html[data-theme="light"]
     let queueJobRevision = "";
     let queueSearchTimer = null;
     let queueMenu = null;
-    let draggedQueueIndex = -1;
 
     let lastRenderedTrackId = null;
 
@@ -39776,32 +39757,6 @@ html[data-theme="light"]
         queueList.appendChild(status);
     }
 
-    const queueKey = item => `${item.uri || ""}::${item.name || ""}`;
-
-    function saveManagedQueue() {
-        try {
-            localStorage.setItem(
-                "apollo.music.queue.order",
-                JSON.stringify((queueData?.queue || []).map(queueKey))
-            );
-        } catch (_) {}
-    }
-
-    function applyManagedOrder(items) {
-        let saved = [];
-        try {
-            saved = JSON.parse(localStorage.getItem("apollo.music.queue.order") || "[]");
-        } catch (_) {}
-        if (!Array.isArray(saved) || !saved.length) return items;
-        const pool = [...items];
-        const ordered = [];
-        saved.forEach(key => {
-            const at = pool.findIndex(item => queueKey(item) === key);
-            if (at >= 0) ordered.push(pool.splice(at, 1)[0]);
-        });
-        return ordered.concat(pool);
-    }
-
     function queueRow(item, index, currentTrack = false) {
         const row = document.createElement("div");
         row.className = `apollo-queue-row${currentTrack ? " current" : ""}`;
@@ -39818,14 +39773,6 @@ html[data-theme="light"]
             eq.className = "apollo-queue-eq";
             eq.innerHTML = "<i></i><i></i><i></i>";
             row.appendChild(eq);
-        } else {
-            const drag = document.createElement("button");
-            drag.type = "button";
-            drag.className = "apollo-queue-drag";
-            drag.textContent = "⠿";
-            drag.title = "Drag to reorder";
-            drag.setAttribute("aria-label", `Reorder ${item.name || "track"}`);
-            row.appendChild(drag);
         }
 
         const artWrap = document.createElement("div");
@@ -39924,7 +39871,7 @@ html[data-theme="light"]
                 10000
             );
             if (requestId !== queueRequest) return;
-            data.queue = applyManagedOrder(data.queue || []);
+            data.queue = data.queue || [];
             queueData = data;
             queueRefreshError = data.stale || data.warning
                 ? (data.warning || "Queue could not refresh.")
@@ -39996,26 +39943,14 @@ html[data-theme="light"]
         queueBuildStatus.hidden = true;
     }
 
-    function dockMusicPrompt() {
-        if (!presence || !queuePrompt || presence.parentNode === queuePrompt) return;
-        presence.classList.add("apollo-presence-queue");
-        queuePrompt.appendChild(presence);
-    }
-
-    function restoreMusicPrompt() {
-        if (!presence || !presenceHome || presence.parentNode === presenceHome) return;
-        presence.classList.remove("apollo-presence-queue");
-        presenceHome.insertBefore(presence, presenceNextSibling);
-    }
-
     function openQueue() {
         clearTimeout(queueTransitionTimer);
         const wasOpen = queuePanel.classList.contains("is-open");
-        dockMusicPrompt();
         queuePanel.hidden = false;
         requestAnimationFrame(() => {
             queuePanel.classList.add("is-open");
             musicView.classList.add("queue-open");
+            document.body.classList.add("apollo-music-queue-open");
         });
         queueTrigger.setAttribute("aria-expanded", "true");
         queueTrigger.setAttribute("aria-label", "Close Spotify queue");
@@ -40027,12 +39962,12 @@ html[data-theme="light"]
         clearTimeout(queueTransitionTimer);
         queuePanel.classList.remove("is-open");
         musicView.classList.remove("queue-open");
+        document.body.classList.remove("apollo-music-queue-open");
         queueTrigger.setAttribute("aria-expanded", "false");
         queueTrigger.setAttribute("aria-label", "Open Spotify queue");
         queueTransitionTimer = window.setTimeout(() => {
             if (!queuePanel.classList.contains("is-open")) {
                 queuePanel.hidden = true;
-                restoreMusicPrompt();
                 stopQueueJobPolling();
             }
         }, 320);
@@ -40046,7 +39981,6 @@ html[data-theme="light"]
     queueScrim.addEventListener("click", closeQueue);
     queueClose.addEventListener("click", closeQueue);
     queueRefresh.addEventListener("click", () => {
-        localStorage.removeItem("apollo.music.queue.order");
         loadQueue(true);
     });
 
@@ -40110,30 +40044,10 @@ html[data-theme="light"]
         queueMenu.querySelector("button,a")?.focus();
     }
 
-    function moveQueue(from, to) {
-        const items = queueData?.queue;
-        if (!items || from < 0 || from >= items.length) return;
-        to = Math.max(0, Math.min(to, items.length - 1));
-        const [item] = items.splice(from, 1);
-        items.splice(to, 0, item);
-        saveManagedQueue();
-        renderQueue();
-    }
-
-    function removeQueue(index) {
-        queueData.queue.splice(index, 1);
-        saveManagedQueue();
-        renderQueue();
-    }
-
     function trackActions(index) {
         const item = queueData.queue[index];
         return [
             {label: "Play now", run: () => playQueueIndex(index)},
-            index > 0 && {label: "Play next", run: () => moveQueue(index, 0)},
-            index > 0 && {label: "Move to top", run: () => moveQueue(index, 0)},
-            index < queueData.queue.length - 1 && {label: "Move to bottom", run: () => moveQueue(index, queueData.queue.length - 1)},
-            {label: "Remove from queue", danger: true, run: () => removeQueue(index)},
             item.album_uri && {label: "Go to album", href: `https://open.spotify.com/album/${item.album_uri.split(":").pop()}`},
             item.artist_uri && {label: "Go to artist", href: `https://open.spotify.com/artist/${item.artist_uri.split(":").pop()}`},
         ];
@@ -40141,7 +40055,7 @@ html[data-theme="light"]
 
     queueList.addEventListener("click", event => {
         const row = event.target.closest(".apollo-queue-row[data-queue-index]");
-        if (!row || Number(row.dataset.queueIndex) < 0 || event.target.closest(".apollo-queue-drag")) return;
+        if (!row || Number(row.dataset.queueIndex) < 0) return;
         const index = Number(row.dataset.queueIndex);
         const more = event.target.closest(".apollo-queue-more");
         if (more) {
@@ -40158,55 +40072,35 @@ html[data-theme="light"]
             playQueueIndex(Number(row.dataset.queueIndex));
         }
     });
-    queueList.addEventListener("pointerdown", event => {
-        const handle = event.target.closest(".apollo-queue-drag");
-        if (!handle) return;
-        const row = handle.closest(".apollo-queue-row");
-        draggedQueueIndex = Number(row.dataset.queueIndex);
-        row.classList.add("dragging");
-        handle.setPointerCapture(event.pointerId);
-        event.preventDefault();
-    });
-    queueList.addEventListener("pointermove", event => {
-        if (draggedQueueIndex < 0) return;
-        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest(".apollo-queue-row[data-queue-index]");
-        queueList.querySelectorAll(".drop-before").forEach(row => row.classList.remove("drop-before"));
-        if (target && Number(target.dataset.queueIndex) >= 0) target.classList.add("drop-before");
-        const bounds = queueScroll.getBoundingClientRect();
-        if (event.clientY < bounds.top + 44) queueScroll.scrollTop -= 12;
-        else if (event.clientY > bounds.bottom - 44) queueScroll.scrollTop += 12;
-    });
-    function finishDrag(event) {
-        if (draggedQueueIndex < 0) return;
-        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest(".apollo-queue-row[data-queue-index]");
-        const to = target ? Number(target.dataset.queueIndex) : draggedQueueIndex;
-        moveQueue(draggedQueueIndex, to);
-        draggedQueueIndex = -1;
+    function queueNotice(message) {
+        queueBuildText.textContent = message;
+        queueBuildStatus.hidden = false;
+        window.setTimeout(() => {
+            if (queueBuildText.textContent === message) queueBuildStatus.hidden = true;
+        }, 3600);
     }
-    queueList.addEventListener("pointerup", finishDrag);
-    queueList.addEventListener("pointercancel", () => {
-        draggedQueueIndex = -1;
-        renderQueue();
-    });
+
+    async function enableSpotifyShuffle() {
+        try {
+            const response = await fetch("/api/spotify/shuffle", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({state: true})
+            });
+            const data = await response.json();
+            if (!response.ok || data.shuffle_state !== true) {
+                throw new Error(data.error || "Shuffle is not available for this playback context.");
+            }
+            queueNotice("Spotify shuffle is on.");
+            await loadQueue(true);
+        } catch (error) {
+            queueNotice(error.message || "Shuffle is not available for this playback context.");
+        }
+    }
 
     queueActions.addEventListener("click", () => openQueueMenu(queueActions, [
-        {label: "Shuffle queue", run: () => {
-            for (let i = queueData.queue.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [queueData.queue[i], queueData.queue[j]] = [queueData.queue[j], queueData.queue[i]];
-            }
-            saveManagedQueue();
-            renderQueue();
-        }},
-        {label: "Clear upcoming", danger: true, run: () => {
-            queueData.queue = [];
-            saveManagedQueue();
-            renderQueue();
-        }},
-        {label: "Refresh from Spotify", run: () => {
-            localStorage.removeItem("apollo.music.queue.order");
-            loadQueue(true);
-        }},
+        {label: "Turn on Spotify shuffle", run: enableSpotifyShuffle},
+        {label: "Refresh from Spotify", run: () => loadQueue(true)},
     ]));
 
     queueAdd.addEventListener("click", () => {
@@ -40627,9 +40521,9 @@ html[data-theme="light"]
         clearTimeout(queueTransitionTimer);
         queuePanel.classList.remove("is-open");
         musicView.classList.remove("queue-open");
+        document.body.classList.remove("apollo-music-queue-open");
         queuePanel.hidden = true;
         queueTrigger.setAttribute("aria-expanded", "false");
-        restoreMusicPrompt();
         stopQueueJobPolling();
 
         musicView.classList.remove(

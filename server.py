@@ -6917,6 +6917,20 @@ def apollo_spotify_queue_add(uri):
     return result
 
 
+def apollo_spotify_shuffle(state=True):
+    """Set real Spotify context shuffle; never reorder the cached queue locally."""
+    result = apollo_spotify_queue_command(
+        "shuffle",
+        json.dumps({"state": bool(state)}),
+    )
+    if result.get("supported") is False:
+        return result
+    if result.get("ok") is not True or result.get("shuffle_state") != bool(state):
+        raise RuntimeError("Spotify did not confirm the shuffle setting.")
+    apollo_spotify_invalidate_caches()
+    return result
+
+
 def apollo_spotify_track_search(query):
     query = str(query or "").strip()
     if not query:
@@ -20748,6 +20762,23 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 json_response(self, {"error": str(exc)}, 400)
             except Exception as exc:
                 json_response(self, {"error": str(exc)}, 503)
+
+            return
+
+
+        if self.path == "/api/spotify/shuffle":
+
+            try:
+                data = read_json(self)
+                result = apollo_spotify_shuffle(data.get("state", True))
+                json_response(self, result, 200 if result.get("supported") is not False else 409)
+            except Exception as exc:
+                print(f"[Apollo Spotify Shuffle] {exc}")
+                json_response(
+                    self,
+                    {"error": "Spotify could not change shuffle right now."},
+                    503,
+                )
 
             return
 

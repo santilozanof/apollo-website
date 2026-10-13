@@ -389,6 +389,32 @@ def playback_snapshot(data):
     }
 
 
+def set_playback_shuffle(spotify, enabled):
+    """Set Spotify context shuffle and verify the server-reported state."""
+    player = spotify_read(spotify.current_playback, attempts=1) or {}
+    context = player.get("context") if isinstance(player.get("context"), dict) else None
+    device = player.get("device") if isinstance(player.get("device"), dict) else {}
+    if not context:
+        return {
+            "ok": False,
+            "supported": False,
+            "error": "Shuffle is not available for this playback context.",
+        }
+    device_id = device.get("id")
+    spotify.shuffle(bool(enabled), device_id=device_id)
+    for attempt in range(3):
+        confirmed = spotify_read(spotify.current_playback, attempts=1) or {}
+        if confirmed.get("shuffle_state") == bool(enabled):
+            return {
+                "ok": True,
+                "supported": True,
+                "shuffle_state": bool(enabled),
+            }
+        if attempt < 2:
+            time.sleep(.18 * (attempt + 1))
+    raise RuntimeError("Spotify did not confirm the shuffle setting")
+
+
 def recent_contexts_snapshot(spotify, limit=12):
     """Fetch recent albums with only a bounded number of playlist lookups."""
     recent = spotify_read(
@@ -557,13 +583,13 @@ def main():
     if command not in {
         "context", "resolve", "play-queue", "start-curation", "restore-queue", "build-curation",
         "playback-state", "recent-contexts", "queue", "queue-play",
-        "queue-add", "track-search",
+        "queue-add", "track-search", "shuffle",
     }:
         raise SystemExit(
             "Usage: spotify_curator_tool.py "
             "context|resolve|play-queue|start-curation|restore-queue|build-curation|"
             "playback-state|recent-contexts|queue|"
-            "queue-play|queue-add|track-search [JSON]"
+            "queue-play|queue-add|track-search|shuffle [JSON]"
         )
     try:
         if command == "context":
@@ -616,6 +642,12 @@ def main():
                 raise ValueError("Invalid track")
             spotify_client().add_to_queue(uri)
             result = {"ok": True}
+        elif command == "shuffle":
+            payload = json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
+            result = set_playback_shuffle(
+                spotify_client(),
+                bool(payload.get("state", True)),
+            )
         else:
             query = str(sys.argv[2] if len(sys.argv) > 2 else "").strip()
             if not query:
