@@ -10,11 +10,14 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from server import (
+    apollo_calendar_events,
     ask_hermes,
     db,
+    get_tasks,
     init_db,
 )
 import routines
+import debrief_personalization
 
 
 def get_state(key):
@@ -34,36 +37,87 @@ def get_state(key):
     return row["value"] if row else None
 
 
-def get_recent_context():
+def _event_time(event):
+    start = event.get("start") if isinstance(event.get("start"), dict) else {}
+    return str(start.get("dateTime") or start.get("date") or "")
 
-    conn = db()
 
-    rows = conn.execute("""
-        SELECT
-            m.role,
-            m.content,
-            m.created_at,
-            c.title
-        FROM messages m
-        JOIN chats c
-            ON c.id = m.chat_id
-        ORDER BY m.id DESC
-        LIMIT 40
-    """).fetchall()
+def get_personal_today(now, time_zone):
+    """Build private, deterministic Today content without sending it to news research."""
+    local_date = now.date().isoformat()
+    tomorrow = (now.date() + timedelta(days=1)).isoformat()
+    result = {"calendar": [], "tasks": [], "routines": []}
 
-    conn.close()
+    try:
+        events, errors = apollo_calendar_events(
+            days=1,
+            start_date=local_date,
+            end_date=tomorrow,
+            time_zone=time_zone,
+        )
+        if errors:
+            print("[Apollo Debrief] Calendar sources partially unavailable:", sorted(errors))
+        for event in events[:6]:
+            title = str(event.get("summary") or "Untitled event").strip()
+            result["calendar"].append({
+                "kind": "calendar",
+                "headline": title,
+                "body": _event_time(event),
+                "location": str(event.get("location") or "").strip() or None,
+            })
+    except Exception as error:
+        print("[Apollo Debrief] Calendar context unavailable:", error)
 
-    rows = list(reversed(rows))
+    try:
+        horizon = now + timedelta(days=7)
+        incomplete = [task for task in get_tasks() if not task.get("completed")]
+        selected = []
+        for task in incomplete:
+            due_raw = str(task.get("due_at") or "").strip()
+            due = None
+            if due_raw:
+                try:
+                    due = datetime.fromisoformat(due_raw.replace("Z", "+00:00"))
+                    if due.tzinfo is None:
+                        due = due.replace(tzinfo=now.tzinfo)
+                    due = due.astimezone(now.tzinfo)
+                except ValueError:
+                    pass
+            if due is None or due <= horizon:
+                selected.append((task, due))
+        selected.sort(key=lambda pair: pair[1] or horizon)
+        for task, due in selected[:5]:
+            result["tasks"].append({
+                "kind": "assignment" if task.get("source") == "canvas" else "task",
+                "headline": str(task.get("title") or "Untitled task").strip(),
+                "body": due.isoformat() if due else "",
+                "source": task.get("sourceLabel"),
+                "url": task.get("htmlLink"),
+            })
+    except Exception as error:
+        print("[Apollo Debrief] Task context unavailable:", error)
 
-    return [
-        {
-            "chat": row["title"],
-            "role": row["role"],
-            "content": row["content"],
-            "created_at": row["created_at"]
-        }
-        for row in rows
-    ]
+    try:
+        conn = db()
+        try:
+            state = routines.get_state(conn, local_date, time_zone)
+        finally:
+            conn.close()
+        for routine in state.get("routines") or []:
+            if routine.get("status") in {"not_scheduled", "complete"}:
+                continue
+            remaining = [step.get("title") for step in routine.get("steps") or [] if not step.get("complete")]
+            if not remaining:
+                continue
+            result["routines"].append({
+                "kind": "routine",
+                "headline": str(routine.get("title") or "Routine").strip(),
+                "body": f"{len(remaining)} step{'s' if len(remaining) != 1 else ''} remaining",
+            })
+    except Exception as error:
+        print("[Apollo Debrief] Routine context unavailable:", error)
+
+    return result
 
 
 def weather_code_label(code):
@@ -429,110 +483,79 @@ def generate(force=False):
     if existing and not force:
         return False
 
-    recent = get_recent_context()
-
     weather = get_weather(
         time_zone
     )
 
-    routine_context = None
+    today = get_personal_today(now, time_zone)
+
+    conn = db()
     try:
-        conn = db()
-        yesterday = (now.date() - timedelta(days=1)).isoformat()
-        routine_context = {
-            "yesterday": routines.get_state(conn, yesterday, time_zone),
-            "today": routines.get_state(conn, local_date, time_zone),
-        }
+        prior_stories = debrief_personalization.previous_stories(conn)
+        feedback = debrief_personalization.feedback_rows(conn)
+    finally:
         conn.close()
-    except Exception as error:
-        print("[Apollo Debrief] Routine context unavailable:", error)
+
+    location_hint = time_zone.rsplit("/", 1)[-1].replace("_", " ")
 
     messages = [
         {
             "role": "system",
-            "content": """You are Apollo preparing Santiago's daily personal intelligence brief.
+            "content": """You research a small candidate pool for Apollo's Daily Debrief.
 
-BEFORE writing the brief, actively research the current web using your available
+Actively research the current web using your available
 web_search and web_extract tools.
 
-Research developments from roughly the last 24 hours and select only things
-that are genuinely relevant, useful, surprising, or important for Santiago.
+Find 8-12 verified candidates, normally from the last 96 hours. This is a
+candidate-gathering step: a deterministic ranker will make the final selection.
 
-Prioritize:
-- AI and technology
-- music, especially R&B, hip-hop, artists, releases, production and music tech
-- gaming and entertainment
-- major world news worth knowing
-- subjects connected to Santiago's current interests
+Interest priorities, not daily quotas:
+- HIGH: alternative R&B, soul, trip-hop, jazz, house, underground music,
+  sampling, production, new albums and artist releases; meaningful world news
+- MEDIUM: men's fashion and culture; boxing, UFC and major football; worthwhile
+  music shows, exhibitions and opportunities near the supplied location hint
+- LOW: AI/technology only when genuinely consequential; gaming only for a major
+  noteworthy announcement
 
-Do not dump headlines.
-Research first, compare sources, filter aggressively, and keep only the strongest
-few items.
+Do not infer interests from repeated prior coverage. Do not include routine
+product updates, rumors, listicles, generic explainers, engagement bait, or
+minor GTA/AI stories. Categories are never mandatory; return fewer candidates
+if quality is weak.
 
-Personal Apollo conversation history is supporting context only.
-Do not surface Apollo UI debugging, coding minutiae, button fixes, tests, or
-development chatter unless it is genuinely important.
+Every fact must be supported by the direct source URL you provide. Open and
+check the source. Never invent a story, publication, URL, date, quote, event,
+or fact. Prefer primary sources and established reporting. Use the article or
+official event page URL, never a search-results or publication-home URL.
 
-Routine progress is supplied when available. It may include yesterday's
-completed or incomplete scheduled routines, current streak context, hydration,
-and today's schedule. Keep any mention concise and never turn absent data into
-a confirmed failure. Other personal sources may be added later. If a source is
-not supplied, simply omit it. Never invent it.
+Return valid JSON and nothing else, using exactly this structure:
 
-The final response MUST be valid JSON and NOTHING ELSE.
-
-Use exactly this structure:
-
-{
-  "summary": "One short sentence describing today's overall signal.",
-
-  "items": [
+{"candidates": [
     {
-      "category": "AI / Tech",
-      "headline": "A short useful headline",
-      "body": "One or two concise sentences explaining what happened and why it matters.",
-      "source": "OpenAI"
+      "category": "Music",
+      "topics": ["music"],
+      "headline": "Short factual headline",
+      "body": "One or two concise factual sentences explaining what happened and why it matters.",
+      "source": "Publication or organization",
+      "url": "https://direct-source.example/article",
+      "published_at": "ISO-8601 timestamp",
+      "importance": 0.0,
+      "meaningful_new_development": false
     }
-  ],
-
-  "personal_signal": {
-    "headline": "A concise observation from Santiago's recent Apollo context",
-    "body": "One useful sentence explaining the signal."
-  },
-
-  "worth_knowing": {
-    "headline": "One important or interesting development outside Santiago's normal interests",
-    "body": "One or two concise sentences explaining why it is worth knowing.",
-    "source": "Publication or organization"
-  }
-}
+  ]}
 
 RULES:
-- items are the "Your World" section
-- maximum 3 items
-- minimum 2 items when enough worthwhile news exists
-- personal_signal is OPTIONAL
-- include personal_signal only when recent Apollo context contains a genuinely useful pattern, unfinished thread, recurring concern, project, or decision worth surfacing today
-- if there is no strong personal signal, use null
-- never manufacture a personal signal just to fill the section
-- personal_signal must not expose trivial Apollo UI debugging or coding minutiae
-- worth_knowing should contain exactly one strong development outside Santiago's usual interests when something genuinely worthwhile exists
-- if nothing clears that bar, use null
-- each headline should be short
-- each body should be no more than 2 concise sentences
-- source should be only the publication or organization name
-- no URLs
+- topics must use only: music, local, fashion, boxing, ufc, football, culture,
+  world, ai, technology, gaming
+- Use topic "world" for internationally consequential developments
+- Use topic "local" only for a verified event near the location hint
+- importance is 0 to 1 and reflects real-world consequence, not popularity
+- meaningful_new_development is true only when a continuing story has a
+  substantive new event, decision, release, result, or consequence
+- each headline is short; each body is at most two concise sentences
 - no markdown
-- no bullet characters inside strings
-- no greeting
-- no filler
-- no motivational advice
-- no generic productivity coaching
-- never fabricate current information
-- if something cannot be verified, leave it out
-- prioritize signal over completeness
-
-Research first. Then return only the JSON object."""
+- if a required field cannot be verified, omit that candidate
+- never include personal data in candidates
+- prioritize quality over quantity"""
         },
         {
             "role": "user",
@@ -541,8 +564,7 @@ Research first. Then return only the JSON object."""
                     "local_date": local_date,
                     "local_time": now.isoformat(),
                     "timezone": time_zone,
-                    "routines": routine_context,
-                    "recent_apollo_context": recent
+                    "location_hint": location_hint
                 },
                 ensure_ascii=False
             )
@@ -626,131 +648,26 @@ Research first. Then return only the JSON object."""
         if not isinstance(brief, dict):
             continue
 
-        summary = str(
-            brief.get("summary", "")
-        ).strip()
-
-        items = brief.get("items", [])
-
-        if not summary or not isinstance(items, list):
+        candidates = brief.get("candidates", [])
+        if not isinstance(candidates, list):
             continue
 
-        clean_items = []
+        selected = debrief_personalization.select_stories(
+            candidates,
+            previous_stories=prior_stories,
+            feedback_rows=feedback,
+            now=now,
+        )
+        selected = debrief_personalization.verify_selected_links(selected)
 
-        for item in items[:3]:
-
-            if not isinstance(item, dict):
-                continue
-
-            category = str(
-                item.get("category", "")
-            ).strip()
-
-            headline = str(
-                item.get("headline", "")
-            ).strip()
-
-            body = str(
-                item.get("body", "")
-            ).strip()
-
-            source = str(
-                item.get("source", "")
-            ).strip()
-
-            if not headline or not body:
-                continue
-
-            clean_items.append({
-                "category": category or "Briefing",
-                "headline": headline,
-                "body": body,
-                "source": source
-            })
-
-        if not clean_items:
-            print(
-                f"[Apollo Debrief] Attempt {attempt} contained no usable items."
-            )
+        if not selected["for_you"] and not selected["worth_knowing"]:
+            print(f"[Apollo Debrief] Attempt {attempt} contained no stories that passed quality checks.")
             continue
-
-
-        def clean_signal(
-            value,
-            allow_source=False
-        ):
-
-            if not isinstance(
-                value,
-                dict
-            ):
-                return None
-
-            headline = str(
-                value.get(
-                    "headline",
-                    ""
-                )
-            ).strip()
-
-            body = str(
-                value.get(
-                    "body",
-                    ""
-                )
-            ).strip()
-
-            if (
-                not headline
-                or not body
-            ):
-                return None
-
-            result = {
-                "headline":
-                    headline,
-
-                "body":
-                    body
-            }
-
-            if allow_source:
-
-                source = str(
-                    value.get(
-                        "source",
-                        ""
-                    )
-                ).strip()
-
-                if source:
-                    result[
-                        "source"
-                    ] = source
-
-            return result
-
-
-        personal_signal = clean_signal(
-            brief.get(
-                "personal_signal"
-            )
-        )
-
-        worth_knowing = clean_signal(
-            brief.get(
-                "worth_knowing"
-            ),
-            allow_source=True
-        )
-
 
         final_brief = {
-            "summary":
-                summary,
-
-            "items":
-                clean_items
+            "today": today,
+            "for_you": selected["for_you"],
+            "worth_knowing": selected["worth_knowing"],
         }
 
         if weather:
@@ -758,22 +675,22 @@ Research first. Then return only the JSON object."""
                 "weather"
             ] = weather
 
-        if personal_signal:
-            final_brief[
-                "personal_signal"
-            ] = personal_signal
-
-        if worth_knowing:
-            final_brief[
-                "worth_knowing"
-            ] = worth_knowing
-
         content = json.dumps(
             final_brief,
             ensure_ascii=False
         )
 
         break
+
+    if not content and any(today.values()):
+        fallback = {
+            "today": today,
+            "for_you": [],
+            "worth_knowing": [],
+        }
+        if weather:
+            fallback["weather"] = weather
+        content = json.dumps(fallback, ensure_ascii=False)
 
     if not content:
         print(

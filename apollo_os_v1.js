@@ -300,6 +300,22 @@
         if (ask) sendToApollo(ask.dataset.osAsk || "Help me think through today.", false);
         const retry = event.target.closest("[data-os-retry]");
         if (retry) loadAllData(true);
+        const feedbackButton = event.target.closest("[data-os-debrief-feedback]");
+        if (feedbackButton && typeof window.apolloSaveDebriefFeedback === "function") {
+            const parsed = normalizedData(dataCache).brief?.parsed || {};
+            const stories = [
+                ...(parsed.for_you || []),
+                ...(parsed.worth_knowing || [])
+            ];
+            const item = stories.find(story => story.id === feedbackButton.dataset.storyId);
+            if (item) {
+                window.apolloSaveDebriefFeedback(
+                    feedbackButton,
+                    item,
+                    feedbackButton.dataset.osDebriefFeedback
+                );
+            }
+        }
     });
 
     doc.addEventListener("keydown", event => {
@@ -469,6 +485,11 @@
         if (typeof content === "string") {
             try { content = JSON.parse(content); } catch (_) { content = {summary: content, items: []}; }
         }
+        ["for_you", "worth_knowing"].forEach(section => {
+            (content?.[section] || []).forEach(item => {
+                item.user_feedback = raw?.feedback?.[item.id] || null;
+            });
+        });
         return {...debrief, parsed: content || {}};
     }
 
@@ -545,7 +566,12 @@
         const recovery = Number(n.health?.summary?.recovery?.score);
         const recoveryText = Number.isFinite(recovery) ? `${Math.round(recovery)}% recovery` : "Health context unavailable";
         const latestProject = n.projects.slice().sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")))[0];
-        const briefItems = Array.isArray(n.brief?.parsed?.items) ? n.brief.parsed.items : [];
+        const briefItems = Array.isArray(n.brief?.parsed?.for_you)
+            ? [
+                ...n.brief.parsed.for_you,
+                ...(Array.isArray(n.brief.parsed.worth_knowing) ? n.brief.parsed.worth_knowing : [])
+            ]
+            : (Array.isArray(n.brief?.parsed?.items) ? n.brief.parsed.items : []);
         const musicTitle = n.music?.title || n.music?.item?.name;
         const musicDisconnected = n.music?.connection_state === "disconnected";
         const musicFailed = n.music?.connection_state === "error";
@@ -644,16 +670,35 @@
     function renderBrief(n) {
         const brief = n.brief;
         const parsed = brief?.parsed || {};
-        const items = Array.isArray(parsed.items) ? parsed.items : [];
+        const legacyItems = Array.isArray(parsed.items) ? parsed.items : [];
+        const forYou = Array.isArray(parsed.for_you) ? parsed.for_you : legacyItems;
+        const worthKnowing = Array.isArray(parsed.worth_knowing) ? parsed.worth_knowing : [];
+        const today = [];
+        if (parsed.weather && (parsed.weather.headline || parsed.weather.body)) {
+            today.push({category: "Weather", headline: parsed.weather.headline || "Today's weather", body: parsed.weather.body || ""});
+        }
+        ["calendar", "tasks", "routines"].forEach(key => {
+            if (Array.isArray(parsed.today?.[key])) today.push(...parsed.today[key]);
+        });
+        const storyBody = item => {
+            let value = item.body || "";
+            if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+                const date = parseLocalDate(value);
+                if (date) value = `${dateLabel(date)} · ${timeLabel(date)}`;
+            }
+            return [value, item.location].filter(Boolean).join(" · ");
+        };
+        const renderSection = (title, values, feedback = false) => {
+            if (!values.length) return "";
+            return `<section class="os-brief-items"><div class="os-section-line"><span>${escapeHTML(title)}</span><span>${values.length} ${values.length === 1 ? "item" : "items"}</span></div>${values.map((item, index) => `<details class="os-brief-item" ${index === 0 ? "open" : ""}>
+                <summary><span>${String(index + 1).padStart(2, "0")}</span><small>${escapeHTML(item.category || title)}</small><strong>${escapeHTML(item.headline || "Untitled signal")}</strong>${icon("chevron")}</summary>
+                <div><p>${escapeHTML(storyBody(item))}</p>${item.source ? (item.url ? `<a class="apollo-debrief-source" href="${escapeAttr(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHTML(item.source)}</a>` : `<cite>${escapeHTML(item.source)}</cite>`) : ""}${feedback ? `<div class="apollo-debrief-story-actions"><button class="apollo-debrief-feedback${item.user_feedback === "more" ? " is-selected" : ""}" type="button" data-os-debrief-feedback="more" data-story-id="${escapeAttr(item.id || "")}">More like this</button><button class="apollo-debrief-feedback${item.user_feedback === "less" ? " is-selected" : ""}" type="button" data-os-debrief-feedback="less" data-story-id="${escapeAttr(item.id || "")}">Less like this</button></div>` : ""}</div>
+            </details>`).join("")}</section>`;
+        };
         const generated = parseLocalDate(brief?.generated_at);
         customViews.brief.innerHTML = `<div class="os-page-shell os-brief-shell">
             ${pageHeader("Daily Briefing", "A quieter view of today.", generated ? `Prepared ${dateLabel(generated)} at ${timeLabel(generated)}.` : "Apollo will prepare a briefing when enough context is available.", `<button class="os-control is-dark" type="button" data-os-ask="Give me the most useful takeaway from today’s Daily Briefing.">Discuss with Apollo</button>`)}
-            ${brief ? `<article class="os-brief-lead"><span>In brief</span><h2>${escapeHTML(parsed.summary || "Your briefing is ready.")}</h2></article>
-            ${parsed.weather ? `<aside class="os-weather-note"><span>Outside</span><strong>${escapeHTML(parsed.weather.headline || "Weather")}</strong><p>${escapeHTML(parsed.weather.body || "")}</p></aside>` : ""}
-            <section class="os-brief-items"><div class="os-section-line"><span>Signals</span><span>${items.length} items</span></div>${items.length ? items.map((item, index) => `<details class="os-brief-item" ${index === 0 ? "open" : ""}>
-                <summary><span>${String(index + 1).padStart(2, "0")}</span><small>${escapeHTML(item.category || "Worth knowing")}</small><strong>${escapeHTML(item.headline || "Untitled signal")}</strong>${icon("chevron")}</summary>
-                <div><p>${escapeHTML(item.body || "")}</p>${item.source ? `<cite>${escapeHTML(item.source)}</cite>` : ""}</div>
-            </details>`).join("") : `<div class="os-large-empty"><span>No signals yet.</span><strong>There’s nothing to debrief today.</strong></div>`}</section>` : `<div class="os-large-empty"><span>Not ready yet.</span><strong>Your next briefing will appear here.</strong><button class="os-control" type="button" data-os-retry>Check again</button></div>`}
+            ${brief ? `${parsed.summary ? `<article class="os-brief-lead"><span>In brief</span><h2>${escapeHTML(parsed.summary)}</h2></article>` : ""}${renderSection("Today", today)}${renderSection("For You", forYou, true)}${renderSection("Worth Knowing", worthKnowing, true)}` : `<div class="os-large-empty"><span>Not ready yet.</span><strong>Your next briefing will appear here.</strong><button class="os-control" type="button" data-os-retry>Check again</button></div>`}
         </div>`;
     }
 

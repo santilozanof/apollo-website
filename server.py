@@ -15,6 +15,7 @@ import hashlib
 import threading
 import tempfile
 import routines
+import debrief_personalization
 from automation_engine import (
     AutomationEngine,
     init_automation_schema,
@@ -800,6 +801,7 @@ def init_db():
 
     init_automation_schema(conn)
     routines.init_schema(conn)
+    debrief_personalization.init_schema(conn)
 
     conn.commit()
     conn.close()
@@ -18053,15 +18055,39 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 local_date,
             )).fetchone()
 
+            debrief = dict(row) if row else None
+            feedback_by_story = {}
+            if debrief:
+                try:
+                    parsed_content = json.loads(debrief.get("content") or "{}")
+                    story_ids = []
+                    for section in ("for_you", "worth_knowing"):
+                        for item in parsed_content.get(section) or []:
+                            if isinstance(item, dict) and item.get("id"):
+                                story_ids.append(str(item["id"]))
+                    if story_ids:
+                        placeholders = ",".join("?" for _ in story_ids)
+                        rows = conn.execute(
+                            f"SELECT story_id, feedback FROM debrief_story_feedback WHERE story_id IN ({placeholders})",
+                            story_ids,
+                        ).fetchall()
+                        feedback_by_story = {
+                            item["story_id"]: "more" if item["feedback"] > 0 else "less"
+                            for item in rows
+                        }
+                except (TypeError, json.JSONDecodeError):
+                    pass
+
             conn.close()
 
             json_response(
                 self,
                 {
                     "debrief":
-                        dict(row)
-                        if row
-                        else None,
+                        debrief,
+
+                    "feedback":
+                        feedback_by_story,
 
                     "device_time_zone":
                         time_zone,
@@ -18574,6 +18600,23 @@ class ApolloHandler(BaseHTTPRequestHandler):
             except Exception as error:
                 print(f"[Apollo Routines] write failed: {error}")
                 json_response(self, {"error": "The routine change could not be saved"}, 500)
+            return
+
+        if routine_route == "/api/debrief/feedback":
+            try:
+                feedback_data = read_json(self)
+                conn = db()
+                try:
+                    result = debrief_personalization.save_feedback(conn, feedback_data)
+                    conn.commit()
+                finally:
+                    conn.close()
+                json_response(self, result)
+            except (ValueError, TypeError) as error:
+                json_response(self, {"error": str(error)}, 400)
+            except Exception as error:
+                print(f"[Apollo Debrief] Feedback save failed: {error}")
+                json_response(self, {"error": "Debrief feedback could not be saved"}, 500)
             return
 
         automation_route = urllib.parse.urlparse(self.path).path
