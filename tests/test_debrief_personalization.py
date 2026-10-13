@@ -64,6 +64,24 @@ class DebriefRankingTests(unittest.TestCase):
         bad[2]["url"] = ""
         self.assertEqual(personalization.select_stories(bad, now=self.now)["stories"], [])
 
+    def test_football_and_fifa_stories_are_excluded(self):
+        football = candidate("Club football transfer window opens", "football")
+        fifa = candidate(
+            "FIFA confirms its next tournament schedule",
+            "world",
+            source="FIFA",
+            url="https://fifa.com/tournament/schedule",
+        )
+        ufc = candidate("UFC confirms a new title fight", "ufc")
+        headlines = [
+            item["headline"]
+            for item in personalization.select_stories(
+                [football, fifa, ufc],
+                now=self.now,
+            )["stories"]
+        ]
+        self.assertEqual(headlines, [ufc["headline"]])
+
     def test_feedback_persists_and_changes_future_ranking_with_decay(self):
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row

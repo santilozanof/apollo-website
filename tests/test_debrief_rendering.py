@@ -9,6 +9,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DebriefRenderingTests(unittest.TestCase):
+    def test_original_visual_contract_is_the_only_render_target(self):
+        source = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('class="section-label home-section-title">\n                    Today', source)
+        self.assertIn('class="debrief-title">\n                        Your personal debrief', source)
+        self.assertIn('items.className = "apollo-debrief-items";', source)
+        self.assertIn('row.className = "apollo-debrief-item";', source)
+        self.assertIn('category.className = "apollo-debrief-category";', source)
+        self.assertIn('contentWrap.className = "apollo-debrief-item-content";', source)
+        self.assertIn('headline.className = "apollo-debrief-headline";', source)
+        self.assertIn('body.className = "apollo-debrief-body";', source)
+        self.assertNotIn(".apollo-debrief-editorial {", source)
+        self.assertNotIn('className = "apollo-debrief-editorial', source)
+
     def test_structured_content_parser_accepts_object_string_and_double_encoded_json(self):
         if not shutil.which("node"):
             self.skipTest("Node.js is unavailable")

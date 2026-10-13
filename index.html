@@ -2458,53 +2458,23 @@ body.apollo-chat-menu-open .apollo-history-strip {
     flex-direction: column;
 }
 
-.apollo-debrief-section-title {
-    margin: 22px 0 10px;
-    color: var(--text-primary, #f5f5f5);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: .14em;
-    text-transform: uppercase;
-}
-
-.apollo-debrief-story-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-}
-
-.apollo-debrief-feedback {
-    border: 1px solid rgba(255, 255, 255, .13);
-    border-radius: 999px;
-    padding: 5px 9px;
-    color: inherit;
-    background: transparent;
-    font: inherit;
-    font-size: 11px;
-    cursor: pointer;
-    opacity: .68;
-}
-
-.apollo-debrief-feedback:hover,
-.apollo-debrief-feedback.is-selected {
-    opacity: 1;
-    border-color: currentColor;
-}
-
-.apollo-debrief-feedback:disabled {
-    cursor: wait;
-}
-
 a.apollo-debrief-source {
-    display: inline-block;
+    display: block;
     color: inherit;
     text-decoration: none;
 }
 
 a.apollo-debrief-source:hover {
     text-decoration: underline;
+}
+
+.apollo-debrief-feedback {
+    margin-left: 12px;
+}
+
+.apollo-debrief-feedback.is-selected {
+    text-decoration: underline;
+    text-underline-offset: 3px;
 }
 
 .apollo-debrief-item {
@@ -2554,85 +2524,6 @@ a.apollo-debrief-source:hover {
         grid-template-columns: 1fr;
         row-gap: 8px;
     }
-}
-
-.apollo-debrief-editorial {
-    display: grid;
-    gap: 28px;
-}
-
-.apollo-debrief-editorial-lead {
-    max-width: 920px;
-    padding: 10px 0 26px;
-}
-
-.apollo-debrief-editorial-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 28px 36px;
-}
-
-.apollo-debrief-editorial-card { min-width: 0; }
-
-.apollo-debrief-editorial-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 7px;
-    margin-bottom: 10px;
-    color: rgba(255,255,255,.36);
-    font-size: 10px;
-    font-weight: 650;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-}
-
-.apollo-debrief-editorial-headline {
-    margin: 0 0 9px;
-    color: rgba(255,255,255,.94);
-    font-size: 18px;
-    font-weight: 570;
-    line-height: 1.28;
-}
-
-.apollo-debrief-editorial-lead .apollo-debrief-editorial-headline {
-    max-width: 840px;
-    font-size: clamp(25px, 3vw, 38px);
-    letter-spacing: -.025em;
-    line-height: 1.12;
-}
-
-.apollo-debrief-editorial-body {
-    max-width: 760px;
-    margin: 0;
-    color: rgba(255,255,255,.54);
-    font-size: 14px;
-    line-height: 1.62;
-}
-
-.apollo-debrief-news-unavailable {
-    padding: 12px 0;
-    color: rgba(255,255,255,.45);
-    font-size: 13px;
-}
-
-html[data-theme="light"] .apollo-debrief-editorial-meta,
-html[data-theme="light"] .apollo-debrief-news-unavailable {
-    color: rgba(18,18,18,.48);
-}
-
-html[data-theme="light"] .apollo-debrief-editorial-headline {
-    color: rgba(12,12,12,.94);
-}
-
-html[data-theme="light"] .apollo-debrief-editorial-body {
-    color: rgba(18,18,18,.64);
-}
-
-@media (max-width: 720px) {
-    .apollo-debrief-editorial { gap: 22px; }
-    .apollo-debrief-editorial-grid { grid-template-columns: 1fr; gap: 24px; }
-    .apollo-debrief-editorial-lead { padding-bottom: 12px; }
-    .apollo-debrief-editorial-lead .apollo-debrief-editorial-headline { font-size: 25px; }
 }
 
 </style>
@@ -7081,13 +6972,13 @@ html[data-theme="light"]
             <section class="debrief home-section home-section--debrief">
 
                 <div class="section-label home-section-title">
-                    Daily Debrief
+                    Today
                 </div>
 
                 <div class="debrief-box">
 
                     <div class="debrief-title">
-                        Curated for you
+                        Your personal debrief
                     </div>
 
                     <div
@@ -7096,7 +6987,9 @@ html[data-theme="light"]
                     ></div>
 
                     <div class="debrief-text" id="apolloDebriefText">
-                        Apollo is preparing a concise selection of current stories.
+                        Apollo will bring together the things that matter
+                        today — your calendar, tasks, music, recent activity,
+                        and eventually the things you care about.
                     </div>
 
                 </div>
@@ -25226,7 +25119,7 @@ function apolloCreateDebriefFollowup(
 
 async function apolloSaveDebriefFeedback(button, item, feedback) {
 
-    const controls = button.closest(".apollo-debrief-story-actions");
+    const controls = button.closest(".apollo-debrief-item-content");
     const buttons = controls
         ? Array.from(controls.querySelectorAll(".apollo-debrief-feedback"))
         : [button];
@@ -25252,10 +25145,9 @@ async function apolloSaveDebriefFeedback(button, item, feedback) {
         }
 
         buttons.forEach(control => {
-            control.classList.toggle(
-                "is-selected",
-                control.dataset.feedback === feedback
-            );
+            const selected = control.dataset.feedback === feedback;
+            control.classList.toggle("is-selected", selected);
+            control.setAttribute("aria-pressed", String(selected));
         });
     } catch (error) {
         console.error("Apollo debrief feedback:", error);
@@ -25300,20 +25192,36 @@ function apolloDebriefStoryRow(item, label, allowFeedback) {
     contentWrap.appendChild(headline);
     if (bodyText) contentWrap.appendChild(body);
 
-    const actions = document.createElement("div");
-    actions.className = "apollo-debrief-story-actions";
-
     if (item.source) {
         const source = document.createElement(item.url ? "a" : "div");
         source.className = "apollo-debrief-source";
-        source.textContent = item.source;
+        const published = item.published_at
+            ? new Date(item.published_at)
+            : null;
+        const sourceParts = [item.source];
+        if (published && !Number.isNaN(published.getTime())) {
+            sourceParts.push(published.toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric"
+            }));
+        }
+        source.textContent = sourceParts.join(" · ");
         if (item.url) {
             source.href = item.url;
             source.target = "_blank";
             source.rel = "noopener noreferrer";
         }
-        actions.appendChild(source);
+        contentWrap.appendChild(source);
     }
+
+    contentWrap.appendChild(
+        apolloCreateDebriefFollowup(
+            item.headline || "",
+            bodyText,
+            item.category || label
+        )
+    );
 
     if (allowFeedback) {
         [
@@ -25322,143 +25230,48 @@ function apolloDebriefStoryRow(item, label, allowFeedback) {
         ].forEach(([value, text]) => {
             const button = document.createElement("button");
             button.type = "button";
-            button.className = "apollo-debrief-feedback";
+            button.className = "apollo-debrief-followup apollo-debrief-feedback";
             button.dataset.feedback = value;
             button.textContent = text;
             button.classList.toggle(
                 "is-selected",
                 item.user_feedback === value
             );
+            button.setAttribute(
+                "aria-pressed",
+                String(item.user_feedback === value)
+            );
             button.addEventListener("click", () => {
                 apolloSaveDebriefFeedback(button, item, value);
             });
-            actions.appendChild(button);
+            contentWrap.appendChild(button);
         });
     }
 
-    if (actions.childElementCount) contentWrap.appendChild(actions);
     row.appendChild(category);
     row.appendChild(contentWrap);
     return row;
 }
 
 
-function apolloRenderPersonalDebrief(element, brief) {
+function apolloRenderOriginalDebrief(element, stories) {
 
     element.replaceChildren();
 
-    if (brief.summary) {
-        const summary = document.createElement("div");
-        summary.className = "apollo-debrief-summary";
-        summary.textContent = brief.summary;
-        element.appendChild(summary);
-    }
+    const items = document.createElement("div");
+    items.className = "apollo-debrief-items";
 
-    const appendSection = (title, values, allowFeedback) => {
-        if (!Array.isArray(values) || !values.length) return;
-        const heading = document.createElement("div");
-        heading.className = "apollo-debrief-section-title";
-        heading.textContent = title;
-        element.appendChild(heading);
-        const items = document.createElement("div");
-        items.className = "apollo-debrief-items";
-        values.forEach(item => items.appendChild(
-            apolloDebriefStoryRow(item, title, allowFeedback)
-        ));
-        element.appendChild(items);
-    };
-
-    const today = [];
-    if (brief.weather && (brief.weather.headline || brief.weather.body)) {
-        today.push({
-            category: "Weather",
-            headline: brief.weather.headline || "Today's weather",
-            body: brief.weather.body || ""
-        });
-    }
-    ["calendar", "tasks", "routines"].forEach(key => {
-        if (brief.today && Array.isArray(brief.today[key])) {
-            today.push(...brief.today[key]);
-        }
+    stories.slice(0, 6).forEach(item => {
+        items.appendChild(
+            apolloDebriefStoryRow(
+                item,
+                "Briefing",
+                Boolean(item.id)
+            )
+        );
     });
 
-    appendSection("Today", today, false);
-    appendSection("For You", brief.for_you, true);
-    appendSection("Worth Knowing", brief.worth_knowing, true);
-}
-
-
-function apolloEditorialStory(item, featured = false) {
-    const article = document.createElement("article");
-    article.className = featured
-        ? "apollo-debrief-editorial-card apollo-debrief-editorial-lead"
-        : "apollo-debrief-editorial-card";
-
-    const meta = document.createElement("div");
-    meta.className = "apollo-debrief-editorial-meta";
-    const published = item.published_at ? new Date(item.published_at) : null;
-    const values = [item.category || (item.topics || [])[0] || "Briefing"];
-    if (published && !Number.isNaN(published.getTime())) {
-        values.push(published.toLocaleDateString(undefined, {month: "short", day: "numeric", year: "numeric"}));
-    }
-    meta.textContent = values.join(" · ");
-
-    const headline = document.createElement("h3");
-    headline.className = "apollo-debrief-editorial-headline";
-    headline.textContent = item.headline || "";
-
-    const body = document.createElement("p");
-    body.className = "apollo-debrief-editorial-body";
-    body.textContent = item.body || "";
-
-    const actions = document.createElement("div");
-    actions.className = "apollo-debrief-story-actions";
-    if (item.source) {
-        const source = document.createElement(item.url ? "a" : "span");
-        source.className = "apollo-debrief-source";
-        source.textContent = item.source;
-        if (item.url) {
-            source.href = item.url;
-            source.target = "_blank";
-            source.rel = "noopener noreferrer";
-        }
-        actions.appendChild(source);
-    }
-    [["more", "More like this"], ["less", "Less like this"]].forEach(([value, text]) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "apollo-debrief-feedback";
-        button.dataset.feedback = value;
-        button.textContent = text;
-        button.classList.toggle("is-selected", item.user_feedback === value);
-        button.addEventListener("click", () => apolloSaveDebriefFeedback(button, item, value));
-        actions.appendChild(button);
-    });
-
-    article.append(meta, headline, body, actions);
-    return article;
-}
-
-
-function apolloRenderEditorialDebrief(element, stories) {
-    element.replaceChildren();
-    if (!stories.length) {
-        const unavailable = document.createElement("div");
-        unavailable.className = "apollo-debrief-news-unavailable";
-        unavailable.textContent = "No verified stories are available yet.";
-        element.appendChild(unavailable);
-        return;
-    }
-    const editorial = document.createElement("div");
-    editorial.className = "apollo-debrief-editorial";
-    editorial.appendChild(apolloEditorialStory(stories[0], true));
-    if (stories.length > 1) {
-        const grid = document.createElement("div");
-        grid.className = "apollo-debrief-editorial-grid";
-        stories.slice(1).forEach(item => grid.appendChild(apolloEditorialStory(item)));
-        editorial.appendChild(grid);
-    }
-    element.appendChild(editorial);
+    element.appendChild(items);
 }
 
 
@@ -25491,344 +25304,21 @@ function apolloRenderDebrief(element, content, feedbackByStory = {}) {
         : [
             ...(Array.isArray(brief.for_you) ? brief.for_you : []),
             ...(Array.isArray(brief.worth_knowing) ? brief.worth_knowing : []),
-            ...(Array.isArray(brief.items) ? brief.items : [])
+            ...(Array.isArray(brief.items) ? brief.items : []),
+            ...(
+                brief.worth_knowing
+                && !Array.isArray(brief.worth_knowing)
+                    ? [brief.worth_knowing]
+                    : []
+            )
         ];
-
-    if (!Array.isArray(stories)) {
-        element.textContent = content;
-        return;
-    }
 
     stories.slice(0, 6).forEach(item => {
         item.user_feedback = feedbackByStory[item.id] || null;
     });
-    apolloRenderEditorialDebrief(element, stories.slice(0, 6));
-    return;
 
-    element.replaceChildren();
-
-    if (brief.summary) {
-
-        const summary =
-            document.createElement("div");
-
-        summary.className =
-            "apollo-debrief-summary";
-
-        summary.textContent =
-            brief.summary;
-
-        element.appendChild(summary);
-    }
-
-    if (
-        brief.weather
-        && (
-            brief.weather.headline
-            || brief.weather.body
-        )
-    ) {
-
-        const weather =
-            document.createElement(
-                "div"
-            );
-
-        weather.className =
-            "apollo-debrief-weather";
-
-
-        const label =
-            document.createElement(
-                "div"
-            );
-
-        label.className =
-            "apollo-debrief-weather-label";
-
-        label.textContent =
-            "Weather";
-
-
-        const headline =
-            document.createElement(
-                "div"
-            );
-
-        headline.className =
-            "apollo-debrief-weather-headline";
-
-        headline.textContent =
-            brief.weather.headline
-            || "Today's weather";
-
-
-        const body =
-            document.createElement(
-                "div"
-            );
-
-        body.className =
-            "apollo-debrief-weather-body";
-
-        body.textContent =
-            brief.weather.body
-            || "";
-
-
-        weather.appendChild(
-            label
-        );
-
-        weather.appendChild(
-            headline
-        );
-
-        if (brief.weather.body) {
-            weather.appendChild(
-                body
-            );
-        }
-
-        weather.appendChild(
-            apolloCreateDebriefFollowup(
-                brief.weather.headline
-                    || "Today's weather",
-                brief.weather.body
-                    || "",
-                "Weather"
-            )
-        );
-
-        element.appendChild(
-            weather
-        );
-    }
-
-    const items =
-        document.createElement("div");
-
-    items.className =
-        "apollo-debrief-items";
-
-    brief.items.slice(0, 3).forEach(item => {
-
-        const row =
-            document.createElement("div");
-
-        row.className =
-            "apollo-debrief-item";
-
-
-        const category =
-            document.createElement("div");
-
-        category.className =
-            "apollo-debrief-category";
-
-        category.textContent =
-            item.category || "Briefing";
-
-
-        const contentWrap =
-            document.createElement("div");
-
-        contentWrap.className =
-            "apollo-debrief-item-content";
-
-
-        const headline =
-            document.createElement("div");
-
-        headline.className =
-            "apollo-debrief-headline";
-
-        headline.textContent =
-            item.headline || "";
-
-
-        const body =
-            document.createElement("div");
-
-        body.className =
-            "apollo-debrief-body";
-
-        body.textContent =
-            item.body || "";
-
-
-        contentWrap.appendChild(headline);
-        contentWrap.appendChild(body);
-
-
-        if (item.source) {
-
-            const source =
-                document.createElement("div");
-
-            source.className =
-                "apollo-debrief-source";
-
-            source.textContent =
-                item.source;
-
-            contentWrap.appendChild(source);
-        }
-
-        contentWrap.appendChild(
-            apolloCreateDebriefFollowup(
-                item.headline || "",
-                item.body || "",
-                item.category || "Briefing"
-            )
-        );
-
-
-        row.appendChild(category);
-        row.appendChild(contentWrap);
-        items.appendChild(row);
-    });
-
-
-    function appendSignal(
-        value,
-        label
-    ) {
-
-        if (
-            !value
-            || (
-                !value.headline
-                && !value.body
-            )
-        ) {
-            return;
-        }
-
-        const row =
-            document.createElement(
-                "div"
-            );
-
-        row.className =
-            "apollo-debrief-item";
-
-
-        const category =
-            document.createElement(
-                "div"
-            );
-
-        category.className =
-            "apollo-debrief-category";
-
-        category.textContent =
-            label;
-
-
-        const contentWrap =
-            document.createElement(
-                "div"
-            );
-
-        contentWrap.className =
-            "apollo-debrief-item-content";
-
-
-        const headline =
-            document.createElement(
-                "div"
-            );
-
-        headline.className =
-            "apollo-debrief-headline";
-
-        headline.textContent =
-            value.headline
-            || "";
-
-
-        const body =
-            document.createElement(
-                "div"
-            );
-
-        body.className =
-            "apollo-debrief-body";
-
-        body.textContent =
-            value.body
-            || "";
-
-
-        contentWrap.appendChild(
-            headline
-        );
-
-        contentWrap.appendChild(
-            body
-        );
-
-
-        if (value.source) {
-
-            const source =
-                document.createElement(
-                    "div"
-                );
-
-            source.className =
-                "apollo-debrief-source";
-
-            source.textContent =
-                value.source;
-
-            contentWrap.appendChild(
-                source
-            );
-        }
-
-
-        contentWrap.appendChild(
-            apolloCreateDebriefFollowup(
-                value.headline
-                    || "",
-                value.body
-                    || "",
-                label
-            )
-        );
-
-
-        row.appendChild(
-            category
-        );
-
-        row.appendChild(
-            contentWrap
-        );
-
-        items.appendChild(
-            row
-        );
-    }
-
-
-    appendSignal(
-        brief.personal_signal,
-        "Personal Signal"
-    );
-
-    appendSignal(
-        brief.worth_knowing,
-        "Worth Knowing"
-    );
-
-
-    element.appendChild(items);
+    apolloRenderOriginalDebrief(element, stories);
 }
-
-
 requestAnimationFrame(() => {
     setTimeout(
         apolloReportDeviceLocation,

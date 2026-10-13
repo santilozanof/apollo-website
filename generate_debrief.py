@@ -425,7 +425,7 @@ candidate-gathering step: a deterministic ranker will make the final selection.
 Interest priorities, not daily quotas:
 - HIGH: alternative R&B, soul, trip-hop, jazz, house, underground music,
   sampling, production, new albums and artist releases; meaningful world news
-- MEDIUM: men's fashion and culture; boxing, UFC and major football; worthwhile
+- MEDIUM: men's fashion and culture; boxing and UFC; worthwhile
   music shows, exhibitions and opportunities near the supplied location hint
 - LOW: AI/technology only when genuinely consequential; gaming only for a major
   noteworthy announcement
@@ -457,8 +457,9 @@ Return valid JSON and nothing else, using exactly this structure:
   ]}
 
 RULES:
-- topics must use only: music, local, fashion, boxing, ufc, football, culture,
+- topics must use only: music, local, fashion, boxing, ufc, culture,
   world, ai, technology, gaming
+- Exclude football, soccer, FIFA, UEFA and World Cup coverage entirely
 - Use topic "world" for internationally consequential developments
 - Use topic "local" only for a verified event near the location hint
 - importance is 0 to 1 and reflects real-world consequence, not popularity

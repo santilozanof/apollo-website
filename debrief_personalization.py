@@ -17,13 +17,18 @@ TOPIC_PRIORITIES = {
     "fashion": 2.6,
     "boxing": 2.6,
     "ufc": 2.6,
-    "football": 2.4,
     "culture": 2.0,
     "world": 2.0,
     "ai": 0.35,
     "technology": 0.35,
     "gaming": 0.2,
 }
+
+EXCLUDED_TOPICS = {"football", "fifa"}
+EXCLUDED_STORY_PATTERN = re.compile(
+    r"\b(?:football|soccer|fifa|uefa|world cup)\b",
+    re.IGNORECASE,
+)
 
 HIGH_CREDIBILITY_DOMAINS = {
     "apnews.com", "bbc.com", "bbc.co.uk", "reuters.com", "theguardian.com",
@@ -33,7 +38,6 @@ HIGH_CREDIBILITY_DOMAINS = {
     "residentadvisor.net", "billboard.com", "rollingstone.com", "jazzwise.com",
     "thefader.com", "stereogum.com", "officialcharts.com",
     "vogue.com", "gq.com", "highsnobiety.com", "ufc.com", "espn.com",
-    "fifa.com", "uefa.com",
 }
 
 LOW_QUALITY_PHRASES = {
@@ -201,6 +205,13 @@ def feedback_affinity(feedback_rows, candidate, now):
 
 def score_candidate(candidate, previous_stories, feedback_rows, now):
     headline_lower = candidate["headline"].lower()
+    if (
+        set(candidate.get("topics") or []) & EXCLUDED_TOPICS
+        or EXCLUDED_STORY_PATTERN.search(
+            " ".join((candidate["headline"], candidate["body"], candidate["source"]))
+        )
+    ):
+        return None
     if any(phrase in headline_lower for phrase in LOW_QUALITY_PHRASES):
         return None
     if len(candidate["headline"]) > 180 or len(candidate["body"]) < 35:
