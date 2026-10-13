@@ -16,6 +16,7 @@ import threading
 import tempfile
 import routines
 import debrief_personalization
+import music_curator
 from automation_engine import (
     AutomationEngine,
     init_automation_schema,
@@ -62,6 +63,7 @@ HERMES_GOOGLE_TOKEN_FILE = (
 
 SPOTIFY_PYTHON = "/usr/local/lib/hermes-agent/venv/bin/python"
 SPOTIFY_TOOL = "/root/spotify_tool.py"
+SPOTIFY_CURATOR_TOOL = BASE_DIR / "spotify_curator_tool.py"
 
 # Created after all Apollo data adapters are available.  The worker remains
 # part of this process so systemd only needs to keep the existing backend
@@ -6722,7 +6724,156 @@ def apollo_music_resolve_personal_alias(
     return real_name
 
 
-def apollo_music_play_request(user_request):
+def apollo_music_json(raw):
+    """Parse the small JSON responses used by the music interpreter/planner."""
+    value = str(raw or "").strip()
+    if value.startswith("```"):
+        value = value.strip("`")
+        if value.lower().startswith("json"):
+            value = value[4:].strip()
+    return json.loads(value)
+
+
+def apollo_music_curator_context(chat_id=None):
+    keys = []
+    if chat_id is not None:
+        keys.append(f"music_curator_chat_{chat_id}")
+    keys.append("music_curator_latest")
+    for key in keys:
+        try:
+            value = json.loads(app_state_get(key, "{}") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            value = {}
+        if isinstance(value, dict) and value.get("tracks"):
+            return value
+    return {}
+
+
+def apollo_music_save_curator_context(chat_id, value):
+    payload = dict(value or {})
+    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    encoded = json.dumps(payload, ensure_ascii=False)
+    app_state_set("music_curator_latest", encoded)
+    if chat_id is not None:
+        app_state_set(f"music_curator_chat_{chat_id}", encoded)
+
+
+def apollo_music_curate(user_request, chat_id=None, prior_context=None, dry_run=False):
+    """Plan semantically, resolve on Spotify, then play only verified tracks."""
+    context = prior_context if isinstance(prior_context, dict) else {}
+    playback = get_now_playing() or {}
+    listening_context = {}
+    try:
+        context_result = subprocess.run(
+            [SPOTIFY_PYTHON, str(SPOTIFY_CURATOR_TOOL), "context", "{}"],
+            capture_output=True, text=True, timeout=25,
+        )
+        if context_result.returncode == 0:
+            listening_context = json.loads(context_result.stdout.strip() or "{}")
+    except Exception as error:
+        print(f"[Apollo Music Curator] Listening context unavailable: {error}")
+    planner_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are Apollo's expert music curator. Interpret informal language, "
+                "artist influences, mood, instrumentation, sampling, production style, "
+                "energy, and explicit exclusions. A request for 'songs by X' is direct; "
+                "'X type', 'like X', or 'X-style' asks for sonic relatives and should not "
+                "become a list dominated by X. Use CURRENT PLAYBACK and PRIOR CURATION for "
+                "follow-ups such as 'darker', 'more like the third song', 'another 10', or "
+                "'keep this vibe going'. Choose a strong opener followed by coherent "
+                "transitions. Mix recognizable and lesser-known music, use no artist more "
+                "than twice, honor constraints exactly, and avoid all prior/current tracks. "
+                "Suggest 10 to 14 REAL released tracks that you confidently know. Do not "
+                "invent Spotify IDs or claim audio analysis. Spotify will independently "
+                "verify every title and artist; invalid suggestions are discarded. "
+                "Return JSON ONLY with: {\"summary\":\"brief sonic direction\","
+                "\"why\":\"one brief explanation of the opening choice\","
+                "\"candidates\":[{\"title\":\"exact title\",\"artist\":\"primary artist\","
+                "\"reason\":\"very short transition/relevance reason\"}]}"
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "REQUEST:\n" + str(user_request) + "\n\nCURRENT PLAYBACK:\n"
+                + json.dumps({
+                    "title": playback.get("title"), "artists": playback.get("artists"),
+                    "album": playback.get("album"), "track_id": playback.get("track_id"),
+                }, ensure_ascii=False)
+                + "\n\nPRIOR CURATION:\n"
+                + json.dumps(context, ensure_ascii=False)[:12000]
+                + "\n\nPERMITTED SPOTIFY LISTENING CONTEXT:\n"
+                + json.dumps(listening_context, ensure_ascii=False)[:8000]
+            ),
+        },
+    ]
+    try:
+        plan = apollo_music_json(ask_hermes(planner_messages))
+    except Exception as error:
+        raise RuntimeError(f"Apollo could not build a music direction: {error}")
+    candidates = plan.get("candidates") if isinstance(plan, dict) else None
+    if not isinstance(candidates, list) or not candidates:
+        raise RuntimeError("Apollo did not produce any music candidates")
+
+    prior_ids = [
+        track.get("id") for track in context.get("tracks") or []
+        if isinstance(track, dict) and track.get("id")
+    ]
+    payload = {
+        "candidates": candidates,
+        "exclude_track_ids": prior_ids[-30:],
+        "current_track_id": playback.get("track_id"),
+        "minimum": 4,
+        "maximum": 10,
+    }
+    result = subprocess.run(
+        [
+            SPOTIFY_PYTHON,
+            str(SPOTIFY_CURATOR_TOOL),
+            "resolve" if dry_run else "play-queue",
+            json.dumps(payload, ensure_ascii=False),
+        ],
+        capture_output=True, text=True, timeout=55,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "Spotify could not build the queue"
+        try:
+            failure = json.loads(detail.splitlines()[-1])
+            message = str(failure.get("error") or detail)
+            if failure.get("status") == 429:
+                retry = failure.get("retry_after")
+                message = "Spotify rate-limited the request" + (f"; retry after {retry} seconds" if retry else "")
+            detail = message
+        except (ValueError, TypeError, AttributeError):
+            pass
+        raise RuntimeError(detail)
+    try:
+        spotify_result = json.loads(result.stdout.strip())
+    except json.JSONDecodeError:
+        raise RuntimeError("Spotify returned an invalid queue result")
+    tracks = music_curator.normalize_curated_tracks(spotify_result.get("tracks"), prior_ids, 10)
+    if len(tracks) < 4 or (not dry_run and not spotify_result.get("playback_started")):
+        raise RuntimeError("Spotify did not confirm playback of a verified curated queue")
+    saved = {
+        "request": str(user_request),
+        "summary": str(plan.get("summary") or "").strip(),
+        "why": str(plan.get("why") or "").strip(),
+        "tracks": tracks,
+    }
+    if not dry_run:
+        apollo_music_save_curator_context(chat_id, saved)
+    return {
+        "ok": True,
+        "intent": {"type": "curation", "mode": "curate", "query": str(user_request)},
+        "spotify": {**spotify_result, "type": "curation", "tracks": tracks},
+        "curation": saved,
+        "playback": get_now_playing(),
+    }
+
+
+def apollo_music_play_request(user_request, chat_id=None):
     """
     Interpret a natural-language Music-tab request and start
     Spotify using a real album / artist / playlist context.
@@ -6746,7 +6897,7 @@ def apollo_music_play_request(user_request):
                 "Convert the user's request into JSON ONLY. "
                 "Never answer conversationally. "
                 "\n\n"
-                "Allowed types: track, album, artist, playlist, liked."
+                "Allowed types: track, album, artist, playlist, liked, curation."
                 "\n\n"
                 "Rules:\n"
                 "- An exact song request => track.\n"
@@ -6760,7 +6911,13 @@ def apollo_music_play_request(user_request):
                 "when confidence is high, e.g. 'party' may mean PARTYNEXTDOOR.\n"
                 "- 'play [artist]' or music by one artist => artist.\n"
                 "- Mood, genre, vibe, activity, or general listening "
-                "request => playlist.\n"
+                "request => curation.\n"
+                "- Descriptive sound, instrumentation, production, aesthetic, artist-style, "
+                "obscurity, and conversational refinements => curation.\n"
+                "- 'play Jeff Buckley' means direct artist playback; 'Jeff Buckley type', "
+                "'like Jeff Buckley', or 'Jeff Buckley-style' means curation.\n"
+                "- Follow-ups such as 'darker', 'less mainstream', 'more like the third song', "
+                "'another 10', and 'keep this vibe going' => curation.\n"
                 "- Personal playlist references like 'my main playlist', "
                 "'my gym playlist', 'my ug rnb playlist', or 'my chill playlist' "
                 "are playlist requests. Preserve the identifying words in query.\n"
@@ -6779,7 +6936,8 @@ def apollo_music_play_request(user_request):
                 "\n"
                 "Return exactly this shape:\n"
                 "{"
-                "\"type\":\"track|album|artist|playlist\","
+                "\"mode\":\"direct|curate|refine|continue\","
+                "\"type\":\"track|album|artist|playlist|liked|curation\","
                 "\"query\":\"...\","
                 "\"title\":\"...\","
                 "\"artist\":\"...\""
@@ -6819,6 +6977,19 @@ def apollo_music_play_request(user_request):
         intent.get("type", "")
     ).strip().lower()
 
+
+    prior_context = apollo_music_curator_context(chat_id)
+
+    if music_curator.wants_music_curation(
+        user_request,
+        intent,
+        has_context=bool(prior_context),
+    ):
+        return apollo_music_curate(
+            user_request,
+            chat_id=chat_id,
+            prior_context=prior_context,
+        )
 
     if kind not in {
         "track",
@@ -17830,6 +18001,19 @@ class ApolloHandler(BaseHTTPRequestHandler):
             return
 
 
+        if route == "/api/spotify/curation":
+
+            json_response(
+                self,
+                {
+                    "curation":
+                        apollo_music_curator_context()
+                }
+            )
+
+            return
+
+
         # ─────────────────────────────
         # APOLLO STUDIO V1
         # ─────────────────────────────
@@ -20906,6 +21090,12 @@ class ApolloHandler(BaseHTTPRequestHandler):
             if apollo_music_action_requested(
                 user_message,
                 surface=surface
+            ) or (
+                apollo_music_curator_context(chat_id)
+                and music_curator.wants_music_curation(
+                    user_message,
+                    has_context=True
+                )
             ):
 
                 try:
@@ -21006,7 +21196,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
                         music_result = (
                             apollo_music_play_request(
-                                music_request
+                                music_request,
+                                chat_id=chat_id
                             )
                         )
 
@@ -21042,9 +21233,33 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     ).strip()
 
 
+                    if result_type == "curation":
+
+                        curation = music_result.get("curation") or {}
+                        tracks = curation.get("tracks") or []
+                        opening = tracks[0] if tracks else {}
+                        opening_artist = ", ".join(opening.get("artists") or [])
+                        music_reply = "Playing — " + str(opening.get("title") or "the opening track")
+                        if opening_artist:
+                            music_reply += " by " + opening_artist
+                        music_reply += "."
+                        why = str(curation.get("why") or curation.get("summary") or "").strip()
+                        if why:
+                            music_reply += " " + why
+                        if len(tracks) > 1:
+                            music_reply += f" I added {len(tracks) - 1} verified tracks to Spotify's queue."
+                        existing_count = int(spotify_result.get("existing_queue_count") or 0)
+                        if existing_count:
+                            music_reply += (
+                                f" I preserved the {existing_count} item"
+                                + ("s" if existing_count != 1 else "")
+                                + " already queued, so Apollo's remaining tracks follow them."
+                            )
+
+
                     # For playlists / albums / artists, confirm
                     # the actual Spotify context Apollo selected.
-                    if (
+                    elif (
                         result_type
                         in {
                             "playlist",

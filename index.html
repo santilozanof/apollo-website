@@ -38915,6 +38915,40 @@ html[data-theme="light"]
     font-size: 11px;
 }
 
+.apollo-curation-card {
+    min-height: 150px;
+}
+
+.apollo-curation-card[hidden] {
+    display: none;
+}
+
+.apollo-curation-card .apollo-music-coming-main {
+    margin-top: 18px;
+}
+
+.apollo-curation-tracks {
+    margin: 16px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.apollo-curation-tracks li + li {
+    margin-top: 8px;
+}
+
+.apollo-curation-tracks a,
+.apollo-curation-tracks span {
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.45;
+    text-decoration: none;
+}
+
+.apollo-curation-tracks a:hover {
+    color: var(--text);
+}
+
 
 /* =========================================================
    MOBILE
@@ -39167,6 +39201,28 @@ html[data-theme="light"]
 
             <div class="apollo-music-coming">
 
+                <div
+                    class="apollo-music-coming-card apollo-curation-card"
+                    id="apolloCurationCard"
+                    hidden
+                >
+
+                    <div class="apollo-music-coming-name">
+                        Apollo Queue
+                    </div>
+
+                    <div
+                        class="apollo-music-coming-main"
+                        id="apolloCurationSummary"
+                    ></div>
+
+                    <ol
+                        class="apollo-curation-tracks"
+                        id="apolloCurationTracks"
+                    ></ol>
+
+                </div>
+
                 <div class="apollo-music-coming-card">
 
                     <div class="apollo-music-coming-name">
@@ -39279,6 +39335,21 @@ html[data-theme="light"]
     const nextButton =
         musicView.querySelector(
             "#apolloSpotifyNext"
+        );
+
+    const curationCard =
+        musicView.querySelector(
+            "#apolloCurationCard"
+        );
+
+    const curationSummary =
+        musicView.querySelector(
+            "#apolloCurationSummary"
+        );
+
+    const curationTracks =
+        musicView.querySelector(
+            "#apolloCurationTracks"
         );
 
 
@@ -39877,6 +39948,88 @@ html[data-theme="light"]
     }
 
 
+    async function loadCuration() {
+
+        try {
+
+            const response =
+                await fetch(
+                    "/api/spotify/curation",
+                    {
+                        cache: "no-store"
+                    }
+                );
+
+            const data =
+                await response.json();
+
+            const curation =
+                data.curation || {};
+
+            const tracks =
+                Array.isArray(curation.tracks)
+                    ? curation.tracks
+                    : [];
+
+            if (!response.ok || !tracks.length) {
+                curationCard.hidden = true;
+                return;
+            }
+
+            curationSummary.textContent =
+                curation.summary
+                || curation.request
+                || "Selected for this moment";
+
+            curationTracks.replaceChildren();
+
+            tracks.forEach(
+                (track, index) => {
+
+                    const item =
+                        document.createElement("li");
+
+                    const link =
+                        document.createElement(
+                            track.spotify_url
+                                ? "a"
+                                : "span"
+                        );
+
+                    if (track.spotify_url) {
+                        link.href = track.spotify_url;
+                        link.target = "_blank";
+                        link.rel = "noopener noreferrer";
+                    }
+
+                    const artists =
+                        Array.isArray(track.artists)
+                            ? track.artists.join(", ")
+                            : "";
+
+                    link.textContent =
+                        `${index + 1}. ${track.title}`
+                        + (artists ? ` — ${artists}` : "");
+
+                    item.appendChild(link);
+                    curationTracks.appendChild(item);
+
+                }
+            );
+
+            curationCard.hidden = false;
+
+        } catch (error) {
+
+            console.error(
+                "Apollo music curation:",
+                error
+            );
+
+        }
+    }
+
+
     /* =====================================================
        CONTROLS
        ===================================================== */
@@ -40056,6 +40209,7 @@ html[data-theme="light"]
 
 
         loadNowPlaying();
+        loadCuration();
 
 
         pollTimer =
@@ -40349,7 +40503,14 @@ html[data-theme="light"]
 
 
     window.apolloLoadMusic =
-        loadNowPlaying;
+        async function() {
+
+            await Promise.all([
+                loadNowPlaying(),
+                loadCuration()
+            ]);
+
+        };
 
 })();
 
