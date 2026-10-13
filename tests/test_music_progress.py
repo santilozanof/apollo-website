@@ -104,22 +104,24 @@ console.log(JSON.stringify({uninterrupted, paused, resumed, sought, changedTrack
 
     def test_backend_and_frontend_preserve_authoritative_spotify_position(self):
         server = SERVER.read_text(encoding="utf-8")
+        spotify_tool = (SERVER.parent / "spotify_curator_tool.py").read_text(encoding="utf-8")
         index = INDEX.read_text(encoding="utf-8")
         self.assertIn('"progress_ms": data.get("progress_ms")', server)
         self.assertIn('"progress_ms": player.get("progress_ms") or 0', server)
-        self.assertIn('playback.get("sampled_at_ms")', server)
+        self.assertIn('"sampled_at_ms": int(time.time() * 1000)', spotify_tool)
         self.assertIn("reconcilePlaybackProgress({", index)
         self.assertIn("|| trackChanged", index)
         self.assertIn("|| deviceChanged", index)
         self.assertIn("|| playStateChanged", index)
 
-    def test_poll_frequency_is_unchanged(self):
+    def test_music_view_reuses_the_single_global_poll(self):
         source = INDEX.read_text(encoding="utf-8")
         music_start = source.index("APOLLO MUSIC — NOW PLAYING V1", 38000)
         music_end = source.index("APOLLO MUSIC — TRANSPORT CONTROL POLISH", music_start)
         music = source[music_start:music_end]
         self.assertIn("pollTimer =", music)
-        self.assertIn("5000", music)
+        self.assertNotIn("if (musicVisible) {\n                        loadNowPlaying();", music)
+        self.assertIn('window.addEventListener("apollo:spotify-playback"', music)
         self.assertIn("progressTimer =", music)
         self.assertIn("500", music)
 

@@ -249,9 +249,12 @@ def build_curated_queue(spotify, payload, emit=emit_event):
     device = active_device(spotify)
     _current_ids, current_uris = existing_queue_state(spotify)
     known_counts = Counter(current_uris)
+    desired_counts = Counter()
     preserved = 0
     for uri in payload.get("existing_queue_uris") or []:
-        add_to_queue_safely(spotify, uri, device.get("id"), known_counts)
+        desired_counts[uri] += 1
+        if known_counts.get(uri, 0) < desired_counts[uri]:
+            add_to_queue_safely(spotify, uri, device.get("id"), known_counts)
         preserved += 1
         emit({"event": "preserved", "preserved": preserved})
 
@@ -305,11 +308,14 @@ def restore_existing_queue(spotify, uris):
     device = active_device(spotify)
     _current_ids, current_uris = existing_queue_state(spotify)
     known_counts = Counter(current_uris)
+    desired_counts = Counter()
     restored = 0
     for uri in uris or []:
         if not str(uri).startswith("spotify:track:"):
             continue
-        add_to_queue_safely(spotify, uri, device.get("id"), known_counts)
+        desired_counts[uri] += 1
+        if known_counts.get(uri, 0) < desired_counts[uri]:
+            add_to_queue_safely(spotify, uri, device.get("id"), known_counts)
         restored += 1
     return {"ok": True, "preserved": restored}
 
@@ -346,6 +352,109 @@ def compact_queue_item(item):
         "artist_uri": artists[0].get("uri") if artists and isinstance(artists[0], dict) else None,
         "spotify_url": (item.get("external_urls") or {}).get("spotify"),
     }
+
+
+def playback_snapshot(data):
+    """Normalize Spotify's player response for every Apollo music surface."""
+    data = data if isinstance(data, dict) else {}
+    item = data.get("item") if isinstance(data.get("item"), dict) else {}
+    compact = compact_queue_item(item) if item else None
+    device = data.get("device") if isinstance(data.get("device"), dict) else {}
+    if not compact:
+        return {
+            "playing": False,
+            "title": None,
+            "artists": None,
+            "playback_state": "idle",
+            "connection_state": "connected",
+            "progress_ms": 0,
+            "duration_ms": 0,
+            "sampled_at_ms": int(time.time() * 1000),
+        }
+    return {
+        "playing": bool(data.get("is_playing")),
+        "title": compact.get("name"),
+        "artists": compact.get("artists"),
+        "album": (item.get("album") or {}).get("name"),
+        "artwork": compact.get("artwork"),
+        "progress_ms": data.get("progress_ms") or 0,
+        "duration_ms": compact.get("duration_ms") or 0,
+        "sampled_at_ms": int(time.time() * 1000),
+        "device": device.get("name"),
+        "device_type": device.get("type"),
+        "track_id": compact.get("id"),
+        "spotify_url": compact.get("spotify_url"),
+        "playback_state": "playing" if data.get("is_playing") else "paused",
+        "connection_state": "connected",
+    }
+
+
+def recent_contexts_snapshot(spotify, limit=12):
+    """Fetch recent albums with only a bounded number of playlist lookups."""
+    recent = spotify_read(
+        lambda: spotify.current_user_recently_played(limit=30),
+        attempts=1,
+    ) or {}
+    results = []
+    seen = set()
+    playlist_lookups = 0
+    for play in recent.get("items") or []:
+        if not isinstance(play, dict):
+            continue
+        track = play.get("track") if isinstance(play.get("track"), dict) else {}
+        context = play.get("context") if isinstance(play.get("context"), dict) else {}
+        if context.get("type") == "playlist" and playlist_lookups < 2:
+            playlist_id = str(context.get("uri") or "").split(":")[-1]
+            key = ("playlist", playlist_id)
+            if playlist_id and key not in seen:
+                playlist_lookups += 1
+                try:
+                    playlist = spotify_read(
+                        lambda playlist_id=playlist_id: spotify.playlist(
+                            playlist_id,
+                            fields="id,name,uri,external_urls,images",
+                        ),
+                        attempts=1,
+                    ) or {}
+                    images = playlist.get("images") or []
+                    results.append({
+                        "type": "playlist",
+                        "id": playlist.get("id"),
+                        "name": playlist.get("name"),
+                        "subtitle": "Playlist",
+                        "artwork": images[0].get("url") if images else None,
+                        "spotify_url": (playlist.get("external_urls") or {}).get("spotify"),
+                        "uri": playlist.get("uri"),
+                        "played_at": play.get("played_at"),
+                    })
+                    seen.add(key)
+                except Exception:
+                    # Recent albums are still useful if optional playlist
+                    # metadata is temporarily throttled.
+                    pass
+        album = track.get("album") if isinstance(track.get("album"), dict) else {}
+        album_id = album.get("id")
+        key = ("album", album_id)
+        if album_id and key not in seen:
+            images = album.get("images") or []
+            artists = album.get("artists") or []
+            results.append({
+                "type": "album",
+                "id": album_id,
+                "name": album.get("name"),
+                "subtitle": ", ".join(
+                    artist.get("name", "") for artist in artists
+                    if isinstance(artist, dict) and artist.get("name")
+                ) or "Album",
+                "artwork": images[0].get("url") if images else None,
+                "spotify_url": (album.get("external_urls") or {}).get("spotify"),
+                "uri": album.get("uri"),
+                "played_at": play.get("played_at"),
+            })
+            seen.add(key)
+        if len(results) >= limit:
+            break
+    return {"items": results[:limit]}
 
 
 def queue_snapshot(data):
@@ -447,12 +556,13 @@ def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command not in {
         "context", "resolve", "play-queue", "start-curation", "restore-queue", "build-curation",
-        "queue", "queue-play",
+        "playback-state", "recent-contexts", "queue", "queue-play",
         "queue-add", "track-search",
     }:
         raise SystemExit(
             "Usage: spotify_curator_tool.py "
-            "context|resolve|play-queue|start-curation|restore-queue|build-curation|queue|"
+            "context|resolve|play-queue|start-curation|restore-queue|build-curation|"
+            "playback-state|recent-contexts|queue|"
             "queue-play|queue-add|track-search [JSON]"
         )
     try:
@@ -478,6 +588,12 @@ def main():
             # managed background job and updates the existing queue drawer.
             build_curated_queue(spotify_client(), json.loads(sys.argv[2]))
             return
+        elif command == "playback-state":
+            result = playback_snapshot(
+                spotify_read(spotify_client().current_playback, attempts=1)
+            )
+        elif command == "recent-contexts":
+            result = recent_contexts_snapshot(spotify_client())
         elif command == "queue":
             spotify = spotify_client()
             result = queue_snapshot(spotify_read(spotify.queue))

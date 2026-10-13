@@ -50,35 +50,21 @@ class SpotifyPlaybackStateTests(unittest.TestCase):
         self.assertEqual(response["playback_state"], "error")
         self.assertEqual(response["connection_state"], "error")
 
-    def test_current_command_preserves_the_helper_result_and_diagnostics(self):
+    def test_current_command_uses_the_bounded_shared_adapter(self):
         calls = []
-
-        class Result:
-            returncode = 0
-            stdout = json.dumps({"is_playing": False, "item": {"name": "Song"}})
-            stderr = ""
-
-        def probe():
-            calls.append("probe")
-            return Result(), {
-                "currently_playing": {"status": 204},
-                "player": {"status": 204},
-                "granted_scopes": ["user-read-playback-state"],
-            }
-
-        state = self.state()
         current = load_function("_get_now_playing_uncached", {
-            "json": json,
-            "spotify_playback_state": state,
-            "spotify_current_with_player_probe": probe,
-            "spotify_player_result": lambda _diagnostics: None,
-            "time": time,
+            "apollo_spotify_tool_command": lambda command, timeout: (
+                calls.append((command, timeout)) or {
+                    "playing": False,
+                    "title": "Song",
+                    "playback_state": "paused",
+                }
+            ),
         })
 
         response = current()
-        self.assertEqual(calls, ["probe"])
+        self.assertEqual(calls, [("playback-state", 10)])
         self.assertEqual(response["playback_state"], "paused")
-        self.assertEqual(response["spotify_diagnostics"]["currently_playing"]["status"], 204)
 
     def test_player_endpoint_overrides_an_empty_currently_playing_result(self):
         player = load_function("spotify_player_result", {})
@@ -113,12 +99,25 @@ class SpotifyPlaybackStateTests(unittest.TestCase):
             time.sleep(.03)
             return {"title": "One read"}
 
+        def refresh_cache(release_lock=False):
+            value = refresh()
+            with cache_lock:
+                cache.update(value=value, at=time.monotonic())
+            if release_lock:
+                refresh_lock.release()
+            return value
+
+        cache_lock = threading.Lock()
+        refresh_lock = threading.Lock()
+
         current = load_function("get_now_playing", {
             "time": time,
+            "threading": threading,
             "SPOTIFY_PLAYBACK_CACHE": cache,
-            "SPOTIFY_PLAYBACK_CACHE_LOCK": threading.Lock(),
-            "SPOTIFY_PLAYBACK_REFRESH_LOCK": threading.Lock(),
+            "SPOTIFY_PLAYBACK_CACHE_LOCK": cache_lock,
+            "SPOTIFY_PLAYBACK_REFRESH_LOCK": refresh_lock,
             "_get_now_playing_uncached": refresh,
+            "_refresh_now_playing_cache": refresh_cache,
         })
         results = []
         threads = [threading.Thread(target=lambda: results.append(current())) for _ in range(4)]
@@ -149,7 +148,7 @@ class SpotifyPlaybackStateTests(unittest.TestCase):
             cooldown["remaining"] = float(value)
             return float(value)
 
-        command = load_function("apollo_spotify_queue_command", {
+        command = load_function("apollo_spotify_tool_command", {
             "json": json,
             "subprocess": Runner,
             "SPOTIFY_PYTHON": "python",
@@ -157,8 +156,8 @@ class SpotifyPlaybackStateTests(unittest.TestCase):
             "apollo_spotify_rate_limit_remaining": lambda: cooldown["remaining"],
             "apollo_spotify_set_rate_limit": set_cooldown,
         })
-        with self.assertRaisesRegex(RuntimeError, "retry after 7 seconds"):
+        with self.assertRaisesRegex(RuntimeError, "Retry in 7 seconds"):
             command("queue")
-        with self.assertRaisesRegex(RuntimeError, "retry after 7 seconds"):
+        with self.assertRaisesRegex(RuntimeError, "Retry in 7 seconds"):
             command("queue")
         self.assertEqual(calls, [1])

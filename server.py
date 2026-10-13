@@ -70,6 +70,9 @@ SPOTIFY_CURATOR_TOOL = BASE_DIR / "spotify_curator_tool.py"
 SPOTIFY_PLAYBACK_CACHE = {"value": None, "at": 0.0}
 SPOTIFY_PLAYBACK_CACHE_LOCK = threading.Lock()
 SPOTIFY_PLAYBACK_REFRESH_LOCK = threading.Lock()
+SPOTIFY_RECENT_CACHE = {"value": None, "at": 0.0}
+SPOTIFY_RECENT_CACHE_LOCK = threading.Lock()
+SPOTIFY_RECENT_REFRESH_LOCK = threading.Lock()
 SPOTIFY_QUEUE_CACHE = {"value": None, "at": 0.0}
 SPOTIFY_QUEUE_CACHE_LOCK = threading.Lock()
 SPOTIFY_QUEUE_REFRESH_LOCK = threading.Lock()
@@ -5819,66 +5822,64 @@ def spotify_player_result(diagnostics):
 def _get_now_playing_uncached():
     """Return Spotify playback, retaining auth and request failures distinctly."""
     try:
-        result, diagnostics = spotify_current_with_player_probe()
-        if result.returncode != 0:
-            playback = spotify_playback_state(
-                error=result.stderr.strip() or result.stdout.strip()
-            )
-        else:
-            output = result.stdout.strip()
-            helper_data = json.loads(output) if output else {}
-            # A 204 from currently-playing is not decisive: Spotify returns a
-            # full /me/player object for paused and some active-device states.
-            playback = spotify_playback_state(helper_data)
-            player_data = spotify_player_result(diagnostics)
-            if player_data:
-                playback = spotify_playback_state(player_data)
-        playback["sampled_at_ms"] = (
-            playback.get("sampled_at_ms")
-            or int(time.time() * 1000)
-        )
-        playback["spotify_diagnostics"] = diagnostics
-        print(
-            "[Apollo Spotify] "
-            f"scopes={diagnostics.get('granted_scopes', [])} "
-            f"currently_playing={diagnostics.get('currently_playing', {}).get('status')} "
-            f"player={diagnostics.get('player', {}).get('status')} "
-            f"devices={diagnostics.get('devices', {}).get('status')} "
-            f"active_devices={sum(1 for device in diagnostics.get('devices', {}).get('devices', []) if device.get('is_active'))}"
-        )
-        return playback
+        return apollo_spotify_tool_command("playback-state", timeout=10)
     except Exception as error:
         print(f"[Apollo] Spotify error: {error}")
-        return spotify_playback_state(error=error)
+        return spotify_playback_state(
+            error="Spotify needs to be reconnected."
+            if "reconnect" in str(error).casefold()
+            else "Spotify is temporarily unavailable. Try again."
+        )
 
 
-def get_now_playing(force=False):
-    """Return a short-lived single-flight playback snapshot.
-
-    The Music UI polls every five seconds, while chat and playback controls may
-    ask for the same state at the same moment. Reusing a two-second result avoids
-    three-probe Spotify bursts without making the player feel stale.
-    """
-    now = time.monotonic()
-    with SPOTIFY_PLAYBACK_CACHE_LOCK:
-        cached = SPOTIFY_PLAYBACK_CACHE.get("value")
-        if not force and cached is not None and now - SPOTIFY_PLAYBACK_CACHE["at"] < 2.0:
-            return dict(cached)
-    with SPOTIFY_PLAYBACK_REFRESH_LOCK:
-        now = time.monotonic()
-        with SPOTIFY_PLAYBACK_CACHE_LOCK:
-            cached = SPOTIFY_PLAYBACK_CACHE.get("value")
-            if not force and cached is not None and now - SPOTIFY_PLAYBACK_CACHE["at"] < 2.0:
-                return dict(cached)
+def _refresh_now_playing_cache(release_lock=False):
+    try:
         value = _get_now_playing_uncached()
         with SPOTIFY_PLAYBACK_CACHE_LOCK:
             SPOTIFY_PLAYBACK_CACHE.update(value=dict(value), at=time.monotonic())
         return value
+    finally:
+        if release_lock:
+            SPOTIFY_PLAYBACK_REFRESH_LOCK.release()
+
+
+def get_now_playing(force=False):
+    """Return a bounded snapshot and refresh stale data without blocking UI."""
+    now = time.monotonic()
+    with SPOTIFY_PLAYBACK_CACHE_LOCK:
+        cached = SPOTIFY_PLAYBACK_CACHE.get("value")
+        age = now - SPOTIFY_PLAYBACK_CACHE["at"]
+        if not force and cached is not None and age < 4.5:
+            return dict(cached)
+    if not force and cached is not None:
+        if SPOTIFY_PLAYBACK_REFRESH_LOCK.acquire(blocking=False):
+            threading.Thread(
+                target=_refresh_now_playing_cache,
+                kwargs={"release_lock": True},
+                name="apollo-spotify-playback-refresh",
+                daemon=True,
+            ).start()
+        stale = dict(cached)
+        stale["stale"] = True
+        return stale
+    with SPOTIFY_PLAYBACK_REFRESH_LOCK:
+        now = time.monotonic()
+        with SPOTIFY_PLAYBACK_CACHE_LOCK:
+            cached = SPOTIFY_PLAYBACK_CACHE.get("value")
+            if not force and cached is not None and now - SPOTIFY_PLAYBACK_CACHE["at"] < 4.5:
+                return dict(cached)
+        return _refresh_now_playing_cache()
 
 
 def apollo_spotify_invalidate_caches():
     with SPOTIFY_PLAYBACK_CACHE_LOCK:
         SPOTIFY_PLAYBACK_CACHE.update(value=None, at=0.0)
+    apollo_spotify_invalidate_queue_cache()
+    with SPOTIFY_RECENT_CACHE_LOCK:
+        SPOTIFY_RECENT_CACHE.update(value=None, at=0.0)
+
+
+def apollo_spotify_invalidate_queue_cache():
     with SPOTIFY_QUEUE_CACHE_LOCK:
         SPOTIFY_QUEUE_CACHE.update(value=None, at=0.0)
 
@@ -5890,89 +5891,36 @@ def get_spotify_recent_contexts():
     Individual songs are intentionally excluded by spotify_tool.py.
     """
 
-    try:
-
-        result = subprocess.run(
-            [
-                SPOTIFY_PYTHON,
-                SPOTIFY_TOOL,
-                "recent-contexts"
-            ],
-            capture_output=True,
-            text=True,
-            timeout=25
-        )
-
-
-        if result.returncode != 0:
-
-            raise RuntimeError(
-                result.stderr.strip()
-                or result.stdout.strip()
-                or "Spotify recent history failed"
-            )
-
-
-        output = (
-            result.stdout.strip()
-        )
-
-
-        data = (
-            json.loads(output)
-            if output
-            else {"items": []}
-        )
-
-
-        if not isinstance(
-            data,
-            dict
-        ):
-            raise ValueError(
-                "Invalid Spotify recent response"
-            )
-
-
-        items = (
-            data.get("items")
-            or []
-        )
-
-
-        # Defensive filtering:
-        # only albums/playlists may reach the frontend.
-        items = [
-            item
-            for item in items
-            if (
-                isinstance(item, dict)
-                and item.get("type")
-                in {
-                    "album",
-                    "playlist"
-                }
-            )
-        ]
-
-
-        return {
-            "items":
-                items[:12]
-        }
-
-
-    except Exception as error:
-
-        print(
-            "[Apollo Spotify Recent] "
-            f"{error}"
-        )
-
-        return {
-            "items": [],
-            "error": str(error)
-        }
+    now = time.monotonic()
+    with SPOTIFY_RECENT_CACHE_LOCK:
+        cached = SPOTIFY_RECENT_CACHE.get("value")
+        if cached is not None and now - SPOTIFY_RECENT_CACHE["at"] < 300:
+            return dict(cached)
+    with SPOTIFY_RECENT_REFRESH_LOCK:
+        now = time.monotonic()
+        with SPOTIFY_RECENT_CACHE_LOCK:
+            cached = SPOTIFY_RECENT_CACHE.get("value")
+            if cached is not None and now - SPOTIFY_RECENT_CACHE["at"] < 300:
+                return dict(cached)
+        try:
+            data = apollo_spotify_tool_command("recent-contexts", timeout=10)
+            items = [
+                item for item in (data.get("items") or [])
+                if isinstance(item, dict) and item.get("type") in {"album", "playlist"}
+            ]
+            value = {"items": items}
+            with SPOTIFY_RECENT_CACHE_LOCK:
+                SPOTIFY_RECENT_CACHE.update(value=value, at=time.monotonic())
+            return dict(value)
+        except Exception as error:
+            if cached is not None:
+                stale = dict(cached)
+                stale.update(stale=True, warning="Recent listening could not refresh.")
+                return stale
+            return {
+                "items": [],
+                "error": "Recent listening is temporarily unavailable.",
+            }
 
 
 def spotify_play_recent_context(
@@ -6862,12 +6810,12 @@ def apollo_spotify_set_rate_limit(retry_after):
     return delay
 
 
-def apollo_spotify_queue_command(command, argument=None):
-    """Read or mutate Spotify's real queue through the curator auth adapter."""
+def apollo_spotify_tool_command(command, argument=None, timeout=12):
+    """Run one bounded Spotify adapter call with one shared cooldown."""
     remaining = apollo_spotify_rate_limit_remaining()
     if remaining > 0:
         raise RuntimeError(
-            f"Spotify rate-limited the request; retry after {max(1, int(remaining + .999))} seconds"
+            f"Spotify is recovering. Retry in {max(1, int(remaining + .999))} seconds."
         )
     args = [SPOTIFY_PYTHON, str(SPOTIFY_CURATOR_TOOL), command]
     if argument is not None:
@@ -6877,7 +6825,7 @@ def apollo_spotify_queue_command(command, argument=None):
             args,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired as error:
         raise RuntimeError(
@@ -6892,32 +6840,52 @@ def apollo_spotify_queue_command(command, argument=None):
         if failure.get("status") == 429:
             retry = apollo_spotify_set_rate_limit(failure.get("retry_after"))
             raise RuntimeError(
-                "Spotify rate-limited the request"
-                + f"; retry after {max(1, int(retry + .999))} seconds"
+                f"Spotify is recovering. Retry in {max(1, int(retry + .999))} seconds."
             )
+        raw_error = str(failure.get("error") or "").casefold()
+        if failure.get("status") == 401 or any(marker in raw_error for marker in (
+            "invalid_grant", "refresh token", "not authenticated", "not authorized",
+        )):
+            raise RuntimeError("Spotify needs to be reconnected.")
         raise RuntimeError("Spotify is temporarily unavailable. Try again in a moment.")
     try:
         return json.loads(result.stdout.strip() or "{}")
     except json.JSONDecodeError as error:
-        raise RuntimeError("Spotify returned an invalid queue response.") from error
+        raise RuntimeError("Spotify returned an invalid response.") from error
+
+
+def apollo_spotify_queue_command(command, argument=None):
+    """Read or mutate Spotify's real queue through the shared adapter."""
+    return apollo_spotify_tool_command(command, argument=argument, timeout=12)
 
 
 def apollo_spotify_queue_snapshot(force=False):
     """Deduplicate simultaneous drawer refreshes without blocking curator jobs."""
-    now = time.monotonic()
+    requested_at = time.monotonic()
     with SPOTIFY_QUEUE_CACHE_LOCK:
         cached = SPOTIFY_QUEUE_CACHE.get("value")
         if cached is not None and apollo_spotify_rate_limit_remaining() > 0:
-            return dict(cached)
-        if not force and cached is not None and now - SPOTIFY_QUEUE_CACHE["at"] < 1.25:
+            stale = dict(cached)
+            stale.update(stale=True, warning="Queue could not refresh yet.")
+            return stale
+        if not force and cached is not None and requested_at - SPOTIFY_QUEUE_CACHE["at"] < 5:
             return dict(cached)
     with SPOTIFY_QUEUE_REFRESH_LOCK:
         now = time.monotonic()
         with SPOTIFY_QUEUE_CACHE_LOCK:
             cached = SPOTIFY_QUEUE_CACHE.get("value")
-            if not force and cached is not None and now - SPOTIFY_QUEUE_CACHE["at"] < 1.25:
+            if cached is not None and SPOTIFY_QUEUE_CACHE["at"] >= requested_at:
                 return dict(cached)
-        value = apollo_spotify_queue_command("queue")
+            if not force and cached is not None and now - SPOTIFY_QUEUE_CACHE["at"] < 5:
+                return dict(cached)
+        try:
+            value = apollo_spotify_queue_command("queue")
+        except Exception:
+            if cached is not None:
+                stale = dict(cached)
+                stale.update(stale=True, warning="Queue could not refresh.")
+                return stale
+            raise
         with SPOTIFY_QUEUE_CACHE_LOCK:
             SPOTIFY_QUEUE_CACHE.update(value=dict(value), at=time.monotonic())
         return value
@@ -6945,7 +6913,7 @@ def apollo_spotify_queue_add(uri):
     if not uri.startswith("spotify:track:"):
         raise ValueError("Invalid track")
     result = apollo_spotify_queue_command("queue-add", uri)
-    apollo_spotify_invalidate_caches()
+    apollo_spotify_invalidate_queue_cache()
     return result
 
 
@@ -7122,7 +7090,7 @@ def apollo_music_queue_worker(job_id, payload, saved_context, chat_id, request_s
                 })()
                 raise RuntimeError(apollo_music_curator_failure(failure))
             restored = json.loads(restore_stdout.strip() or "{}")
-            apollo_spotify_invalidate_caches()
+            apollo_spotify_invalidate_queue_cache()
             apollo_music_update_job(
                 job_id,
                 preserved=int(restored.get("preserved") or 0),
@@ -7165,11 +7133,11 @@ def apollo_music_queue_worker(job_id, payload, saved_context, chat_id, request_s
                 continue
             kind = event.get("event")
             if kind == "preserved":
-                apollo_spotify_invalidate_caches()
+                apollo_spotify_invalidate_queue_cache()
                 apollo_music_update_job(job_id, preserved=int(event.get("preserved") or 0))
             elif kind == "added" and isinstance(event.get("track"), dict):
                 tracks.append(event["track"])
-                apollo_spotify_invalidate_caches()
+                apollo_spotify_invalidate_queue_cache()
                 apollo_music_update_job(
                     job_id,
                     added=int(event.get("added") or len(tracks)),
@@ -18547,11 +18515,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
         # ─────────────────────────────
 
         if route == "/api/spotify/recent-contexts":
-
-            json_response(
-                self,
-                get_spotify_recent_contexts()
-            )
+            recent = get_spotify_recent_contexts()
+            json_response(self, recent, 503 if recent.get("error") else 200)
 
             return
 

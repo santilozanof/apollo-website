@@ -257,6 +257,24 @@ class QueueExecutionTests(unittest.TestCase):
             "preserved", "preserved", "added", "added", "complete",
         ])
 
+    def test_queue_restore_does_not_duplicate_tracks_already_present(self):
+        existing = [track(8)["uri"], track(9)["uri"]]
+        added = []
+
+        class Spotify:
+            def devices(self):
+                return {"devices": [{"id": "device", "is_active": True, "is_restricted": False}]}
+
+            def queue(self):
+                return {"queue": [spotify_api_track(8), spotify_api_track(9)]}
+
+            def add_to_queue(self, uri, device_id=None):
+                added.append(uri)
+
+        result = spotify_curator_tool.restore_existing_queue(Spotify(), existing)
+        self.assertEqual(result["preserved"], 2)
+        self.assertEqual(added, [])
+
     def test_ambiguous_add_timeout_checks_queue_before_retrying(self):
         uri = track(4)["uri"]
         calls = []
@@ -449,7 +467,7 @@ class MusicQueueFrontendTests(unittest.TestCase):
         self.assertNotIn("apolloCurationCard", source)
         self.assertNotIn("Apollo Queue", source)
         self.assertIn('id="apolloQueuePanel"', source)
-        self.assertIn('fetch(\n                `/api/spotify/queue', source)
+        self.assertIn('window.apolloSpotifyRequest(\n                `/api/spotify/queue', source)
         self.assertIn("loadQueue(true)", source)
 
     def test_added_tracks_are_refreshed_from_spotify_not_injected(self):
@@ -457,14 +475,23 @@ class MusicQueueFrontendTests(unittest.TestCase):
         self.assertNotIn("queueData.queue.push(item)", source)
         self.assertIn("await loadQueue(true);", source)
 
-    def test_drawer_reuses_apollo_motion_and_now_playing_bounds(self):
+    def test_drawer_reuses_apollo_motion_and_resizes_the_player_grid(self):
         source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
         self.assertIn("transition: opacity 220ms ease, transform 320ms var(--ease);", source)
-        self.assertIn("const bounds = nowPlaying.getBoundingClientRect();", source)
-        self.assertIn('--apollo-queue-top", `${Math.max(12, bounds.top)}px`', source)
-        self.assertIn('--apollo-queue-bottom", `${Math.max(12, window.innerHeight - bounds.bottom)}px`', source)
+        self.assertIn(".apollo-music-stage {", source)
+        self.assertIn("grid-template-columns:minmax(0,1fr) clamp(278px,25vw,318px); gap:16px;", source)
+        self.assertIn('musicStage.append(musicPlayer, musicQueuePanel);', source)
+        self.assertNotIn("const bounds = nowPlaying.getBoundingClientRect();", source)
         self.assertIn("padding-bottom:calc(12px + var(--apollo-mobile-nav-h, 64px)", source)
         self.assertIn("@media (prefers-reduced-motion: reduce)", source)
+
+    def test_spotify_loaders_have_timeouts_terminal_errors_and_recovery(self):
+        source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
+        self.assertIn("const controller = new AbortController();", source)
+        self.assertIn("Spotify took too long to respond.", source)
+        self.assertIn('id="apolloNowRetry"', source)
+        self.assertIn("data-retry-recent", source)
+        self.assertIn("queueRefreshError", source)
 
     def test_existing_music_prompt_is_docked_without_duplication(self):
         source = (SERVER.parent / "index.html").read_text(encoding="utf-8")

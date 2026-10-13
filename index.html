@@ -16454,13 +16454,21 @@ html[data-theme="light"]
     min-height: 84px;
 
     display: flex;
-    align-items: center;
+    align-items: flex-start;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
 
     color: inherit;
 
     font-size: 12px;
 
     opacity: .38;
+}
+.apollo-recent-empty button {
+    padding:0; border:0; background:transparent; color:inherit; font:inherit;
+    font-size:11px; font-weight:600; cursor:pointer; text-decoration:underline;
+    text-underline-offset:3px;
 }
 
 
@@ -16500,8 +16508,52 @@ html[data-theme="light"]
 
 (() => {
 
+    if (!window.apolloSpotifyRequest) {
+        const activeReads = new Map();
+        window.apolloSpotifyRequest = function(url, options = {}, timeoutMs = 9000) {
+            const method = String(options.method || "GET").toUpperCase();
+            const key = method === "GET" ? url : null;
+            if (key && activeReads.has(key)) return activeReads.get(key);
+            const request = (async () => {
+                const controller = new AbortController();
+                const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+                try {
+                    const response = await fetch(url, {
+                        ...options,
+                        cache: "no-store",
+                        signal: controller.signal,
+                    });
+                    const raw = await response.text();
+                    let data = {};
+                    if (raw) {
+                        try { data = JSON.parse(raw); }
+                        catch (_) { throw new Error("Spotify returned an invalid response."); }
+                    }
+                    if (!response.ok) throw new Error(data.error || "Spotify is temporarily unavailable.");
+                    return data;
+                } catch (error) {
+                    if (error?.name === "AbortError") {
+                        throw new Error("Spotify took too long to respond.");
+                    }
+                    throw error;
+                } finally {
+                    window.clearTimeout(timer);
+                }
+            })();
+            if (key) {
+                activeReads.set(key, request);
+                request.finally(() => {
+                    if (activeReads.get(key) === request) activeReads.delete(key);
+                }).catch(() => {});
+            }
+            return request;
+        };
+    }
+
     let signature =
         null;
+
+    let recentRequest = 0;
 
 
     function escapeHtml(
@@ -16684,30 +16736,19 @@ html[data-theme="light"]
         }
 
 
+        const requestId = ++recentRequest;
+
         try {
 
-            const response =
-                await fetch(
-                    "/api/spotify/recent-contexts",
-                    {
-                        cache:
-                            "no-store"
-                    }
-                );
+            const data = await window.apolloSpotifyRequest(
+                "/api/spotify/recent-contexts",
+                {},
+                10000
+            );
 
+            if (requestId !== recentRequest) return;
 
-            const data =
-                await response.json();
-
-
-            if (!response.ok) {
-
-                throw new Error(
-                    data.error
-                    || "Could not load recent Spotify history"
-                );
-
-            }
+            if (data.error) throw new Error(data.error);
 
 
             const items =
@@ -16838,6 +16879,8 @@ html[data-theme="light"]
 
         } catch (error) {
 
+            if (requestId !== recentRequest) return;
+
             console.error(
                 "Apollo Recently Played:",
                 error
@@ -16848,7 +16891,8 @@ html[data-theme="light"]
 
                 grid.innerHTML = `
                     <div class="apollo-recent-empty">
-                        Couldn’t load recent listening.
+                        <span>Couldn’t load recent listening.</span>
+                        <button type="button" data-retry-recent>Retry</button>
                     </div>
                 `;
 
@@ -17003,6 +17047,14 @@ html[data-theme="light"]
         "click",
         event => {
 
+            const retry = event.target.closest("[data-retry-recent]");
+            if (retry) {
+                event.preventDefault();
+                signature = null;
+                loadRecent();
+                return;
+            }
+
             const card =
                 event.target.closest(
                     "#apolloRecentPanel .apollo-recent-item"
@@ -17068,7 +17120,7 @@ html[data-theme="light"]
             }
 
         },
-        60000
+        300000
     );
 
 
@@ -38326,21 +38378,27 @@ html[data-theme="light"]
     transition: opacity 180ms ease, height 280ms cubic-bezier(.22,1,.36,1);
 }
 .apollo-queue-edge:hover::after, .apollo-queue-edge:focus-visible::after { opacity: .42; height: 72px; }
-.apollo-music-inner { transition: transform 320ms var(--ease); }
-.apollo-music-view.queue-open .apollo-music-inner { transform: translateX(clamp(-120px, -7vw, -78px)); }
+.apollo-music-stage {
+    display:grid; grid-template-columns:minmax(0,1fr) 0; gap:0;
+    align-items:stretch; min-width:0;
+    transition:grid-template-columns 320ms var(--ease), gap 320ms var(--ease);
+}
+.apollo-music-view.queue-open .apollo-music-stage {
+    grid-template-columns:minmax(0,1fr) clamp(278px,25vw,318px); gap:16px;
+}
+.apollo-music-stage .apollo-now-playing { min-width:0; height:100%; }
 .apollo-queue-scrim {
     position:fixed; inset:0; z-index:1199; display:block;
     background:rgba(0,0,0,.12); opacity:0; pointer-events:none;
     transition:opacity 220ms ease;
 }
-.apollo-music-view.queue-open .apollo-queue-scrim { opacity:.5; }
 .apollo-queue-panel {
-    position: fixed; z-index: 1200; top: var(--apollo-queue-top, 120px); right: 12px; bottom: var(--apollo-queue-bottom, 24px); width: clamp(278px, 22vw, 318px);
+    position: relative; z-index:5; width:100%; min-width:0; height:100%;
     overflow: hidden; display: flex; flex-direction: column; padding: 0;
     border: 1px solid var(--border); border-radius:18px;
     background: color-mix(in srgb, var(--bg) 93%, transparent);
-    box-shadow: 0 24px 64px rgba(0,0,0,.18);
-    backdrop-filter: blur(24px); opacity: 0; transform: translate3d(calc(100% + 20px),0,0); pointer-events: none;
+    box-shadow: 0 18px 44px rgba(0,0,0,.14);
+    backdrop-filter: blur(24px); opacity:0; transform:translate3d(14px,0,0); pointer-events:none;
     will-change:transform,opacity;
     transition: opacity 220ms ease, transform 320ms var(--ease);
 }
@@ -38425,12 +38483,22 @@ html[data-theme="light"]
 .apollo-queue-menu .danger { color:#d98282; }
 .apollo-queue-status { padding:30px 10px; color:var(--muted); font-size:12px; line-height:1.55; text-align:center; }
 .apollo-queue-status button { margin-top:8px; border:0; background:transparent; color:var(--text); cursor:pointer; font:inherit; font-size:11px; }
-
-@media (max-width: 1040px) and (min-width: 761px) {
-    .apollo-music-view.queue-open .apollo-music-inner { transform:translateX(-42px); }
+.apollo-queue-warning {
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    margin:6px 6px 8px; padding:7px 9px; border-radius:9px;
+    background:var(--surface-hover); color:var(--muted); font-size:10px;
 }
-@media (max-width: 900px) and (min-width: 761px) {
-    .apollo-music-view.queue-open .apollo-music-inner { transform:none; }
+.apollo-queue-warning button { padding:0; border:0; background:transparent; color:var(--text); font:inherit; font-size:10px; cursor:pointer; }
+
+@media (max-width: 900px) {
+    .apollo-music-stage,
+    .apollo-music-view.queue-open .apollo-music-stage { grid-template-columns:minmax(0,1fr); gap:0; }
+    .apollo-queue-panel {
+        position:fixed; z-index:1200; top:auto; right:0; bottom:0; left:0;
+        width:auto; height:min(82vh,720px); border-bottom:0; border-radius:22px 22px 0 0;
+        transform:translate3d(0,calc(100% + 12px),0);
+    }
+    .apollo-queue-panel.open { transform:translate3d(0,0,0); }
     .apollo-music-view.queue-open .apollo-queue-scrim { opacity:1; pointer-events:auto; }
 }
 
@@ -38495,6 +38563,14 @@ html[data-theme="light"]
 
     font-size: 12px;
 }
+.apollo-now-empty-action {
+    display:none; margin:14px auto 0; padding:7px 12px; border:1px solid var(--border);
+    border-radius:9px; background:transparent; color:var(--text); font:inherit; font-size:11px;
+    cursor:pointer;
+}
+.apollo-now-empty-action:hover { background:var(--surface-hover); }
+.apollo-now-playing.is-loading .apollo-now-art-wrap,
+.apollo-now-playing.is-loading .apollo-now-content { display:none; }
 
 
 /* =========================================================
@@ -38566,6 +38642,7 @@ html[data-theme="light"]
     .apollo-queue-edge { display:none; }
     .apollo-queue-trigger { display:grid; width:40px; padding:0; }
     .apollo-queue-trigger span { display:none; }
+    .apollo-now-empty .apollo-queue-trigger { margin:12px auto 0; }
     .apollo-music-view.queue-open .apollo-music-inner { transform:none; }
     .apollo-queue-scrim { background:rgba(0,0,0,.42); }
     .apollo-music-view.queue-open .apollo-queue-scrim { opacity:1; pointer-events:auto; }
@@ -38600,7 +38677,7 @@ html[data-theme="light"]
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .apollo-queue-panel, .apollo-queue-scrim, .apollo-music-inner, .apollo-queue-row, .apollo-queue-edge::after { transition-duration:1ms !important; }
+    .apollo-queue-panel, .apollo-queue-scrim, .apollo-music-stage, .apollo-queue-row, .apollo-queue-edge::after { transition-duration:1ms !important; }
     .apollo-queue-eq i { animation:none; height:7px; }
     .apollo-queue-build-dot { animation:none; }
 }
@@ -38652,7 +38729,7 @@ html[data-theme="light"]
 
 
             <section
-                class="apollo-now-playing"
+                class="apollo-now-playing is-loading"
                 id="apolloNowPlaying"
             >
 
@@ -38846,19 +38923,23 @@ html[data-theme="light"]
 
 
                 <div
-                    class="apollo-now-empty"
+                    class="apollo-now-empty active"
                     id="apolloNowEmpty"
                 >
 
                     <div>
 
-                        <div class="apollo-now-empty-title">
-                            Nothing playing
+                        <div class="apollo-now-empty-title" id="apolloNowEmptyTitle">
+                            Loading Spotify…
                         </div>
 
-                        <div class="apollo-now-empty-copy">
-                            Start something on Spotify and it'll appear here.
+                        <div class="apollo-now-empty-copy" id="apolloNowEmptyCopy">
+                            Checking your current session.
                         </div>
+
+                        <button class="apollo-now-empty-action" id="apolloNowRetry" type="button">
+                            Retry
+                        </button>
 
                     </div>
 
@@ -38897,6 +38978,13 @@ html[data-theme="light"]
         musicView
     );
 
+    const musicStage = document.createElement("div");
+    musicStage.className = "apollo-music-stage";
+    const musicPlayer = musicView.querySelector("#apolloNowPlaying");
+    const musicQueuePanel = musicView.querySelector("#apolloQueuePanel");
+    musicPlayer.before(musicStage);
+    musicStage.append(musicPlayer, musicQueuePanel);
+
     const queueEdgeElement = document.createElement("button");
     queueEdgeElement.type = "button";
     queueEdgeElement.className = "apollo-queue-edge";
@@ -38906,7 +38994,6 @@ html[data-theme="light"]
     const queueScrimElement = document.createElement("div");
     queueScrimElement.className = "apollo-queue-scrim";
     musicView.appendChild(queueScrimElement);
-    musicView.appendChild(musicView.querySelector("#apolloQueuePanel"));
 
 
     /* =====================================================
@@ -38937,6 +39024,10 @@ html[data-theme="light"]
         musicView.querySelector(
             "#apolloNowEmpty"
         );
+
+    const emptyTitle = musicView.querySelector("#apolloNowEmptyTitle");
+    const emptyCopy = musicView.querySelector("#apolloNowEmptyCopy");
+    const nowRetry = musicView.querySelector("#apolloNowRetry");
 
     const title =
         musicView.querySelector(
@@ -38994,6 +39085,7 @@ html[data-theme="light"]
         );
 
     const nowPlaying = musicView.querySelector("#apolloNowPlaying");
+    const queueHome = musicView.querySelector("#apolloQueue");
     const queueTrigger = musicView.querySelector("#apolloQueueTrigger");
     const queuePanel = musicView.querySelector("#apolloQueuePanel");
     const queueList = musicView.querySelector("#apolloQueueList");
@@ -39029,7 +39121,9 @@ html[data-theme="light"]
     let progressTimer = null;
 
     let commandRunning = false;
+    let nowPlayingRequest = 0;
     let queueData = null;
+    let queueRefreshError = "";
     let queueFetchedAt = 0;
     let queueRequest = 0;
     let queueMutationRunning = false;
@@ -39321,8 +39415,14 @@ html[data-theme="light"]
                 playback.title
             );
 
+        nowPlaying.classList.remove("is-loading");
+
 
         if (!hasTrack) {
+
+            if (queueTrigger.parentNode !== empty.firstElementChild) {
+                empty.firstElementChild.appendChild(queueTrigger);
+            }
 
             artworkWrap.style.display =
                 "none";
@@ -39333,6 +39433,25 @@ html[data-theme="light"]
             empty.classList.add(
                 "active"
             );
+
+            const state = playback.playback_state || "idle";
+            if (state === "error") {
+                emptyTitle.textContent = "Spotify couldn’t refresh";
+                emptyCopy.textContent = "Check the connection and try again.";
+                nowRetry.style.display = "block";
+            } else if (state === "disconnected") {
+                emptyTitle.textContent = "Reconnect Spotify";
+                emptyCopy.textContent = "Apollo’s Spotify authorization needs attention.";
+                nowRetry.style.display = "block";
+            } else if (state === "loading") {
+                emptyTitle.textContent = "Loading Spotify…";
+                emptyCopy.textContent = "Checking your current session.";
+                nowRetry.style.display = "none";
+            } else {
+                emptyTitle.textContent = "Nothing playing";
+                emptyCopy.textContent = "Start something on Spotify and it’ll appear here.";
+                nowRetry.style.display = "none";
+            }
 
             backdrop.style.backgroundImage =
                 "none";
@@ -39347,9 +39466,14 @@ html[data-theme="light"]
         content.style.display =
             "";
 
+        if (queueTrigger.parentNode !== queueHome) {
+            queueHome.appendChild(queueTrigger);
+        }
+
         empty.classList.remove(
             "active"
         );
+        nowRetry.style.display = "none";
 
 
         const applyMetadata =
@@ -39587,26 +39711,17 @@ html[data-theme="light"]
 
     async function loadNowPlaying() {
 
+        const requestId = ++nowPlayingRequest;
+
         try {
 
-            const response =
-                await fetch(
-                    "/api/now-playing",
-                    {
-                        cache: "no-store"
-                    }
-                );
+            const data = await window.apolloSpotifyRequest(
+                "/api/now-playing",
+                {},
+                10000
+            );
 
-
-            if (!response.ok) {
-                throw new Error(
-                    `Spotify ${response.status}`
-                );
-            }
-
-
-            const data =
-                await response.json();
+            if (requestId !== nowPlayingRequest) return;
 
 
             applyPlayback(
@@ -39617,13 +39732,28 @@ html[data-theme="light"]
 
         catch (error) {
 
+            if (requestId !== nowPlayingRequest) return;
+
             console.error(
                 "Apollo Music now playing:",
                 error
             );
 
+            applyPlayback({
+                playing: false,
+                title: null,
+                playback_state: "error",
+                connection_state: "error",
+            });
+
         }
     }
+
+    nowRetry.addEventListener("click", loadNowPlaying);
+
+    window.addEventListener("apollo:spotify-playback", event => {
+        if (musicVisible && event.detail) applyPlayback(event.detail);
+    });
 
 
     /* =====================================================
@@ -39745,6 +39875,18 @@ html[data-theme="light"]
             queueStatus("Loading queue…");
             return;
         }
+        if (queueRefreshError) {
+            const warning = document.createElement("div");
+            warning.className = "apollo-queue-warning";
+            const copy = document.createElement("span");
+            copy.textContent = queueRefreshError;
+            const retry = document.createElement("button");
+            retry.type = "button";
+            retry.textContent = "Retry";
+            retry.addEventListener("click", () => loadQueue(true));
+            warning.append(copy, retry);
+            queueList.appendChild(warning);
+        }
         if (queueData.current) {
             const label = document.createElement("div");
             label.className = "apollo-queue-section-label";
@@ -39772,20 +39914,23 @@ html[data-theme="light"]
         const requestId = ++queueRequest;
         if (!queueData) queueStatus("Loading queue…");
         try {
-            const response = await fetch(
+            const data = await window.apolloSpotifyRequest(
                 `/api/spotify/queue${force ? "?refresh=1" : ""}`,
-                {cache: "no-store"}
+                {},
+                10000
             );
-            const data = await response.json();
             if (requestId !== queueRequest) return;
-            if (!response.ok) throw new Error(data.error || "Spotify queue unavailable");
             data.queue = applyManagedOrder(data.queue || []);
             queueData = data;
+            queueRefreshError = data.stale || data.warning
+                ? (data.warning || "Queue could not refresh.")
+                : "";
             queueFetchedAt = Date.now();
             renderQueue();
         } catch (error) {
             if (requestId === queueRequest) {
                 console.error("Apollo Spotify queue:", error);
+                queueRefreshError = "Queue could not refresh.";
                 if (queueData) renderQueue();
                 else queueStatus("Queue couldn't refresh.", true);
             }
@@ -39847,13 +39992,6 @@ html[data-theme="light"]
         queueBuildStatus.hidden = true;
     }
 
-    function syncQueueBounds() {
-        if (!nowPlaying || window.matchMedia("(max-width: 760px)").matches) return;
-        const bounds = nowPlaying.getBoundingClientRect();
-        queuePanel.style.setProperty("--apollo-queue-top", `${Math.max(12, bounds.top)}px`);
-        queuePanel.style.setProperty("--apollo-queue-bottom", `${Math.max(12, window.innerHeight - bounds.bottom)}px`);
-    }
-
     function dockMusicPrompt() {
         if (!presence || !queuePrompt || presence.parentNode === queuePrompt) return;
         presence.classList.add("apollo-presence-queue");
@@ -39870,7 +40008,6 @@ html[data-theme="light"]
         clearTimeout(queueCloseTimer);
         clearTimeout(queueTransitionTimer);
         const wasOpen = queuePanel.classList.contains("open");
-        syncQueueBounds();
         dockMusicPrompt();
         queuePanel.hidden = false;
         requestAnimationFrame(() => {
@@ -39919,9 +40056,6 @@ html[data-theme="light"]
         if (!queueEdge.contains(event.relatedTarget)) scheduleQueueClose();
     });
     queueScrim.addEventListener("click", closeQueue);
-    window.addEventListener("resize", () => {
-        if (queuePanel.classList.contains("open")) syncQueueBounds();
-    });
     queuePin.classList.toggle("active", queuePinned);
     queuePin.setAttribute("aria-pressed", String(queuePinned));
     queuePin.addEventListener("click", () => {
@@ -40346,19 +40480,6 @@ html[data-theme="light"]
         if (queuePanel.classList.contains("open")) {
             loadQueue(true);
         }
-
-
-        pollTimer =
-            setInterval(
-                () => {
-
-                    if (musicVisible) {
-                        loadNowPlaying();
-                    }
-
-                },
-                5000
-            );
 
 
         progressTimer =
@@ -41981,27 +42102,21 @@ html[data-theme="light"]
 
         try {
 
-            const response =
-                await fetch(
-                    "/api/now-playing",
-                    {
-                        cache: "no-store"
-                    }
-                );
-
-
-            if (!response.ok) {
-                return;
-            }
-
-
-            const data =
-                await response.json();
+            const data = await window.apolloSpotifyRequest(
+                "/api/now-playing",
+                {},
+                10000
+            );
 
 
             render(
                 data
             );
+
+            window.dispatchEvent(new CustomEvent(
+                "apollo:spotify-playback",
+                {detail: data}
+            ));
 
         }
 
@@ -64506,6 +64621,14 @@ html.apollo-reduce-motion.apollo-jarvis-mode
         options = {}
     ) {
 
+        if (
+            url === "/api/now-playing"
+            && !options.method
+            && window.apolloSpotifyRequest
+        ) {
+            return window.apolloSpotifyRequest(url, options, 10000);
+        }
+
         const response =
             await fetch(
                 url,
@@ -69372,23 +69495,11 @@ html.apollo-jarvis-mode
 
         try {
 
-            const response =
-                await fetch(
-                    "/api/now-playing",
-                    {
-                        cache:
-                            "no-store"
-                    }
-                );
-
-
-            if (!response.ok) {
-                return;
-            }
-
-
-            const data =
-                await response.json();
+            const data = await window.apolloSpotifyRequest(
+                "/api/now-playing",
+                {},
+                10000
+            );
 
 
             progressMs =
