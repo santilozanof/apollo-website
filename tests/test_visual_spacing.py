@@ -34,6 +34,13 @@ class VisualSpacingRegressionTests(unittest.TestCase):
         self.assertIn("subtitleHasProgress", source)
         self.assertIn("!subtitleHasProgress", source)
 
+    def test_chat_actions_wrap_below_the_complete_response(self):
+        source = (ROOT / "apollo_polish_v1.css").read_text()
+        self.assertIn(".apollo-message.assistant {", source)
+        self.assertIn("flex-wrap: wrap !important", source)
+        self.assertIn("flex: 0 0 100% !important", source)
+        self.assertIn("align-self: flex-start !important", source)
+
     def test_mobile_routines_prioritize_primary_content(self):
         source = (ROOT / "routines.css").read_text()
         self.assertIn(".routine-list { order: 1; }", source)

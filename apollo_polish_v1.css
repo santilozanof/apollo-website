@@ -389,14 +389,22 @@
 }
 
 /* Chat response actions belong below the full response, including GenUI. */
+#apolloView .apollo-message.assistant {
+    flex-wrap: wrap !important;
+}
+
 #apolloView .apollo-message.assistant > .apollo-message-actions {
     position: static !important;
     display: flex !important;
     align-items: center !important;
     gap: 4px !important;
-    width: max-content !important;
+    flex: 0 0 100% !important;
+    align-self: flex-start !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
     height: auto !important;
-    margin: 8px 0 0 43px !important;
+    margin: 8px 0 0 !important;
+    padding-left: 43px !important;
     opacity: .72 !important;
     visibility: visible !important;
     pointer-events: auto !important;
@@ -417,7 +425,7 @@
 
 @media (max-width: 640px) {
     #apolloView .apollo-message.assistant > .apollo-message-actions {
-        margin-left: 39px !important;
+        padding-left: 39px !important;
     }
 
     #apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action {
