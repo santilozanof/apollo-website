@@ -58,6 +58,7 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         connection.execute("DELETE FROM routine_step_exceptions")
         connection.execute("DELETE FROM routine_steps")
         connection.execute("DELETE FROM routine_groups")
+        connection.execute("DELETE FROM hydration_entries")
         connection.execute("DELETE FROM tasks")
         connection.commit()
         connection.close()
@@ -101,6 +102,33 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         self.assertEqual(history["messages"][-1]["content"], response)
         return events
 
+    def create_chat(self):
+        status, raw = request("POST", "/api/chats", {})
+        self.assertEqual(status, 201)
+        return json.loads(raw)["id"]
+
+    def planned_turn(self, chat_id, content, plan, response="Normal answer."):
+        patches = {
+            "apollo_context_planner": lambda *_a, **_k: plan,
+            "apollo_music_action_requested": lambda *_a, **_k: False,
+            "apollo_automation_chat_reply": lambda *_a, **_k: None,
+            "apollo_fetch_planned_context": lambda *_a, **_k: {},
+            "apollo_should_reply_semantically": lambda *_a, **_k: True,
+            "stream_hermes": lambda _messages: iter([response[:8], response[8:]]),
+            "generate_chat_title": lambda _history: "Intent test",
+        }
+        with mock.patch.multiple(server, **patches):
+            status, raw = request("POST", f"/api/chats/{chat_id}/messages", {
+                "content": content,
+                "client_context": {
+                    "local_time": "2026-10-14T12:00:00+02:00",
+                    "time_zone": "Europe/Zurich",
+                    "utc_offset_minutes": 120,
+                },
+            })
+        self.assertEqual(status, 200)
+        return sse_events(raw)
+
     def test_quiz_checklist_cards_and_chart_survive_stream_and_history(self):
         payload = {
             "blocks": [
@@ -124,6 +152,84 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
     def test_ordinary_text_response_remains_plain(self):
         events = self.run_turn("The derivative of x³ is 3x².")
         self.assertNotIn("apollo-ui", events[-1]["message"]["content"])
+
+    def test_general_water_question_never_activates_personal_hydration(self):
+        chat_id = self.create_chat()
+        plan = {
+            "intent": "general_knowledge", "primary_domain": "general",
+            "action_authorized": False,
+        }
+        with mock.patch.object(
+            server.routines, "chat_action",
+            side_effect=AssertionError("hydration tool must stay inactive"),
+        ), mock.patch.object(
+            server, "apollo_task_chat",
+            side_effect=AssertionError("task tool must stay inactive"),
+        ), mock.patch.object(
+            server, "apollo_calendar_chat",
+            side_effect=AssertionError("calendar tool must stay inactive"),
+        ):
+            events = self.planned_turn(
+                chat_id,
+                "How much water does a big bowl of ramen have?",
+                plan,
+                "A large ramen bowl usually holds roughly 700–1,000 mL of broth.",
+            )
+        answer = events[-1]["message"]["content"]
+        self.assertIn("ramen", answer.lower())
+        self.assertIn("broth", answer.lower())
+        self.assertNotIn("logged", answer.lower())
+
+    def test_personal_hydration_query_reads_authoritative_state(self):
+        chat_id = self.create_chat()
+        events = self.planned_turn(chat_id, "How much water have I logged today?", {
+            "intent": "personal_query", "primary_domain": "hydration",
+            "action_authorized": False,
+        })
+        self.assertIn("You've logged 0 mL today", events[-1]["message"]["content"])
+
+    def test_explicit_hydration_action_persists_but_ambiguous_action_does_not(self):
+        chat_id = self.create_chat()
+        events = self.planned_turn(chat_id, "Add 500 mL to my water intake.", {
+            "intent": "explicit_action", "primary_domain": "hydration",
+            "action_authorized": True,
+        })
+        self.assertIn("Logged 500 mL", events[-1]["message"]["content"])
+
+        events = self.planned_turn(chat_id, "Change my water.", {
+            "intent": "ambiguous_action", "primary_domain": "hydration",
+            "action_authorized": False,
+            "clarification": "How much water would you like me to log?",
+        })
+        self.assertEqual(
+            events[-1]["message"]["content"],
+            "How much water would you like me to log?",
+        )
+        connection = server.db()
+        status = server.routines.hydration_status(
+            connection, time_zone="Europe/Zurich"
+        )
+        connection.close()
+        self.assertEqual(status["total_ml"], 500)
+
+    def test_topic_switch_does_not_inherit_previous_personal_tool(self):
+        chat_id = self.create_chat()
+        self.planned_turn(chat_id, "How much water have I logged?", {
+            "intent": "personal_query", "primary_domain": "hydration",
+            "action_authorized": False,
+        })
+        with mock.patch.object(
+            server.routines, "chat_action",
+            side_effect=AssertionError("previous hydration topic leaked"),
+        ):
+            events = self.planned_turn(
+                chat_id,
+                "How much water does ramen have?",
+                {"intent": "general_knowledge", "primary_domain": "general",
+                 "action_authorized": False},
+                "Usually around 700–1,000 mL of broth for a large bowl.",
+            )
+        self.assertIn("broth", events[-1]["message"]["content"].lower())
 
     def test_task_and_routine_actions_persist_through_real_handlers(self):
         status, raw = request("POST", "/api/tasks/create", {

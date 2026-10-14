@@ -36490,6 +36490,42 @@ html[data-theme="light"] #calendarView {
     gap: 12px;
 }
 
+.apollo-connection-control {
+    display: flex;
+    min-width: min(360px, 100%);
+    align-items: flex-end;
+    flex-direction: column;
+    gap: var(--apollo-space-2, 8px);
+}
+
+.apollo-connection-actions {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--apollo-space-2, 8px);
+}
+
+.apollo-connection-sync {
+    color: var(--dim);
+    font-size: 10px;
+}
+
+.apollo-connection-status.reconnection_required,
+.apollo-connection-status.expired_authorization,
+.apollo-connection-status.temporary_error {
+    color: var(--text);
+}
+
+.apollo-connection-status.reconnection_required .apollo-connection-dot,
+.apollo-connection-status.expired_authorization .apollo-connection-dot {
+    background: #c89b58;
+}
+
+.apollo-connection-status.temporary_error .apollo-connection-dot {
+    background: #bf5a5a;
+}
+
 .apollo-canvas-connection {
     display: flex;
     align-items: flex-end;
@@ -36633,6 +36669,17 @@ html.apollo-reduce-motion *::after {
     .apollo-canvas-connection {
         align-items: stretch;
         width: 100%;
+    }
+
+    .apollo-connection-control {
+        width: 100%;
+        min-width: 0;
+        align-items: stretch;
+    }
+
+    .apollo-connection-actions {
+        justify-content: flex-start;
+        flex-wrap: wrap;
     }
 }
 
@@ -36944,28 +36991,6 @@ html.apollo-reduce-motion *::after {
 
                     </div>
 
-                    <div class="apollo-setting-row apollo-canvas-setting-row">
-                        <div class="apollo-setting-copy">
-                            <div class="apollo-setting-name">Canvas Calendar</div>
-                            <div class="apollo-setting-description" id="apolloCanvasDescription">
-                                Paste your private Canvas iCal feed URL. Canvas events stay read-only in Apollo.
-                            </div>
-                        </div>
-                        <div class="apollo-canvas-connection">
-                            <div class="apollo-connection-status" id="apolloCanvasStatus">
-                                <span class="apollo-connection-dot"></span><span>Not connected</span>
-                            </div>
-                            <div class="apollo-canvas-actions" id="apolloCanvasConnectForm">
-                                <input class="apollo-canvas-feed-input" id="apolloCanvasFeedUrl" type="url" autocomplete="off" placeholder="https://…/calendar.ics" aria-label="Canvas iCal calendar feed URL">
-                                <button class="apollo-google-connect" id="apolloCanvasConnect" type="button">Connect</button>
-                            </div>
-                            <div class="apollo-canvas-actions" id="apolloCanvasConnectedActions" hidden>
-                                <button class="apollo-google-connect" id="apolloCanvasRefresh" type="button">Refresh now</button>
-                                <button class="apollo-google-connect apollo-connection-danger" id="apolloCanvasDisconnect" type="button">Disconnect</button>
-                            </div>
-                        </div>
-                    </div>
-
                 </div>
 
             </section>
@@ -37093,50 +37118,13 @@ html.apollo-reduce-motion *::after {
                     Connections
                 </div>
 
-                <div class="apollo-settings-panel">
-
-                    <div class="apollo-setting-row">
-
+                <div class="apollo-settings-panel" id="apolloConnectionsPanel">
+                    <div class="apollo-setting-row apollo-connection-loading">
                         <div class="apollo-setting-copy">
-
-                            <div class="apollo-setting-name">
-                                Google Calendar
-                            </div>
-
-                            <div class="apollo-setting-description">
-                                Used for schedules, events, and Calendar intelligence.
-                            </div>
-
+                            <div class="apollo-setting-name">Connections</div>
+                            <div class="apollo-setting-description">Checking account connections…</div>
                         </div>
-
-                        <div class="apollo-google-connection">
-
-                            <div
-                                class="apollo-connection-status"
-                                id="apolloGoogleStatus"
-                            >
-
-                                <span class="apollo-connection-dot"></span>
-
-                                <span>
-                                    Checking…
-                                </span>
-
-                            </div>
-
-                            <a
-                                class="apollo-google-connect"
-                                id="apolloGoogleConnect"
-                                href="/api/google/connect"
-                                hidden
-                            >
-                                Reconnect
-                            </a>
-
-                        </div>
-
                     </div>
-
                 </div>
 
             </section>
@@ -37148,15 +37136,6 @@ html.apollo-reduce-motion *::after {
     main.appendChild(
         settingsView
     );
-
-    // Keep the Canvas controls beside the existing Google connection without
-    // introducing a separate calendar settings screen.
-    const canvasConnectionRow = settingsView.querySelector(".apollo-canvas-setting-row");
-    const connectionsPanel = settingsView.querySelector("#apolloGoogleStatus")?.closest(".apollo-settings-panel");
-    if (canvasConnectionRow && connectionsPanel) {
-        connectionsPanel.appendChild(canvasConnectionRow);
-    }
-
 
     /* ================================================
        VIEW SWITCHING
@@ -37565,207 +37544,125 @@ html.apollo-reduce-motion *::after {
 
 
     /* ================================================
-       GOOGLE STATUS
+       CONNECTION REGISTRY
        ================================================ */
 
-    function canvasStatusText(data) {
-        if (!data.connected) return "Not connected";
-        if (data.last_error) return "Sync error";
-        if (!data.last_synced_at) return "Connected · syncing…";
-        const synced = new Date(data.last_synced_at);
-        if (Number.isNaN(synced.getTime())) return "Connected";
-        return `Connected · last synced ${synced.toLocaleString([], {month: "short", day: "numeric", hour: "numeric", minute: "2-digit"})}`;
+    const connectionPanel = document.getElementById("apolloConnectionsPanel");
+
+    const escapeConnectionText = value => String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+
+    const connectionLabels = {
+        connected: "Connected",
+        disconnected: "Disconnected",
+        reconnection_required: "Reconnection required",
+        expired_authorization: "Authorization expired",
+        temporary_error: "Temporary service error",
+        not_configured: "Not configured"
+    };
+
+    function connectionTime(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "";
+        return `Last synced ${date.toLocaleString([], {
+            month: "short", day: "numeric", hour: "numeric", minute: "2-digit"
+        })}`;
     }
 
-    async function loadCanvasConnectionStatus() {
-        const status = document.getElementById("apolloCanvasStatus");
-        const description = document.getElementById("apolloCanvasDescription");
-        const form = document.getElementById("apolloCanvasConnectForm");
-        const actions = document.getElementById("apolloCanvasConnectedActions");
-        if (!status || !description || !form || !actions) return;
-        try {
-            const response = await fetch("/api/calendar/subscriptions/canvas/status", {cache: "no-store"});
-            const data = await response.json();
-            const connected = Boolean(data.connected);
-            status.classList.toggle("connected", connected && !data.last_error);
-            status.querySelector("span:last-child").textContent = canvasStatusText(data);
-            description.textContent = data.last_error
-                ? `Canvas sync error: ${data.last_error}`
-                : (connected
-                    ? "Canvas events are read-only in Apollo and are never copied into Google Calendar."
-                    : "Paste your private Canvas iCal feed URL. Canvas events stay read-only in Apollo.");
-            form.hidden = connected;
-            actions.hidden = !connected;
-        } catch (error) {
-            status.querySelector("span:last-child").textContent = "Unavailable";
-            status.classList.remove("connected");
-        }
+    function renderConnections(integrations) {
+        if (!connectionPanel) return;
+        connectionPanel.innerHTML = integrations.map(integration => {
+            const status = connectionLabels[integration.status] || "Unavailable";
+            const sync = connectionTime(integration.last_successful_sync);
+            const actions = Array.isArray(integration.actions) ? integration.actions : [];
+            const canvasInput = actions.some(action => action.input === "feed_url")
+                ? `<input class="apollo-canvas-feed-input" type="url" autocomplete="off"
+                     placeholder="https://…/calendar.ics" aria-label="Canvas iCal calendar feed URL"
+                     data-connection-input="feed_url">`
+                : "";
+            const buttons = actions.map(action => action.method === "GET"
+                ? `<a class="apollo-google-connect" href="${escapeConnectionText(action.url)}">${escapeConnectionText(action.label)}</a>`
+                : `<button class="apollo-google-connect ${action.id === "disconnect" ? "apollo-connection-danger" : ""}"
+                     type="button" data-connection-action="${escapeConnectionText(action.id)}"
+                     data-connection-url="${escapeConnectionText(action.url)}"
+                     data-connection-confirm="${escapeConnectionText(action.confirm || "")}">${escapeConnectionText(action.label)}</button>`
+            ).join("");
+            return `<div class="apollo-setting-row" data-connection-id="${escapeConnectionText(integration.id)}">
+                <div class="apollo-setting-copy">
+                    <div class="apollo-setting-name">${escapeConnectionText(integration.name)}</div>
+                    <div class="apollo-setting-description">${escapeConnectionText(integration.description)}</div>
+                </div>
+                <div class="apollo-connection-control">
+                    <div class="apollo-connection-status ${integration.status === "connected" ? "connected" : integration.status}">
+                        <span class="apollo-connection-dot"></span><span>${escapeConnectionText(status)}</span>
+                    </div>
+                    ${sync ? `<div class="apollo-connection-sync">${escapeConnectionText(sync)}</div>` : ""}
+                    ${(canvasInput || buttons) ? `<div class="apollo-connection-actions">${canvasInput}${buttons}</div>` : ""}
+                </div>
+            </div>`;
+        }).join("");
     }
 
-    async function canvasRequest(path, body) {
+    async function connectionRequest(path, body) {
         const response = await fetch(path, {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: body ? JSON.stringify(body) : "{}"
+            body: JSON.stringify(body || {})
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Canvas Calendar request failed");
+        if (!response.ok) throw new Error(data.error || "Connection request failed");
         return data;
     }
 
-    document.getElementById("apolloCanvasConnect")?.addEventListener("click", async () => {
-        const input = document.getElementById("apolloCanvasFeedUrl");
-        const button = document.getElementById("apolloCanvasConnect");
-        const feedUrl = input?.value.trim();
-        if (!feedUrl) return input?.focus();
-        button.disabled = true;
-        try {
-            await canvasRequest("/api/calendar/subscriptions/canvas/connect", {feed_url: feedUrl});
-            input.value = "";
-            await loadCanvasConnectionStatus();
-            window.apolloLoadCalendar?.();
-            window.apolloLoadHomeCalendar?.();
-        } catch (error) {
-            const description = document.getElementById("apolloCanvasDescription");
-            if (description) description.textContent = error.message;
-        } finally {
-            button.disabled = false;
-        }
-    });
-
-    document.getElementById("apolloCanvasRefresh")?.addEventListener("click", async () => {
-        const button = document.getElementById("apolloCanvasRefresh");
-        button.disabled = true;
-        try {
-            await canvasRequest("/api/calendar/subscriptions/canvas/refresh");
-            window.apolloLoadCalendar?.();
-            window.apolloLoadHomeCalendar?.();
-        } catch (error) {
-            const description = document.getElementById("apolloCanvasDescription");
-            if (description) description.textContent = error.message;
-        } finally {
-            button.disabled = false;
-            await loadCanvasConnectionStatus();
-        }
-    });
-
-    document.getElementById("apolloCanvasDisconnect")?.addEventListener("click", async () => {
-        const button = document.getElementById("apolloCanvasDisconnect");
-        button.disabled = true;
-        try {
-            await canvasRequest("/api/calendar/subscriptions/canvas/disconnect");
-            await loadCanvasConnectionStatus();
-            window.apolloLoadCalendar?.();
-            window.apolloLoadHomeCalendar?.();
-        } finally {
-            button.disabled = false;
-        }
-    });
-
     async function loadConnectionStatus() {
-
-        const element =
-            document.getElementById(
-                "apolloGoogleStatus"
-            );
-
-
-        if (!element) {
-            loadCanvasConnectionStatus();
-            return;
-        }
-
-
+        if (!connectionPanel) return;
         try {
-
-            const response =
-                await fetch(
-                    "/api/google/status",
-                    {
-                        cache: "no-store"
-                    }
-                );
-
-
-            const data =
-                await response.json();
-
-
-            const connected =
-                Boolean(
-                    data.connected
-                );
-
-
-            const reconnect =
-                document.getElementById(
-                    "apolloGoogleConnect"
-                );
-
-
-            element.classList.toggle(
-                "connected",
-                connected
-            );
-
-
-            const text =
-                element.querySelector(
-                    "span:last-child"
-                );
-
-
-            if (text) {
-                text.textContent =
-                    connected
-                    ? "Connected"
-                    : (
-                        data.reconnect
-                        ? "Reconnect needed"
-                        : "Unavailable"
-                    );
+            const response = await fetch("/api/connections", {cache: "no-store"});
+            const data = await response.json();
+            if (!response.ok || !Array.isArray(data.integrations)) {
+                throw new Error(data.error || "Connections unavailable");
             }
-
-
-            if (reconnect) {
-                reconnect.hidden = connected;
-            }
-
+            renderConnections(data.integrations);
+        } catch (error) {
+            connectionPanel.innerHTML = `<div class="apollo-setting-row"><div class="apollo-setting-copy">
+                <div class="apollo-setting-name">Connections unavailable</div>
+                <div class="apollo-setting-description">Apollo couldn’t check account connections right now.</div>
+            </div></div>`;
         }
-
-        catch (error) {
-
-            console.error(
-                "Apollo Google status:",
-                error
-            );
-
-
-            const text =
-                element.querySelector(
-                    "span:last-child"
-                );
-
-
-            if (text) {
-                text.textContent =
-                    "Unavailable";
-            }
-
-
-            const reconnect =
-                document.getElementById(
-                    "apolloGoogleConnect"
-                );
-
-
-            if (reconnect) {
-                reconnect.hidden = false;
-            }
-        }
-
-        loadCanvasConnectionStatus();
     }
+
+    connectionPanel?.addEventListener("click", async event => {
+        const button = event.target.closest("[data-connection-action]");
+        if (!button) return;
+        const row = button.closest("[data-connection-id]");
+        const action = button.dataset.connectionAction;
+        if (action === "disconnect") {
+            const approved = await window.apolloConfirm?.(
+                button.dataset.connectionConfirm || "Disconnect this account?",
+                {title: "Disconnect connection?", confirmLabel: "Disconnect"}
+            );
+            if (!approved) return;
+        }
+        const input = row?.querySelector('[data-connection-input="feed_url"]');
+        const feedUrl = input?.value.trim();
+        if (input && !feedUrl) return input.focus();
+        button.disabled = true;
+        try {
+            await connectionRequest(button.dataset.connectionUrl, feedUrl ? {feed_url: feedUrl} : {});
+            window.apolloLoadCalendar?.();
+            window.apolloLoadHomeCalendar?.();
+        } catch (error) {
+            const description = row?.querySelector(".apollo-setting-description");
+            if (description) description.textContent = error.message;
+        } finally {
+            await loadConnectionStatus();
+        }
+    });
 
 
     /* Expose settings for future Apollo features */
@@ -53140,6 +53037,11 @@ html[data-theme="light"]
             "#apolloConfirmMessage"
         );
 
+    const title =
+        backdrop.querySelector(
+            "#apolloConfirmTitle"
+        );
+
     const cancel =
         backdrop.querySelector(
             "#apolloConfirmCancel"
@@ -53191,7 +53093,8 @@ html[data-theme="light"]
 
     window.apolloConfirm =
         function(
-            text = "Delete this item?"
+            text = "Delete this item?",
+            options = {}
         ) {
 
             if (
@@ -53212,6 +53115,14 @@ html[data-theme="light"]
                 String(
                     text
                 );
+
+            title.textContent = String(
+                options.title || "Delete this?"
+            );
+
+            confirm.textContent = String(
+                options.confirmLabel || "Delete"
+            );
 
 
             backdrop.classList

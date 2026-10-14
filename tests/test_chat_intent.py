@@ -1,0 +1,96 @@
+import ast
+import json
+import re
+import unittest
+from pathlib import Path
+
+
+SERVER = Path(__file__).resolve().parents[1] / "server.py"
+
+
+def load_function(name, namespace):
+    tree = ast.parse(SERVER.read_text(encoding="utf-8"))
+    node = next(
+        item for item in tree.body
+        if isinstance(item, ast.FunctionDef) and item.name == name
+    )
+    exec(compile(ast.Module(body=[node], type_ignores=[]), str(SERVER), "exec"), namespace)
+    return namespace[name]
+
+
+class ChatIntentPlannerTests(unittest.TestCase):
+    def test_semantic_plan_normalizes_domain_action_and_sources(self):
+        captured = []
+        planner = load_function("apollo_context_planner", {
+            "ask_hermes": lambda messages: captured.append(messages) or json.dumps({
+                "intent": "personal_query",
+                "primary_domain": "spotify",
+                "action_authorized": False,
+                "clarification": "",
+                "calendar": False,
+                "tasks": False,
+                "whoop": False,
+                "spotify": True,
+                "calendar_days": 7,
+                "reason": "current playback question",
+            }),
+            "json": json,
+        })
+        plan = planner(
+            [{"role": "user", "content": "What's playing?"}],
+            "What's playing?",
+            {"surface": "chat"},
+        )
+        self.assertEqual(plan["intent"], "personal_query")
+        self.assertEqual(plan["primary_domain"], "spotify")
+        self.assertTrue(plan["spotify"])
+        self.assertFalse(plan["action_authorized"])
+        prompt = captured[0][0]["content"]
+        self.assertIn("How much water is in ramen?", prompt)
+        self.assertIn("topic switch", prompt)
+
+    def test_action_authority_cannot_be_enabled_for_a_question(self):
+        planner = load_function("apollo_context_planner", {
+            "ask_hermes": lambda _messages: json.dumps({
+                "intent": "personal_query", "primary_domain": "tasks",
+                "action_authorized": True, "tasks": True,
+            }),
+            "json": json,
+        })
+        plan = planner([], "What tasks do I have?", {})
+        self.assertFalse(plan["action_authorized"])
+        self.assertEqual(plan["intent"], "personal_query")
+
+        unsafe = load_function("apollo_context_planner", {
+            "ask_hermes": lambda _messages: json.dumps({
+                "intent": "explicit_action", "primary_domain": "tasks",
+                "action_authorized": False, "tasks": False,
+            }),
+            "json": json,
+        })([], "Delete a task", {})
+        self.assertEqual(unsafe["intent"], "ambiguous_action")
+        self.assertTrue(unsafe["clarification"])
+
+    def test_conservative_fallback_does_not_route_generic_water_topic(self):
+        fallback = load_function("apollo_conservative_intent_fallback", {"re": re})
+        general = fallback("How much water does a large ramen bowl have?")
+        personal = fallback("How much water intake do I have today?")
+        action = fallback("Add 500 ml to my water intake")
+        self.assertEqual(general["primary_domain"], "general")
+        self.assertEqual(general["intent"], "general_knowledge")
+        self.assertEqual(personal["intent"], "personal_query")
+        self.assertEqual(action["intent"], "explicit_action")
+        self.assertTrue(action["action_authorized"])
+
+    def test_router_rejects_general_knowledge_even_if_domain_is_present(self):
+        route = load_function("apollo_intent_routes_to", {})
+        self.assertFalse(route({
+            "intent": "general_knowledge", "primary_domain": "whoop"
+        }, "whoop"))
+        self.assertTrue(route({
+            "intent": "personal_query", "primary_domain": "whoop"
+        }, "whoop"))
+
+
+if __name__ == "__main__":
+    unittest.main()

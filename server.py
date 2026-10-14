@@ -1408,6 +1408,11 @@ external information, asks for research or verification, asks you to inspect a
 file, or requests an actual external action. Do not browse or research merely to
 polish a normal conversational answer. For short follow-ups, use the existing
 conversation context and respond directly.
+
+Never claim that a task, routine, calendar event, hydration record, account, or
+Spotify playback state was changed unless Apollo's authenticated backend action
+handler actually completed that change in this turn. If no action result was
+provided, answer informationally or ask one concise clarification.
 """.strip()
 
 
@@ -2187,14 +2192,44 @@ def apollo_context_planner(
                 "Decide which LIVE personal data sources Apollo "
                 "should inspect before answering the current request. "
                 "\n\n"
-                "Available sources:\n"
+                "Available live sources:\n"
                 "- calendar: the user's real Google Calendar, including "
                 "upcoming commitments, classes, appointments, plans, "
                 "availability and time conflicts.\n"
                 "- tasks: the user's real Apollo task list, including "
                 "unfinished work, deadlines and completed tasks.\n"
                 "- whoop: the user's current WHOOP recovery, sleep, "
-                "strain and latest workout data.\n\n"
+                "strain and latest workout data.\n"
+                "- spotify: the user's current Spotify playback state.\n\n"
+                "Also classify the CURRENT request by meaning. The valid "
+                "primary_domain values are general, hydration, routines, "
+                "tasks, calendar, spotify, whoop, automation, and multi. "
+                "The valid intent values are general_knowledge, "
+                "personal_query, explicit_action, and ambiguous_action. "
+                "An action is explicit only when the user clearly asks Apollo "
+                "to change stored data or control an external service. A noun "
+                "or topic alone never authorizes an action. When an action is "
+                "ambiguous and consequential, provide one short clarification "
+                "question. Set action_authorized=true if and only if intent is "
+                "explicit_action; otherwise it must be false. Resolve short "
+                "follow-ups from recent conversation, "
+                "but let a clear topic switch override older context. The UI "
+                "surface is weak context only and must never override the "
+                "message's meaning.\n\n"
+                "Examples:\n"
+                "- 'How much water is in ramen?' is general_knowledge/general; "
+                "select no source.\n"
+                "- 'How much water have I logged?' is personal_query/hydration.\n"
+                "- 'Add 500 mL to my water intake' is explicit_action/hydration.\n"
+                "- 'Does coffee count toward hydration?' is "
+                "general_knowledge/general.\n"
+                "- 'What's playing?' is personal_query/spotify and selects "
+                "spotify.\n"
+                "- 'Play some jazz' is explicit_action/spotify.\n"
+                "- 'What's a good jazz album?' is general_knowledge/general.\n"
+                "- 'What is my recovery?' is personal_query/whoop and selects "
+                "whoop.\n"
+                "- 'What does recovery mean?' is general_knowledge/general.\n"
                 "Reason from the MEANING of the request, not from "
                 "specific trigger words. Be proactive. If live personal "
                 "information would materially improve the answer, select "
@@ -2215,9 +2250,14 @@ def apollo_context_planner(
                 "\n\n"
                 "Return STRICT JSON only with exactly this shape:\n"
                 "{"
+                "\"intent\": \"general_knowledge\", "
+                "\"primary_domain\": \"general\", "
+                "\"action_authorized\": false, "
+                "\"clarification\": \"\", "
                 "\"calendar\": false, "
                 "\"tasks\": false, "
                 "\"whoop\": false, "
+                "\"spotify\": false, "
                 "\"calendar_days\": 7, "
                 "\"reason\": \"short internal reason\""
                 "}"
@@ -2302,6 +2342,29 @@ def apollo_context_planner(
 
 
     normalized = {
+        "intent":
+            str(plan.get("intent") or "general_knowledge")
+            if str(plan.get("intent") or "") in {
+                "general_knowledge", "personal_query",
+                "explicit_action", "ambiguous_action"
+            }
+            else "general_knowledge",
+
+        "primary_domain":
+            str(plan.get("primary_domain") or "general")
+            if str(plan.get("primary_domain") or "") in {
+                "general", "hydration", "routines", "tasks", "calendar",
+                "spotify", "whoop", "automation", "multi"
+            }
+            else "general",
+
+        "action_authorized":
+            plan.get("intent") == "explicit_action"
+            and plan.get("action_authorized") is True,
+
+        "clarification":
+            str(plan.get("clarification") or "")[:240],
+
         "calendar":
             plan.get("calendar") is True,
 
@@ -2310,6 +2373,9 @@ def apollo_context_planner(
 
         "whoop":
             plan.get("whoop") is True,
+
+        "spotify":
+            plan.get("spotify") is True,
 
         "calendar_days":
             calendar_days,
@@ -2324,6 +2390,16 @@ def apollo_context_planner(
             )[:240]
     }
 
+    if (
+        normalized["intent"] == "explicit_action"
+        and not normalized["action_authorized"]
+    ):
+        normalized["intent"] = "ambiguous_action"
+        if not normalized["clarification"]:
+            normalized["clarification"] = (
+                "What exactly would you like me to change?"
+            )
+
 
     print(
         "[Apollo Context Planner]",
@@ -2332,6 +2408,54 @@ def apollo_context_planner(
 
 
     return normalized
+
+
+def apollo_conservative_intent_fallback(user_message):
+    """Fail closed for mutations when semantic planning is unavailable."""
+    text = str(user_message or "").strip().lower()
+    action = bool(re.search(
+        r"\b(add|log|create|delete|remove|rename|move|mark|complete|"
+        r"reschedule|cancel|play|pause|skip|start|stop|set)\b",
+        text,
+    ))
+    personal = bool(re.search(r"\b(my|mine|i have|do i|have i|for me)\b", text))
+    domains = (
+        ("hydration", ("hydration", "water intake", "water goal", " ml", " liter")),
+        ("routines", ("routine", "habit", "streak", "skincare")),
+        ("tasks", ("task", "todo", "homework", "assignment")),
+        ("calendar", ("calendar", "event", "appointment", "meeting")),
+        ("spotify", ("spotify", "song", "track", "playlist", "playing")),
+        ("whoop", ("whoop", "recovery", "strain", "hrv")),
+        ("automation", ("remind me", "automation", "notify me")),
+    )
+    domain = next((name for name, terms in domains if any(term in text for term in terms)), "general")
+    intent = "explicit_action" if action and domain != "general" else (
+        "personal_query" if personal and domain != "general" else "general_knowledge"
+    )
+    return {
+        "intent": intent,
+        "primary_domain": domain,
+        "action_authorized": intent == "explicit_action",
+        "clarification": "",
+        "calendar": domain == "calendar" and intent == "personal_query",
+        "tasks": domain == "tasks" and intent == "personal_query",
+        "whoop": domain == "whoop" and intent == "personal_query",
+        "spotify": domain == "spotify" and intent == "personal_query",
+        "calendar_days": 7,
+        "reason": "conservative local fallback",
+    }
+
+
+def apollo_intent_routes_to(plan, *domains):
+    return (
+        isinstance(plan, dict)
+        and plan.get("primary_domain") in set(domains)
+        and plan.get("intent") != "general_knowledge"
+        and (
+            plan.get("intent") != "explicit_action"
+            or plan.get("action_authorized") is True
+        )
+    )
 
 
 
@@ -2481,6 +2605,20 @@ def apollo_context_whoop():
     }
 
 
+def apollo_context_spotify():
+    """Return current playback without changing Spotify state."""
+    state = get_now_playing()
+    return {
+        key: state.get(key)
+        for key in (
+            "playing", "title", "artists", "album", "progress_ms",
+            "duration_ms", "device", "device_type", "playback_state",
+            "connection_state", "error",
+        )
+        if key in state
+    }
+
+
 
 def apollo_fetch_planned_context(
     plan
@@ -2498,7 +2636,8 @@ def apollo_fetch_planned_context(
         for source in (
             "calendar",
             "tasks",
-            "whoop"
+            "whoop",
+            "spotify"
         )
         if plan.get(source)
     ]
@@ -2591,6 +2730,27 @@ def apollo_fetch_planned_context(
 
             errors["whoop"] = (
                 "Live WHOOP data could not be retrieved."
+            )
+
+
+    if plan.get("spotify"):
+
+        try:
+
+            context["spotify"] = (
+                apollo_context_spotify()
+            )
+
+
+        except Exception as exc:
+
+            print(
+                "[Apollo Context Spotify] "
+                f"{exc}"
+            )
+
+            errors["spotify"] = (
+                "Live Spotify playback could not be retrieved."
             )
 
 
@@ -8301,6 +8461,11 @@ def whoop_current_summary():
         )
     )
 
+    app_state_set(
+        "whoop_last_successful_sync_at",
+        datetime.now(timezone.utc).isoformat()
+    )
+
 
     return {
         "recovery": {
@@ -10587,6 +10752,149 @@ def calendar_subscription_disconnect(provider="canvas"):
     conn.commit()
     conn.close()
     return {"connected": False, "provider": provider}
+
+
+def whoop_connection_status():
+    """Report authorization health without exposing OAuth material."""
+    try:
+        get_whoop_oauth_config()
+    except Exception as error:
+        return {
+            "status": "not_configured",
+            "connected": False,
+            "error": str(error),
+        }
+
+    if not app_state_get("whoop_refresh_token"):
+        return {
+            "status": "disconnected",
+            "connected": False,
+            "error": None,
+        }
+
+    try:
+        whoop_get_access_token()
+    except Exception as error:
+        message = str(error)
+        reconnect = any(marker in message.casefold() for marker in (
+            "invalid_grant", "refresh token", "not connected",
+            "authorization", "401",
+        ))
+        return {
+            "status": "reconnection_required" if reconnect else "temporary_error",
+            "connected": False if reconnect else True,
+            "error": message,
+        }
+
+    return {
+        "status": "connected",
+        "connected": True,
+        "error": None,
+        "last_successful_sync": app_state_get("whoop_last_successful_sync_at"),
+    }
+
+
+def apollo_connections_registry():
+    """Return every real user-facing integration and only supported actions."""
+    google = google_calendar_connection_status()
+    if google.get("connected"):
+        google_status = "connected"
+    elif google.get("reconnect"):
+        google_status = (
+            "disconnected"
+            if "not connected" in str(google.get("error") or "").casefold()
+            else "reconnection_required"
+        )
+    else:
+        google_status = "temporary_error"
+
+    canvas = calendar_subscription_status("canvas")
+    canvas_status = (
+        "temporary_error" if canvas.get("connected") and canvas.get("last_error")
+        else "connected" if canvas.get("connected")
+        else "disconnected"
+    )
+
+    try:
+        spotify_state = get_now_playing()
+    except Exception as error:
+        spotify_state = {"connection_state": "error", "error": str(error)}
+    spotify_connection = str(
+        spotify_state.get("connection_state") or "error"
+    )
+    spotify_status = {
+        "connected": "connected",
+        "disconnected": "reconnection_required",
+        "error": "temporary_error",
+    }.get(spotify_connection, "temporary_error")
+
+    whoop = whoop_connection_status()
+
+    return {
+        "integrations": [
+            {
+                "id": "google_calendar",
+                "name": "Google Calendar",
+                "description": "Schedules, events, and calendar intelligence.",
+                "status": google_status,
+                "connected": bool(google.get("connected")),
+                "last_successful_sync": None,
+                "error": None if google_status == "connected" else "Google Calendar connection needs attention.",
+                "actions": [] if google.get("connected") or not google.get("reconnect") else [{
+                    "id": "connect" if google_status == "disconnected" else "reconnect",
+                    "label": "Connect" if google_status == "disconnected" else "Reconnect",
+                    "method": "GET", "url": "/api/google/connect",
+                }],
+            },
+            {
+                "id": "canvas_calendar",
+                "name": "Canvas Calendar",
+                "description": "School events, assignments, and academic schedules.",
+                "status": canvas_status,
+                "connected": bool(canvas.get("connected")),
+                "last_successful_sync": canvas.get("last_synced_at"),
+                "error": "Canvas synchronization failed." if canvas.get("last_error") else None,
+                "actions": ([
+                    {"id": "refresh", "label": "Refresh", "method": "POST",
+                     "url": "/api/calendar/subscriptions/canvas/refresh"},
+                    {"id": "disconnect", "label": "Disconnect", "method": "POST",
+                     "url": "/api/calendar/subscriptions/canvas/disconnect",
+                     "confirm": "Disconnecting removes imported Canvas events and Canvas-sourced tasks from Apollo."},
+                ] if canvas.get("connected") else [
+                    {"id": "connect", "label": "Connect", "method": "POST",
+                     "url": "/api/calendar/subscriptions/canvas/connect",
+                     "input": "feed_url"},
+                ]),
+            },
+            {
+                "id": "spotify",
+                "name": "Spotify",
+                "description": "Music playback and listening information.",
+                "status": spotify_status,
+                "connected": spotify_status == "connected",
+                "last_successful_sync": None,
+                "error": None if spotify_status == "connected" else "Spotify connection needs attention.",
+                "actions": [],
+                "device_available": bool(spotify_state.get("device")),
+            },
+            {
+                "id": "whoop",
+                "name": "WHOOP",
+                "description": "Recovery, sleep, strain, and activity insights.",
+                "status": whoop.get("status"),
+                "connected": bool(whoop.get("connected")),
+                "last_successful_sync": whoop.get("last_successful_sync"),
+                "error": None if whoop.get("status") == "connected" else "WHOOP connection needs attention.",
+                "actions": [] if whoop.get("status") == "connected" else (
+                    [] if whoop.get("status") == "not_configured" else [{
+                        "id": "reconnect" if whoop.get("status") == "reconnection_required" else "connect",
+                        "label": "Reconnect" if whoop.get("status") == "reconnection_required" else "Connect",
+                        "method": "GET", "url": "/api/whoop/connect",
+                    }]
+                ),
+            },
+        ]
+    }
 
 
 def _canvas_task_external_id(uid, recurrence_id=""):
@@ -18142,6 +18450,13 @@ class ApolloHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if route == "/api/connections":
+            json_response(
+                self,
+                apollo_connections_registry()
+            )
+            return
+
         if route == "/api/calendar/subscriptions/canvas/status":
             json_response(self, calendar_subscription_status("canvas"))
             return
@@ -18294,13 +18609,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
             json_response(
                 self,
-                {
-                    "connected": bool(
-                        app_state_get(
-                            "whoop_refresh_token"
-                        )
-                    )
-                }
+                whoop_connection_status()
             )
 
             return
@@ -21699,6 +22008,37 @@ class ApolloHandler(BaseHTTPRequestHandler):
             )
 
 
+            # One semantic plan governs personal data access and every
+            # consequential domain router for this turn. Domain availability
+            # never overrides the current message's meaning.
+            try:
+                turn_plan = apollo_context_planner(
+                    messages,
+                    user_message,
+                    client_context,
+                )
+            except Exception as error:
+                print(
+                    "[Apollo Intent Planner] "
+                    f"Failed safely: {error}"
+                )
+                turn_plan = apollo_conservative_intent_fallback(
+                    user_message
+                )
+
+            if turn_plan.get("intent") == "ambiguous_action":
+                clarification = str(
+                    turn_plan.get("clarification")
+                    or "What would you like me to change?"
+                ).strip()
+                apollo_send_direct_sse(
+                    self,
+                    chat_id,
+                    clarification,
+                )
+                return
+
+
             # ─────────────────────────────
             # ROUTINES + HYDRATION
             # ─────────────────────────────
@@ -21707,11 +22047,11 @@ class ApolloHandler(BaseHTTPRequestHandler):
             # success only after the saved routine has been verified.
             # Factual questions receive a database-backed snapshot; Hermes may
             # phrase the answer but is explicitly forbidden from inventing state.
-            routine_terms = (
-                "routine", "habit", "hydration", "water", "skincare",
-                "brush", "floss", "supplement", "streak",
-            )
-            if any(term in user_message.lower() for term in routine_terms):
+            if apollo_intent_routes_to(
+                turn_plan,
+                "routines",
+                "hydration",
+            ):
                 routine_time_zone = (
                     str(client_context.get("time_zone") or "UTC")
                     if isinstance(client_context, dict) else "UTC"
@@ -21772,10 +22112,17 @@ class ApolloHandler(BaseHTTPRequestHandler):
             #   play my ug rnb playlist
             #
             # because the user said it from the Music surface.
-            if apollo_music_action_requested(
-                user_message,
-                surface=surface
+            if (
+                apollo_intent_routes_to(turn_plan, "spotify")
+                and turn_plan.get("action_authorized") is True
+                and apollo_music_action_requested(
+                    user_message,
+                    surface=surface
+                )
             ) or (
+                apollo_intent_routes_to(turn_plan, "spotify")
+                and turn_plan.get("action_authorized") is True
+                and
                 apollo_music_curator_context(chat_id)
                 and music_curator.wants_music_curation(
                     user_message,
@@ -22365,13 +22712,19 @@ class ApolloHandler(BaseHTTPRequestHandler):
             # ─────────────────────────────
             # This precedes legacy task routing so “remind me…” creates a
             # persistent automation rather than a browser-session todo.
-            try:
-                automation_reply = apollo_automation_chat_reply(
-                    user_message,
-                    client_context
-                )
-            except Exception as error:
-                print(f"[Apollo Automations] Chat handler failed safely: {error}")
+            if (
+                apollo_intent_routes_to(turn_plan, "automation")
+                and turn_plan.get("action_authorized") is True
+            ):
+                try:
+                    automation_reply = apollo_automation_chat_reply(
+                        user_message,
+                        client_context
+                    )
+                except Exception as error:
+                    print(f"[Apollo Automations] Chat handler failed safely: {error}")
+                    automation_reply = None
+            else:
                 automation_reply = None
 
             if automation_reply is not None:
@@ -22421,6 +22774,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
                         status_callback=
                             task_status
                     )
+                    if apollo_intent_routes_to(turn_plan, "tasks")
+                    else None
                 )
 
             except Exception as error:
@@ -22490,6 +22845,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
                         conversation_context=
                             calendar_conversation_context
                     )
+                    if apollo_intent_routes_to(turn_plan, "calendar")
+                    else None
                 )
 
             except Exception as error:
@@ -22524,13 +22881,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
             try:
 
-                context_plan = (
-                    apollo_context_planner(
-                        messages,
-                        user_message,
-                        client_context
-                    )
-                )
+                context_plan = turn_plan
 
 
                 live_context = (
