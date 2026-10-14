@@ -99,6 +99,12 @@ console.log('buffered');
         self.assertEqual(page.count("apolloStreamRenderer?.finish(assistantContent)"), 2)
         self.assertIn('src="/vendor/katex/katex.min.js?v=0.19.0"', page)
 
+    def test_quiz_content_uses_the_same_math_renderer(self):
+        client = (ROOT / "apollo_genui.js").read_text()
+        self.assertIn("appendInline(questionNode, question.question)", client)
+        self.assertIn("appendInline(optionButton, option.label)", client)
+        self.assertIn("appendInline(feedback, correctOption?.explanation", client)
+
 
 if __name__ == "__main__":
     unittest.main()

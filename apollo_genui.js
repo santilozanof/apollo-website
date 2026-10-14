@@ -798,12 +798,15 @@
       progressFill.style.width = `${state.current / block.questions.length * 100}%`;
       progressTrack.appendChild(progressFill);
       inside.appendChild(progressTrack);
-      inside.appendChild(el("div", "apollo-ui-quiz-question", question.question));
+      const questionNode = el("div", "apollo-ui-quiz-question");
+      appendInline(questionNode, question.question);
+      inside.appendChild(questionNode);
       const options = el("div", "apollo-ui-quiz-options");
       const feedback = el("div", "apollo-ui-feedback");
       feedback.setAttribute("aria-live", "polite");
       question.options.forEach(option => {
-        const optionButton = el("button", "apollo-ui-button apollo-ui-quiz-option", option.label);
+        const optionButton = el("button", "apollo-ui-button apollo-ui-quiz-option");
+        appendInline(optionButton, option.label);
         optionButton.type = "button";
         optionButton.dataset.optionId = option.id;
         const wasWrong = attempted.includes(option.id) && option.id !== question.correct_answer_id;
@@ -829,14 +832,14 @@
       const latestAttempt = (state.attempts[question.id] || []).at(-1);
       if (solvedId) {
         const correctOption = question.options.find(option => option.id === solvedId);
-        feedback.textContent = correctOption?.explanation || question.explanation || "Correct.";
+        appendInline(feedback, correctOption?.explanation || question.explanation || "Correct.");
         feedback.classList.add("correct");
       } else if (singleAnswer) {
         const selected = question.options.find(option => option.id === singleAnswer);
-        feedback.textContent = selected?.explanation || question.explanation || "Not quite.";
+        appendInline(feedback, selected?.explanation || question.explanation || "Not quite.");
         feedback.classList.add("incorrect");
       } else if (latestAttempt) {
-        feedback.textContent = question.hint || "Not quite — try another answer.";
+        appendInline(feedback, question.hint || "Not quite — try another answer.");
         feedback.classList.add("incorrect");
       }
       inside.append(options, feedback);
