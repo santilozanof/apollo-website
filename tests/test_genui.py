@@ -126,6 +126,11 @@ class GenerativeUITests(unittest.TestCase):
             sanitize("Safe text.\n```apollo-ui\n" + json.dumps(malformed) + "\n```"),
             "Safe text.",
         )
+        self.assertEqual(
+            sanitize('Readable lesson.\n```apollo-ui\n{"blocks":[{"type":"table"'),
+            "Readable lesson.",
+        )
+        self.assertEqual(sanitize("Readable lesson.\n```apol"), "Readable lesson.")
 
     def test_sanitizer_deduplicates_sources_and_labels_charts(self):
         sanitize = self.items["apollo_sanitize_genui_content"]

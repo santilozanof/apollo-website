@@ -1501,6 +1501,11 @@ events, prefer timeline or table. For real tasks/routines, prefer a checklist.
 For trends with enough real points, prefer a chart. For music recommendations,
 use verified artwork and Spotify entity URLs when available; otherwise use
 text-only cards. Never expose a control unless its action is genuinely supported.
+Large courses must fit safely in one response: keep the first lesson under about
+900 words and five concise sections, reserve room for every promised component,
+and offer a next lesson instead of attempting an exhaustive wall of text. Put
+the compact table, calculator, quiz, and sources in a single well-formed UI
+fence before the closing summary so the response cannot end inside JSON.
 Do not mention this format, its JSON, or the renderer to the user.
 """.strip()
 
@@ -1731,7 +1736,23 @@ def apollo_sanitize_genui_content(content):
         encoded = json.dumps({"blocks": cleaned}, ensure_ascii=False, separators=(",", ":"))
         return f"```apollo-ui\n{encoded}\n```"
 
-    return re.sub(r"```apollo-ui\s*\n([\s\S]*?)\n```", replace, value).strip()
+    sanitized = re.sub(
+        r"```apollo-ui\s*\n([\s\S]*?)\n```",
+        replace,
+        value,
+        flags=re.IGNORECASE,
+    )
+    lower = sanitized.lower()
+    last_open = lower.rfind("```apollo-ui")
+    if last_open >= 0 and lower.find("```", last_open + 3) < 0:
+        sanitized = sanitized[:last_open]
+    sanitized = re.sub(
+        r"```a(?:p(?:o(?:l(?:l(?:o(?:-(?:u(?:i)?)?)?)?)?)?)?)?$",
+        "",
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+    return sanitized.strip()
 
 
 def apollo_routine_genui(context):
