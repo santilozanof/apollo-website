@@ -97,11 +97,15 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         self.assertEqual(events[-1]["type"], "done")
         self.assertIn("backend_to_done_ms", events[-1]["timings"])
         self.assertIn("model_ttft_ms", events[-1]["timings"])
-        expected = server.apollo_sanitize_genui_content(response)
+        requirements = server._apollo_extract_ui_requirements(prompt)
+        expected = server._apollo_prune_misaligned_ui(
+            server.apollo_sanitize_genui_content(response), requirements
+        )
         if recovery:
-            recovered = server.apollo_sanitize_genui_content(recovery)
+            recovered = server._apollo_prune_misaligned_ui(
+                server.apollo_sanitize_genui_content(recovery), requirements
+            )
             candidate = (expected + "\n\n" + recovered).strip()
-            requirements = server._apollo_extract_ui_requirements(prompt)
             if len(server._apollo_validate_ui_requirements(candidate, requirements)) < len(
                 server._apollo_validate_ui_requirements(expected, requirements)
             ):
@@ -289,6 +293,54 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
             ),
             [],
         )
+
+    def test_off_topic_demo_and_quiz_are_pruned_then_recovered(self):
+        prompt = (
+            "Teach me kinetic energy with an interactive demonstration that "
+            "lets me adjust mass and velocity, plus a short quiz."
+        )
+        wrong = {"blocks": [
+            {"type": "function_explorer", "id": "limit-explorer",
+             "preset": "removable_hole", "target": 1, "value": 0.5,
+             "min": -1, "max": 3, "step": 0.1},
+            {"type": "quiz", "id": "limit-check", "questions": [{
+                "id": "q1", "question": "What is the limit?",
+                "options": [{"id": "a", "label": "1"},
+                            {"id": "b", "label": "2"}],
+                "correct_answer_id": "b",
+            }]},
+        ]}
+        correct = {"blocks": [
+            {"type": "calculator", "id": "kinetic-energy-demo", "fields": [
+                {"id": "mass", "label": "Mass", "type": "slider",
+                 "value": 10, "min": 1, "max": 100, "step": 1},
+                {"id": "velocity", "label": "Velocity", "type": "slider",
+                 "value": 5, "min": 1, "max": 50, "step": 1},
+            ], "expression": {"op": "multiply", "args": [0.5, {
+                "op": "multiply", "args": [
+                    {"field": "mass"},
+                    {"op": "power", "args": [{"field": "velocity"}, 2]},
+                ],
+            }]}},
+            {"type": "quiz", "id": "kinetic-energy-check", "questions": [{
+                "id": "q1", "question": "What makes kinetic energy quadruple?",
+                "options": [{"id": "a", "label": "Doubling mass"},
+                            {"id": "b", "label": "Doubling velocity"}],
+                "correct_answer_id": "b",
+            }]},
+        ]}
+        events = self.run_turn(
+            "Kinetic energy is proportional to mass and velocity squared.\n\n"
+            "```apollo-ui\n" + json.dumps(wrong) + "\n```",
+            prompt,
+            "```apollo-ui\n" + json.dumps(correct) + "\n```",
+        )
+        final = events[-1]["message"]["content"]
+        self.assertNotIn("limit-explorer", final)
+        self.assertNotIn("limit-check", final)
+        self.assertIn("kinetic-energy-demo", final)
+        self.assertIn("kinetic-energy-check", final)
+        self.assertTrue(events[-1]["timings"]["ui_recovery_used"])
 
     def test_general_water_question_never_activates_personal_hydration(self):
         chat_id = self.create_chat()

@@ -39,6 +39,7 @@ class GenerativeUITests(unittest.TestCase):
             "_apollo_ui_number", "_apollo_clean_ui_actions",
             "_apollo_normalize_quiz", "_apollo_normalize_ui_block",
             "_apollo_normalize_expression", "_apollo_extract_ui_requirements",
+            "_apollo_ui_block_matches_topic", "_apollo_ui_demo_control_count",
             "_apollo_validate_ui_requirements", "apollo_sanitize_genui_content",
         )
 
@@ -290,13 +291,64 @@ class GenerativeUITests(unittest.TestCase):
         self.assertTrue(contract["quiz"])
         self.assertTrue(contract["comparison"])
         lesson_only = "Lesson.\n\n| Chord | Notes |\n|---|---|\n| Cmaj7 | C E G B |"
-        self.assertIn("quiz", validate(lesson_only, contract))
+        self.assertTrue(any(
+            "quiz" in item for item in validate(lesson_only, contract)
+        ))
 
         selector_contract = extract(
             "Compare soup, salad, and pasta with a selector that changes details."
         )
         self.assertTrue(selector_contract["selector"])
         self.assertGreaterEqual(selector_contract["option_count"], 3)
+
+    def test_requirement_contract_rejects_off_topic_demo_and_quiz(self):
+        extract = self.items["_apollo_extract_ui_requirements"]
+        validate = self.items["_apollo_validate_ui_requirements"]
+        prompt = (
+            "Teach me kinetic energy with an interactive demonstration that "
+            "lets me adjust mass and velocity, plus a short quiz."
+        )
+        requirements = extract(prompt)
+        self.assertEqual(requirements["interactive_control_count"], 2)
+        self.assertIn("kinetic", requirements["topic_terms"])
+        self.assertIn("velocity", requirements["topic_terms"])
+
+        wrong = {"blocks": [
+            {"type": "function_explorer", "id": "limit",
+             "preset": "removable_hole", "target": 1, "value": 0.5,
+             "min": -1, "max": 3, "step": 0.1},
+            {"type": "quiz", "id": "limit-check", "questions": [{
+                "id": "q1", "question": "What is the limit as x approaches 1?",
+                "options": [{"id": "a", "label": "1"},
+                            {"id": "b", "label": "2"}],
+                "correct_answer_id": "b",
+            }]},
+        ]}
+        wrong_content = "```apollo-ui\n" + json.dumps(wrong) + "\n```"
+        self.assertEqual(
+            validate(wrong_content, requirements),
+            ["topic-aligned quiz", "interactive demonstration"],
+        )
+
+        correct = {"blocks": [
+            {"type": "calculator", "id": "ke-demo", "fields": [
+                {"id": "mass", "label": "Mass"},
+                {"id": "velocity", "label": "Velocity"},
+            ], "expression": {"op": "multiply", "args": [0.5, {
+                "op": "multiply", "args": [
+                    {"field": "mass"},
+                    {"op": "power", "args": [{"field": "velocity"}, 2]},
+                ],
+            }]}},
+            {"type": "quiz", "id": "ke-check", "questions": [{
+                "id": "q1", "question": "How does kinetic energy change with velocity?",
+                "options": [{"id": "a", "label": "Linearly"},
+                            {"id": "b", "label": "With velocity squared"}],
+                "correct_answer_id": "b",
+            }]},
+        ]}
+        correct_content = "```apollo-ui\n" + json.dumps(correct) + "\n```"
+        self.assertEqual(validate(correct_content, requirements), [])
 
 
 if __name__ == "__main__":

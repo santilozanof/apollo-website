@@ -1579,6 +1579,13 @@ asks for a quiz, selector, calculator, comparison, or more than one compatible
 deliverable, include every requested part as a complete functional component.
 Do not describe an interaction that you omit. If a requested component cannot
 be produced safely, say so plainly instead of emitting an empty shell.
+Every requested component must also match the current subject. Quiz questions
+must assess this lesson, and an interactive demonstration must expose the
+adjustable quantities the user named. Never reuse a canonical example from a
+different topic merely because its component schema is valid. For a formula
+with multiple adjustable numeric quantities, use a calculator with one field
+for each requested quantity. Use the removable-hole function explorer only
+when the user is actually learning limits or removable discontinuities.
 Apply these capability rules from the user's goal and available evidence, not
 from a literal keyword match:
 - When a practical answer is a supported arithmetic result with a meaningful
@@ -1697,10 +1704,41 @@ def _apollo_extract_ui_requirements(message):
         lower,
     ))
 
-    control_count = len(re.findall(
+    numeric_control_count = len(re.findall(
         r"\b(slider|selector|dropdown|numeric input|number input|control)\b",
         lower,
-    )) if calculator else 0
+    ))
+
+    adjusted_control_count = 0
+    adjusted_match = re.search(
+        r"\badjust\s+(.{1,100}?)(?:\s*,|\.|\bplus\b|\bwith\b|$)",
+        lower,
+    )
+    if adjusted_match:
+        adjusted_values = [
+            value.strip(" ,")
+            for value in re.split(r"\s*,\s*|\s+and\s+", adjusted_match.group(1))
+            if value.strip(" ,")
+        ]
+        adjusted_control_count = min(len(adjusted_values), 8)
+
+    topic_stopwords = {
+        "adjust", "actual", "build", "changes", "changing", "clean",
+        "compare", "comparison", "details", "demonstration", "fundamentals",
+        "interactive", "lesson", "lets", "locally", "make", "mini",
+        "option", "options", "please", "recipe", "selector", "short",
+        "show", "small", "teach", "that", "this", "three", "quiz",
+        "with", "plus", "from", "into", "your", "about", "have",
+        "slider", "sliders", "input", "inputs", "control", "controls",
+        "update", "updates", "updating", "immediately", "visually",
+    }
+    topic_terms = []
+    if quiz or interactive_demo:
+        for token in re.findall(r"[a-z][a-z0-9]{3,}", lower):
+            if token in topic_stopwords or token in topic_terms:
+                continue
+            topic_terms.append(token)
+        topic_terms = topic_terms[:12]
 
     option_count = 0
     compare_match = re.search(
@@ -1732,8 +1770,14 @@ def _apollo_extract_ui_requirements(message):
         "selector": selector,
         "comparison": comparison,
         "interactive_demo": interactive_demo,
-        "calculator_field_count": min(max(control_count, 1 if calculator else 0), 8),
+        "calculator_field_count": min(
+            max(numeric_control_count, 1 if calculator else 0), 8
+        ),
+        "interactive_control_count": min(
+            max(numeric_control_count, adjusted_control_count), 8
+        ) if interactive_demo else 0,
         "option_count": option_count,
+        "topic_terms": topic_terms,
     }
 
 
@@ -1753,7 +1797,31 @@ def _apollo_ui_requirement_prompt(requirements):
         "a valid expression. A selector must contain real local options and "
         "details. A quiz must be answerable and correctly keyed. A comparison "
         "needs a table or selector with comparable details."
+        " A quiz and interactive demonstration must match the current topic."
+        " A numeric demonstration must expose at least interactive_control_count"
+        " adjustable controls when that count is nonzero."
     )
+
+
+def _apollo_ui_block_matches_topic(block, topic_terms):
+    if not topic_terms:
+        return True
+    block_tokens = set(re.findall(
+        r"[a-z][a-z0-9]{3,}",
+        json.dumps(block, ensure_ascii=False).lower(),
+    ))
+    return any(term in block_tokens for term in topic_terms)
+
+
+def _apollo_ui_demo_control_count(block):
+    kind = block.get("type")
+    if kind == "calculator":
+        return len(block.get("fields") or [])
+    if kind in ("function_explorer", "slider"):
+        return 1
+    if kind in ("selector", "metric_trend", "checklist"):
+        return 1
+    return 0
 
 
 def _apollo_validate_ui_requirements(content, requirements):
@@ -1769,10 +1837,19 @@ def _apollo_validate_ui_requirements(content, requirements):
             blocks.extend(item for item in payload["blocks"] if isinstance(item, dict))
 
     missing = []
-    if requirements.get("quiz") and not any(
-        block.get("type") == "quiz" and block.get("questions") for block in blocks
-    ):
-        missing.append("quiz")
+    if requirements.get("quiz"):
+        quiz_blocks = [
+            block for block in blocks
+            if block.get("type") == "quiz" and block.get("questions")
+        ]
+        topic_terms = requirements.get("topic_terms") or []
+        if topic_terms and not any(
+            _apollo_ui_block_matches_topic(block, topic_terms)
+            for block in quiz_blocks
+        ):
+            missing.append("topic-aligned quiz")
+        elif not quiz_blocks:
+            missing.append("quiz")
     if requirements.get("calculator"):
         minimum = max(1, int(requirements.get("calculator_field_count") or 1))
         if not any(
@@ -1796,16 +1873,75 @@ def _apollo_validate_ui_requirements(content, requirements):
         for block in blocks
     ):
         missing.append("comparison")
-    if requirements.get("interactive_demo") and not any(
-        block.get("type") in {
-            "calculator", "selector", "function_explorer", "metric_trend",
-            "slider", "checklist", "quiz",
-        }
-        and not (block.get("type") == "quiz" and requirements.get("quiz"))
-        for block in blocks
-    ):
-        missing.append("interactive demonstration")
+    if requirements.get("interactive_demo"):
+        minimum_controls = max(
+            1, int(requirements.get("interactive_control_count") or 1)
+        )
+        topic_terms = requirements.get("topic_terms") or []
+        if not any(
+            block.get("type") in {
+                "calculator", "selector", "function_explorer", "metric_trend",
+                "slider", "checklist",
+            }
+            and _apollo_ui_demo_control_count(block) >= minimum_controls
+            and _apollo_ui_block_matches_topic(block, topic_terms)
+            for block in blocks
+        ):
+            missing.append("interactive demonstration")
     return missing
+
+
+def _apollo_prune_misaligned_ui(content, requirements):
+    """Remove valid-but-wrong requested widgets before bounded recovery."""
+    topic_terms = requirements.get("topic_terms") or []
+    minimum_controls = max(
+        1, int(requirements.get("interactive_control_count") or 1)
+    )
+
+    def replace(match):
+        try:
+            payload = json.loads(match.group(1))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return ""
+        if not isinstance(payload, dict) or not isinstance(payload.get("blocks"), list):
+            return ""
+        kept = []
+        for block in payload["blocks"]:
+            if not isinstance(block, dict):
+                continue
+            if (
+                requirements.get("quiz")
+                and block.get("type") == "quiz"
+                and topic_terms
+                and not _apollo_ui_block_matches_topic(block, topic_terms)
+            ):
+                continue
+            if (
+                requirements.get("interactive_demo")
+                and block.get("type") in {
+                    "calculator", "selector", "function_explorer", "metric_trend",
+                    "slider", "checklist",
+                }
+                and (
+                    _apollo_ui_demo_control_count(block) < minimum_controls
+                    or not _apollo_ui_block_matches_topic(block, topic_terms)
+                )
+            ):
+                continue
+            kept.append(block)
+        if not kept:
+            return ""
+        return "```apollo-ui\n" + json.dumps(
+            {"blocks": kept}, ensure_ascii=False, separators=(",", ":")
+        ) + "\n```"
+
+    result = re.sub(
+        r"```apollo-ui\s*\n([\s\S]*?)\n```",
+        replace,
+        str(content or ""),
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\n{3,}", "\n\n", result).strip()
 
 
 def _apollo_clean_ui_actions(value):
@@ -24031,6 +24167,10 @@ class ApolloHandler(BaseHTTPRequestHandler):
                         assistant_message
                     )
                 )
+                assistant_message = _apollo_prune_misaligned_ui(
+                    assistant_message,
+                    ui_requirements,
+                )
 
                 missing_ui = _apollo_validate_ui_requirements(
                     assistant_message,
@@ -24072,6 +24212,10 @@ class ApolloHandler(BaseHTTPRequestHandler):
                         recovery_raw = ""
                     recovery_content = apollo_sanitize_genui_content(
                         recovery_raw
+                    )
+                    recovery_content = _apollo_prune_misaligned_ui(
+                        recovery_content,
+                        ui_requirements,
                     )
                     candidate = (
                         assistant_message
