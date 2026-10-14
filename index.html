@@ -185,8 +185,10 @@ html[data-theme="light"] {
 }
 
 </style>
-<link rel="stylesheet" href="/apollo_genui.css?v=20261014-3">
-<script src="/apollo_genui.js?v=20261014-3"></script>
+<link rel="stylesheet" href="/vendor/katex/katex.min.css?v=0.19.0">
+<link rel="stylesheet" href="/apollo_genui.css?v=20261014-4">
+<script src="/vendor/katex/katex.min.js?v=0.19.0"></script>
+<script src="/apollo_genui.js?v=20261014-4"></script>
 
 <style>
 :root {
@@ -24568,6 +24570,31 @@ function apolloHideTyping() {
 
 let apolloChatCreatePromise = null;
 
+function apolloFinalizeInterruptedStream(
+    renderer,
+    streamingMessage,
+    content
+) {
+    const streamedRoot = renderer?.interrupt("Response interrupted");
+    if (!streamingMessage?.isConnected) return;
+    streamingMessage.style.display = "";
+    const safeContent =
+        window.ApolloGenUI
+            ?.completeStreamSegments?.(content, false)
+            .segments.join("\n\n")
+        || "Response interrupted";
+    const finalRendered = apolloAddMessage(
+        "assistant",
+        safeContent,
+        [],
+        false
+    );
+    if (streamedRoot && finalRendered?.isConnected) {
+        finalRendered.replaceWith(streamedRoot);
+    }
+    streamingMessage.remove();
+}
+
 
 async function apolloCreateChat(
     forceNew = false
@@ -24676,6 +24703,9 @@ async function apolloRetryMessage(message) {
 
     apolloSending = true;
     apolloSend.disabled = true;
+    let apolloStreamRenderer = null;
+    let apolloStreamingMessage = null;
+    let assistantContent = "";
 
     try {
 
@@ -24716,10 +24746,11 @@ async function apolloRetryMessage(message) {
         const decoder = new TextDecoder();
 
         let buffer = "";
-        let assistantContent = "";
+        assistantContent = "";
 
         const newMessage =
             document.createElement("div");
+        apolloStreamingMessage = newMessage;
 
         newMessage.className =
             "apollo-message assistant apollo-response-fade";
@@ -24764,6 +24795,11 @@ async function apolloRetryMessage(message) {
             "apollo-message-text";
 
         body.appendChild(text);
+        apolloStreamRenderer =
+            window.ApolloGenUI?.createStreamRenderer?.(
+                text,
+                {scrollElement: apolloMessages}
+            ) || null;
         newMessage.appendChild(mark);
         newMessage.appendChild(body);
 
@@ -24837,12 +24873,11 @@ async function apolloRetryMessage(message) {
                         assistantContent +=
                             data.content;
 
-                        text.textContent =
-                            window.apolloGenUIStreamingText
-                                ? window.apolloGenUIStreamingText(
-                                    assistantContent
-                                )
-                                : assistantContent;
+                        if (apolloStreamRenderer) {
+                            apolloStreamRenderer.update(assistantContent);
+                        } else {
+                            text.textContent = assistantContent;
+                        }
 
                     }
 
@@ -24866,16 +24901,17 @@ async function apolloRetryMessage(message) {
                             data.message?.content ??
                             assistantContent;
 
-                        text.textContent =
-                            assistantContent;
-
-                        newMessage.remove();
-
-                        apolloAddMessage(
+                        const streamedRoot =
+                            apolloStreamRenderer?.finish(assistantContent);
+                        const finalRendered = apolloAddMessage(
                             "assistant",
                             assistantContent,
                             data.message?.attachments || []
                         );
+                        if (streamedRoot && finalRendered?.isConnected) {
+                            finalRendered.replaceWith(streamedRoot);
+                        }
+                        newMessage.remove();
 
                         if (
                             typeof apolloRefreshHistory ===
@@ -24892,6 +24928,11 @@ async function apolloRetryMessage(message) {
     } catch (error) {
 
         apolloHideTyping();
+        apolloFinalizeInterruptedStream(
+            apolloStreamRenderer,
+            apolloStreamingMessage,
+            assistantContent
+        );
 
         if (
             typeof isRequestChatVisible === "function"
@@ -24899,11 +24940,6 @@ async function apolloRetryMessage(message) {
         ) {
             apolloFinishUserSendViewport();
         }
-
-        apolloAddMessage(
-            "assistant",
-            "Retry failed: " + error.message
-        );
 
         console.error(
             "Apollo retry:",
@@ -25710,6 +25746,9 @@ async function apolloSendMessage() {
 
     const content =
         apolloInput.value.trim();
+    let apolloStreamRenderer = null;
+    let apolloStreamingMessage = null;
+    let assistantContent = "";
 
 
     /* =====================================================
@@ -26031,9 +26070,10 @@ if (!response.ok) {
         const decoder = new TextDecoder();
 
         let buffer = "";
-        let assistantContent = "";
+        assistantContent = "";
 
         const message = document.createElement("div");
+        apolloStreamingMessage = message;
         message.className = "apollo-message assistant apollo-response-fade";
 
         const mark = document.createElement("div");
@@ -26067,6 +26107,11 @@ if (!response.ok) {
         text.className = "apollo-message-text";
 
         body.appendChild(text);
+        apolloStreamRenderer =
+            window.ApolloGenUI?.createStreamRenderer?.(
+                text,
+                {scrollElement: apolloMessages}
+            ) || null;
         message.appendChild(mark);
         message.appendChild(body);
         message.style.display = "none";
@@ -26152,12 +26197,11 @@ if (!response.ok) {
 
                         message.style.display = "";
 
-                        text.textContent =
-                            window.apolloGenUIStreamingText
-                                ? window.apolloGenUIStreamingText(
-                                    assistantContent
-                                )
-                                : assistantContent;
+                        if (apolloStreamRenderer) {
+                            apolloStreamRenderer.update(assistantContent);
+                        } else {
+                            text.textContent = assistantContent;
+                        }
 
                     }
 
@@ -26188,17 +26232,18 @@ if (!response.ok) {
 
                             apolloHideTyping();
 
-                            // Remove temporary streaming message.
-                            message.remove();
-
-                            // Re-create it through the normal message renderer
-                            // so Copy + Retry actions are attached consistently.
-                            apolloAddMessage(
+                            const streamedRoot =
+                                apolloStreamRenderer?.finish(assistantContent);
+                            const finalRendered = apolloAddMessage(
                                 "assistant",
                                 assistantContent,
                                 data.message?.attachments || [],
                                 false
                             );
+                            if (streamedRoot && finalRendered?.isConnected) {
+                                finalRendered.replaceWith(streamedRoot);
+                            }
+                            message.remove();
 
                         } else {
 
@@ -26228,10 +26273,10 @@ if (!response.ok) {
     } catch (error) {
 
         apolloHideTyping();
-
-        apolloAddMessage(
-            "assistant",
-            "Something went wrong: " + error.message
+        apolloFinalizeInterruptedStream(
+            apolloStreamRenderer,
+            apolloStreamingMessage,
+            assistantContent
         );
 
         console.error("Apollo:", error);

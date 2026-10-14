@@ -307,9 +307,28 @@
     return {structured: cursor > 0, parts: parts.filter(part => part.type !== "text" || part.text)};
   }
 
+  function renderMath(value, displayMode = false) {
+    const node = el(displayMode ? "div" : "span", displayMode ? "apollo-math apollo-math-block" : "apollo-math");
+    const expression = String(value || "").trim();
+    try {
+      if (!window.katex?.render) throw new Error("KaTeX unavailable");
+      window.katex.render(expression, node, {
+        displayMode,
+        throwOnError: false,
+        strict: "warn",
+        trust: false,
+        output: "htmlAndMathml"
+      });
+    } catch (_) {
+      node.classList.add("apollo-math-fallback");
+      node.textContent = expression;
+    }
+    return node;
+  }
+
   function appendInline(parent, value, citations = new Map()) {
     const source = String(value || "");
-    const pattern = /(\[[^\]]+\]\(https?:\/\/[^)]+\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\$[^$]+\$|\[(\d+)\])/g;
+    const pattern = /(`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)]+\)|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\.|[^$\\])+?\$(?!\d)|\*\*[^*]+\*\*|\*[^*\n]+\*|\[(\d+)\])/g;
     let cursor = 0;
     let match;
     while ((match = pattern.exec(source))) {
@@ -324,15 +343,17 @@
           node.href = safeUrl(link[2]);
           node.target = "_blank";
           node.rel = "noopener noreferrer";
-        } else if (citation && citations.has(citation[1])) {
+        } else if (citation) {
           node = el("a", "apollo-citation-ref", `[${citation[1]}]`);
-          node.href = `#${citations.get(citation[1])}`;
+          node.dataset.citationNumber = citation[1];
+          if (citations.has(citation[1])) node.href = `#${citations.get(citation[1])}`;
           node.setAttribute("aria-label", `Source ${citation[1]}`);
         } else node = document.createTextNode(token);
       } else if (token.startsWith("**")) node = el("strong", null, token.slice(2, -2));
       else if (token.startsWith("*")) node = el("em", null, token.slice(1, -1));
       else if (token.startsWith("`")) node = el("code", null, token.slice(1, -1));
-      else if (token.startsWith("$")) node = el("span", "apollo-math", token.slice(1, -1));
+      else if (token.startsWith("\\(")) node = renderMath(token.slice(2, -2));
+      else if (token.startsWith("$")) node = renderMath(token.slice(1, -1));
       else node = document.createTextNode(token);
       parent.appendChild(node);
       cursor = pattern.lastIndex;
@@ -366,7 +387,11 @@
       const row = el("tr");
       headers.forEach((_, cellIndex) => {
         const cell = el("td");
-        appendInline(cell, values[cellIndex] || "", citations);
+        const value = values[cellIndex] || "";
+        if (/^[+-]?(?:\d[\d,.]*|\\\(.+\\\)|\$.+\$)$/.test(value)) {
+          cell.classList.add("apollo-rich-table-number");
+        }
+        appendInline(cell, value, citations);
         row.appendChild(cell);
       });
       body.appendChild(row);
@@ -383,6 +408,34 @@
     while (index < lines.length) {
       const line = lines[index];
       if (!line.trim()) { index += 1; continue; }
+      const displayStart = line.trim();
+      if (displayStart.startsWith("\\[") || displayStart.startsWith("$$")) {
+        const opener = displayStart.startsWith("\\[") ? "\\[" : "$$";
+        const closer = opener === "\\[" ? "\\]" : "$$";
+        const values = [];
+        let current = line.slice(line.indexOf(opener) + opener.length);
+        let closed = false;
+        while (true) {
+          const end = current.indexOf(closer);
+          if (end >= 0) {
+            values.push(current.slice(0, end));
+            closed = true;
+            break;
+          }
+          values.push(current);
+          index += 1;
+          if (index >= lines.length) break;
+          current = lines[index];
+        }
+        root.appendChild(renderMath(values.join("\n"), true));
+        index += closed ? 1 : 0;
+        continue;
+      }
+      if (/^\\(?:lim|frac|dfrac|tfrac|int|iint|sum|prod|begin|sqrt|vec|partial|nabla)\b/.test(displayStart)) {
+        root.appendChild(renderMath(displayStart, true));
+        index += 1;
+        continue;
+      }
       if (/^```/.test(line.trim())) {
         const language = line.trim().slice(3).trim();
         const values = [];
@@ -1225,7 +1278,11 @@
 
   function render(content) {
     const parsed = parse(content);
-    if (!parsed.structured) return null;
+    if (!parsed.structured) {
+      const root = el("div", "apollo-rich-message");
+      root.appendChild(richText(content));
+      return root;
+    }
     const citations = prepareCitations(parsed.parts);
     const root = el("div", "apollo-rich-message");
     parsed.parts.forEach(part => root.appendChild(
@@ -1234,6 +1291,155 @@
         : renderGeneric(part, citations)
     ));
     return root;
+  }
+
+  function hasIncompleteInline(value) {
+    const source = String(value || "");
+    const withoutCode = source.replace(/`[^`]*`/g, "");
+    if ((source.match(/(?<!\\)`/g) || []).length % 2) return true;
+    if (withoutCode.lastIndexOf("\\(") > withoutCode.lastIndexOf("\\)")) return true;
+    if ((withoutCode.match(/(?<!\\)\$\$(?!\$)/g) || []).length % 2) return true;
+    const dollars = withoutCode.match(/(?<!\\)\$(?!\s|\$)/g) || [];
+    if (dollars.length % 2) return true;
+    if ((withoutCode.match(/\*\*/g) || []).length % 2) return true;
+    if (/\[[^\]]*$|\[[^\]]+\]\([^)]*$/.test(withoutCode)) return true;
+    return false;
+  }
+
+  function completeStreamSegments(value, final = false) {
+    const source = String(value || "").replace(/\r/g, "");
+    const segments = [];
+    let cursor = 0;
+    const lineEnd = start => {
+      const end = source.indexOf("\n", start);
+      return end < 0 ? source.length : end + 1;
+    };
+    while (cursor < source.length) {
+      while (cursor < source.length && /\s/.test(source[cursor])) cursor += 1;
+      if (cursor >= source.length) break;
+      const start = cursor;
+      const tail = source.slice(start);
+      const fence = tail.match(/^```[^\n]*\n/);
+      if (fence) {
+        const bodyStart = start + fence[0].length;
+        const closing = source.slice(bodyStart).match(/^```[ \t]*(?:\n|$)/m);
+        if (!closing) {
+          if (!final) return {segments, pending: source.slice(start)};
+          segments.push(source.slice(start));
+          cursor = source.length;
+          continue;
+        }
+        const end = bodyStart + closing.index + closing[0].length;
+        segments.push(source.slice(start, end).trim());
+        cursor = end;
+        continue;
+      }
+      const opener = tail.startsWith("\\[") ? "\\[" : tail.startsWith("$$") ? "$$" : "";
+      if (opener) {
+        const closer = opener === "\\[" ? "\\]" : "$$";
+        const closeAt = source.indexOf(closer, start + opener.length);
+        if (closeAt < 0) {
+          if (!final) return {segments, pending: source.slice(start)};
+          segments.push(source.slice(start));
+          cursor = source.length;
+          continue;
+        }
+        const end = lineEnd(closeAt + closer.length);
+        segments.push(source.slice(start, end).trim());
+        cursor = end;
+        continue;
+      }
+      const firstEnd = source.indexOf("\n", start);
+      const firstLine = source.slice(start, firstEnd < 0 ? source.length : firstEnd);
+      if (/^(#{1,6})\s+|^---+$/.test(firstLine.trim()) && firstEnd >= 0) {
+        segments.push(firstLine.trim());
+        cursor = firstEnd + 1;
+        continue;
+      }
+      const boundary = source.slice(start).search(/\n[ \t]*\n/);
+      if (boundary < 0) {
+        if (!final) return {segments, pending: source.slice(start)};
+        segments.push(source.slice(start).trim());
+        cursor = source.length;
+        continue;
+      }
+      const end = start + boundary;
+      const segment = source.slice(start, end).trim();
+      if (hasIncompleteInline(segment) && !final) {
+        return {segments, pending: source.slice(start)};
+      }
+      if (segment) segments.push(segment);
+      cursor = start + boundary + source.slice(start + boundary).match(/^\n[ \t]*\n/)[0].length;
+    }
+    return {segments, pending: source.slice(cursor)};
+  }
+
+  function createStreamRenderer(host, options = {}) {
+    const root = el("div", "apollo-rich-message apollo-stream-content");
+    const indicator = el("div", "apollo-stream-indicator");
+    indicator.setAttribute("role", "status");
+    indicator.setAttribute("aria-label", "Apollo is continuing the response");
+    indicator.append(el("i"), el("i"), el("i"));
+    const scrollElement = options.scrollElement || document.getElementById("apolloMessages");
+    let segments = [];
+    let lastSource = "";
+    let finished = false;
+    host.replaceChildren(root);
+
+    const nearBottom = () => !scrollElement
+      || scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight < 140;
+    const settleScroll = anchored => {
+      if (anchored && scrollElement) scrollElement.scrollTop = scrollElement.scrollHeight;
+    };
+    const refreshCitations = () => {
+      const sources = [...root.querySelectorAll(".apollo-ui-sources li[id]")];
+      root.querySelectorAll(".apollo-citation-ref[data-citation-number]").forEach(link => {
+        const source = sources[Number(link.dataset.citationNumber) - 1];
+        if (source) link.href = `#${source.id}`;
+      });
+    };
+    const appendSegment = segment => {
+      const rendered = render(segment);
+      while (rendered.firstChild) root.appendChild(rendered.firstChild);
+      refreshCitations();
+    };
+    const rebuild = next => {
+      root.replaceChildren();
+      segments = [];
+      next.forEach(segment => { appendSegment(segment); segments.push(segment); });
+    };
+    const update = (value, isFinal = false) => {
+      if (finished) return root;
+      const source = String(value || "");
+      const anchored = nearBottom();
+      const next = completeStreamSegments(source, isFinal).segments;
+      const diverged = !source.startsWith(lastSource)
+        || segments.some((segment, index) => next[index] !== segment);
+      if (diverged) rebuild(next);
+      else for (let index = segments.length; index < next.length; index += 1) {
+        appendSegment(next[index]);
+        segments.push(next[index]);
+      }
+      lastSource = source;
+      indicator.remove();
+      if (!isFinal) root.appendChild(indicator);
+      else finished = true;
+      settleScroll(anchored);
+      return root;
+    };
+    return {
+      update: value => update(value, false),
+      finish: value => update(value, true),
+      interrupt(message = "Response interrupted") {
+        const anchored = nearBottom();
+        indicator.remove();
+        if (!finished) root.appendChild(el("div", "apollo-stream-interrupted", message));
+        finished = true;
+        settleScroll(anchored);
+        return root;
+      },
+      root
+    };
   }
 
   function blockCopyText(block) {
@@ -1289,25 +1495,20 @@
       const text = original.call(this, role, content, attachments, autoScroll);
       if (role !== "assistant") return text;
       const rich = render(content);
-      if (!rich) return text;
       const body = text.closest(".apollo-message-body");
       if (body) text.replaceWith(rich);
       return rich;
     };
     wrapped.apolloGenUIInstalled = true;
     window.apolloAddMessage = wrapped;
-    window.apolloGenUIStreamingText = value => {
-      const source = String(value || "");
-      const completeStart = source.search(/```apollo-ui/i);
-      if (completeStart >= 0) {
-        return `${source.slice(0, completeStart).trim()}\n\nPreparing interactive content…`.trim();
-      }
-      const partialFence = source.match(/```(?:a(?:p(?:o(?:l(?:l(?:o(?:-(?:u(?:i)?)?)?)?)?)?)?)?)?$/i);
-      return (partialFence ? source.slice(0, partialFence.index) : source).trim();
-    };
+    window.apolloGenUIStreamingText = value => completeStreamSegments(value, false).segments.join("\n\n");
   }
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, {once: true});
-  else install();
-  window.ApolloGenUI = {parse, validate, render, copyText, install, keyFor};
+  if (typeof document !== "undefined") {
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, {once: true});
+    else install();
+  }
+  const api = {parse, validate, render, copyText, install, keyFor, completeStreamSegments, hasIncompleteInline, createStreamRenderer};
+  if (typeof window !== "undefined") window.ApolloGenUI = api;
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

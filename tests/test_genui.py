@@ -94,11 +94,15 @@ class GenerativeUITests(unittest.TestCase):
         source = (ROOT / "index.html").read_text()
         self.assertIn('href="/apollo_genui.css?v=', source)
         self.assertIn('src="/apollo_genui.js?v=', source)
-        self.assertEqual(source.count("? window.apolloGenUIStreamingText("), 2)
+        self.assertEqual(source.count("createStreamRenderer?.("), 2)
+        self.assertEqual(source.count("apolloStreamRenderer.update(assistantContent)"), 2)
+        self.assertEqual(source.count("apolloStreamRenderer?.finish(assistantContent)"), 2)
         self.assertIn("window.ApolloGenUI?.copyText?.(content)", source)
         self.assertIn("message.appendChild(\n                assistantActions", source)
         client = (ROOT / "apollo_genui.js").read_text()
-        self.assertIn("const partialFence = source.match", client)
+        self.assertIn("function completeStreamSegments", client)
+        self.assertIn("const fence = tail.match", client)
+        self.assertIn("if (!closing)", client)
 
     def test_prompt_requires_real_data_and_simple_fallback(self):
         prompt = self.items["APOLLO_GENERATIVE_UI_PROMPT"]

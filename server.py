@@ -1486,6 +1486,14 @@ title and publisher when known; never fabricate either.
 
 Use natural, editorial typography through Markdown headings, lists, emphasis,
 quotes, code, equations, and tables when useful. Keep hierarchy restrained.
+Write mathematics as valid KaTeX-compatible LaTeX. Use \(...\) for inline math
+and \[...\] for display math; use display math for fractions, limits,
+derivatives, integrals, matrices, aligned work, and cases when it improves
+readability. Never put LaTeX in a code fence unless the user explicitly asks
+for source code. Always close every math delimiter before continuing. Inside
+apollo-ui JSON strings, escape each LaTeX backslash correctly for JSON.
+Use standard Markdown table syntax with a complete header separator and keep
+code in fully closed fenced blocks with an appropriate language identifier.
 Omit image URLs unless an authoritative URL is present in tool/context output.
 Use real descriptive alt text and captions. Do not use placeholder services.
 
