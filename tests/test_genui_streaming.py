@@ -101,6 +101,8 @@ console.log('buffered');
         retry_start = page.index("async function apolloRetryMessage")
         retry_end = page.index("function apolloGetClientContext", retry_start)
         retry = page[retry_start:retry_end]
+        self.assertIn("const requestChatId = apolloChatId;", retry)
+        self.assertIn("`/api/chats/${requestChatId}/messages`", retry)
         self.assertIn("apolloShowTyping(\n            userMessage,", retry)
         self.assertNotIn("isImageGeneration", retry)
         self.assertNotIn("hasAttachments", retry)

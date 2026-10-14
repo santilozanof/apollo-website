@@ -24673,6 +24673,8 @@ async function apolloRetryMessage(message) {
     if (apolloSending) return;
     if (!apolloChatId) return;
 
+    const requestChatId = apolloChatId;
+
     const userMessages =
         [...apolloMessages.querySelectorAll(".apollo-message.user")];
 
