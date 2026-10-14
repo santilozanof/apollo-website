@@ -44,6 +44,15 @@ class VisualSpacingRegressionTests(unittest.TestCase):
         self.assertIn("--apollo-page-bottom: calc(88px + env(safe-area-inset-bottom))", source)
         self.assertIn("max-height: calc(100dvh - 24px - env(safe-area-inset-bottom))", source)
 
+    def test_whoop_and_weekly_schedule_reuse_shared_spacing_tokens(self):
+        polish = (ROOT / "apollo_polish_v1.css").read_text()
+        routines = (ROOT / "routines.css").read_text()
+        self.assertIn(".home > .apollo-home-whoop", polish)
+        self.assertIn("margin-top: var(--apollo-section-gap) !important", polish)
+        self.assertIn("margin-bottom: var(--apollo-space-2) !important", polish)
+        self.assertIn("scrollbar-gutter: stable", routines)
+        self.assertIn("margin: 0 0 var(--apollo-space-3, 12px)", routines)
+
 
 if __name__ == "__main__":
     unittest.main()

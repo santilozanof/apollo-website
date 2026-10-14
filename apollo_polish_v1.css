@@ -106,6 +106,14 @@
     padding-bottom: 0 !important;
 }
 
+.home > .apollo-home-whoop {
+    margin-top: var(--apollo-section-gap) !important;
+}
+
+.home > .apollo-home-whoop > .section-label {
+    margin-bottom: var(--apollo-space-2) !important;
+}
+
 .home .card {
     min-height: 176px !important;
     padding: var(--apollo-card-pad) !important;
