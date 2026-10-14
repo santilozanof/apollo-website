@@ -208,6 +208,37 @@ class SpotifyPlaybackStateTests(unittest.TestCase):
         self.assertTrue(paused["ok"])
         self.assertEqual(sought["playback"]["track_id"], "track")
 
+    def test_play_control_waits_for_spotify_readback_to_converge(self):
+        reads = 0
+
+        class Spotify:
+            def current_playback(self):
+                nonlocal reads
+                reads += 1
+                return {
+                    "is_playing": reads >= 5,
+                    "progress_ms": 1000,
+                    "device": {"id": "active", "name": "Mac", "is_active": True},
+                    "item": {
+                        "id": "track", "name": "Song", "duration_ms": 120000,
+                        "artists": [{"name": "Artist"}],
+                        "album": {"name": "Album", "images": []},
+                    },
+                }
+
+            def start_playback(self, device_id=None):
+                self.device_id = device_id
+
+        original_sleep = spotify_curator_tool.time.sleep
+        spotify_curator_tool.time.sleep = lambda _delay: None
+        try:
+            result = spotify_curator_tool.playback_control(Spotify(), "play")
+        finally:
+            spotify_curator_tool.time.sleep = original_sleep
+
+        self.assertEqual(reads, 5)
+        self.assertTrue(result["playback"]["playing"])
+
     def test_missing_active_device_returns_actionable_error(self):
         class Runner:
             TimeoutExpired = subprocess.TimeoutExpired

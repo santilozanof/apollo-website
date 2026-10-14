@@ -433,7 +433,11 @@ def playback_control(spotify, action, position_ms=None):
     before_track = before_item.get("id")
     before_progress = int(state.get("progress_ms") or 0)
     confirmed = {}
-    for attempt in range(3):
+    # Spotify Connect can acknowledge a command before the player endpoint
+    # reflects it. Give the authoritative read model a little longer to
+    # converge, especially when resuming a paused remote device.
+    readback_delays = (.2, .35, .55, .8)
+    for attempt in range(len(readback_delays) + 1):
         confirmed = spotify_read(spotify.current_playback, attempts=1) or {}
         confirmed_item = (
             confirmed.get("item")
@@ -457,9 +461,9 @@ def playback_control(spotify, action, position_ms=None):
                 and abs(confirmed_progress - position_ms) <= 2500
             )
         )
-        if settled or attempt == 2:
+        if settled or attempt == len(readback_delays):
             break
-        time.sleep(.15 * (attempt + 1))
+        time.sleep(readback_delays[attempt])
     return {
         "ok": True,
         "action": action,
