@@ -186,9 +186,9 @@ html[data-theme="light"] {
 
 </style>
 <link rel="stylesheet" href="/vendor/katex/katex.min.css?v=0.19.0">
-<link rel="stylesheet" href="/apollo_genui.css?v=20261014-5">
+<link rel="stylesheet" href="/apollo_genui.css?v=20261014-6">
 <script src="/vendor/katex/katex.min.js?v=0.19.0"></script>
-<script src="/apollo_genui.js?v=20261014-5"></script>
+<script src="/apollo_genui.js?v=20261014-6"></script>
 
 <style>
 :root {
@@ -23391,11 +23391,16 @@ function apolloAddMessage(
     role,
     content,
     attachments = [],
-    autoScroll = true
+    autoScroll = true,
+    existingMessage = null
 ) {
     apolloWelcome.style.display = "none";
 
-    const message = document.createElement("div");
+    const message = existingMessage || document.createElement("div");
+    if (existingMessage) {
+        message.replaceChildren();
+        message.removeAttribute("id");
+    }
     message.className = `apollo-message ${role}`;
 
     if (role === "assistant") {
@@ -23784,7 +23789,9 @@ if (role === "assistant") {
     }
 
 
-    apolloMessages.appendChild(message);
+    if (!existingMessage) {
+        apolloMessages.appendChild(message);
+    }
 
     /*
      * APOLLO USER SEND SCROLL
@@ -24537,8 +24544,7 @@ function apolloShowImageGenerating() {
 }
 
 
-function apolloHideTyping() {
-
+function apolloStopTypingStatus() {
     clearTimeout(
         apolloTypingStatusTimer
     );
@@ -24558,6 +24564,50 @@ function apolloHideTyping() {
 
     apolloBackendStatusActive =
         false;
+}
+
+
+function apolloPromotePendingAssistant() {
+
+    apolloStopTypingStatus();
+
+    const message =
+        document.getElementById("apolloTyping")
+        || document.getElementById("apolloImageGenerating");
+
+    if (!message) {
+        return null;
+    }
+
+    message.removeAttribute("id");
+    message.className =
+        "apollo-message assistant apollo-response-fade";
+
+    const body =
+        message.querySelector(".apollo-message-body")
+        || document.createElement("div");
+
+    body.className = "apollo-message-body";
+    body.replaceChildren();
+
+    const text = document.createElement("div");
+    text.className = "apollo-message-text";
+    body.appendChild(text);
+
+    if (!body.isConnected) {
+        message.appendChild(body);
+    }
+
+    document.getElementById("apolloTyping")?.remove();
+    document.getElementById("apolloImageGenerating")?.remove();
+
+    return { message, text };
+}
+
+
+function apolloHideTyping() {
+
+    apolloStopTypingStatus();
 
     document.getElementById(
         "apolloTyping"
@@ -24587,12 +24637,13 @@ function apolloFinalizeInterruptedStream(
         "assistant",
         safeContent,
         [],
-        false
+        false,
+        streamingMessage
     );
     if (streamedRoot && finalRendered?.isConnected) {
         finalRendered.replaceWith(streamedRoot);
     }
-    streamingMessage.remove();
+    streamingMessage.classList.remove("apollo-response-fade");
 }
 
 
@@ -24675,6 +24726,11 @@ async function apolloRetryMessage(message) {
 
     const requestChatId = apolloChatId;
 
+    const isRequestChatVisible =
+        () =>
+            Number(apolloChatId)
+            === Number(requestChatId);
+
     const userMessages =
         [...apolloMessages.querySelectorAll(".apollo-message.user")];
 
@@ -24745,64 +24801,8 @@ async function apolloRetryMessage(message) {
         let buffer = "";
         assistantContent = "";
 
-        const newMessage =
-            document.createElement("div");
-        apolloStreamingMessage = newMessage;
-
-        newMessage.className =
-            "apollo-message assistant apollo-response-fade";
-
-        const mark =
-            document.createElement("div");
-
-        mark.className =
-            "apollo-message-mark";
-
-        mark.innerHTML = `
-            <svg viewBox="0 0 32 32">
-                <path
-                    d="M5 25 L14.5 6 L27 25"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                />
-                <path
-                    d="M6.5 20 C11 15.5 18 14.5 27 19"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.35"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                />
-            </svg>
-        `;
-
-        const body =
-            document.createElement("div");
-
-        body.className =
-            "apollo-message-body";
-
-        const text =
-            document.createElement("div");
-
-        text.className =
-            "apollo-message-text";
-
-        body.appendChild(text);
-        apolloStreamRenderer =
-            window.ApolloGenUI?.createStreamRenderer?.(
-                text,
-                {scrollElement: apolloMessages}
-            ) || null;
-        newMessage.appendChild(mark);
-        newMessage.appendChild(body);
-
-        newMessage.style.display = "none";
-
-        apolloMessages.appendChild(newMessage);
+        let newMessage = null;
+        let text = null;
 
         while (true) {
 
@@ -24863,12 +24863,30 @@ async function apolloRetryMessage(message) {
 
                     if (data.type === "content") {
 
-                        apolloHideTyping();
-
-                        newMessage.style.display = "";
-
                         assistantContent +=
                             data.content;
+
+                        if (!isRequestChatVisible()) {
+                            continue;
+                        }
+
+                        if (!newMessage) {
+                            const promoted =
+                                apolloPromotePendingAssistant();
+                            if (!promoted) {
+                                throw new Error(
+                                    "Could not continue the pending response."
+                                );
+                            }
+                            newMessage = promoted.message;
+                            text = promoted.text;
+                            apolloStreamingMessage = newMessage;
+                            apolloStreamRenderer =
+                                window.ApolloGenUI?.createStreamRenderer?.(
+                                    text,
+                                    {scrollElement: apolloMessages}
+                                ) || null;
+                        }
 
                         if (apolloStreamRenderer) {
                             apolloStreamRenderer.update(assistantContent);
@@ -24898,17 +24916,26 @@ async function apolloRetryMessage(message) {
                             data.message?.content ??
                             assistantContent;
 
-                        const streamedRoot =
-                            apolloStreamRenderer?.finish(assistantContent);
-                        const finalRendered = apolloAddMessage(
-                            "assistant",
-                            assistantContent,
-                            data.message?.attachments || []
-                        );
-                        if (streamedRoot && finalRendered?.isConnected) {
-                            finalRendered.replaceWith(streamedRoot);
+                        if (isRequestChatVisible()) {
+                            const streamedRoot =
+                                apolloStreamRenderer?.finish(assistantContent);
+                            if (!newMessage) {
+                                apolloHideTyping();
+                            }
+                            const finalRendered = apolloAddMessage(
+                                "assistant",
+                                assistantContent,
+                                data.message?.attachments || [],
+                                false,
+                                newMessage
+                            );
+                            if (streamedRoot && finalRendered?.isConnected) {
+                                finalRendered.replaceWith(streamedRoot);
+                            }
+                            newMessage?.classList.remove("apollo-response-fade");
+                        } else {
+                            newMessage?.remove();
                         }
-                        newMessage.remove();
 
                         if (
                             typeof apolloRefreshHistory ===
@@ -26072,55 +26099,8 @@ if (!response.ok) {
         let buffer = "";
         assistantContent = "";
 
-        const message = document.createElement("div");
-        apolloStreamingMessage = message;
-        message.className = "apollo-message assistant apollo-response-fade";
-
-        const mark = document.createElement("div");
-        mark.className = "apollo-message-mark";
-
-        mark.innerHTML = `
-            <svg viewBox="0 0 32 32">
-                <path
-                    d="M5 25 L14.5 6 L27 25"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                />
-                <path
-                    d="M6.5 20 C11 15.5 18 14.5 27 19"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.35"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                />
-            </svg>
-        `;
-
-        const body = document.createElement("div");
-        body.className = "apollo-message-body";
-
-        const text = document.createElement("div");
-        text.className = "apollo-message-text";
-
-        body.appendChild(text);
-        apolloStreamRenderer =
-            window.ApolloGenUI?.createStreamRenderer?.(
-                text,
-                {scrollElement: apolloMessages}
-            ) || null;
-        message.appendChild(mark);
-        message.appendChild(body);
-        message.style.display = "none";
-
-        if (isRequestChatVisible()) {
-            apolloMessages.appendChild(
-                message
-            );
-        }
+        let message = null;
+        let text = null;
 
         while (true) {
             const { value, done } = await reader.read();
@@ -26187,15 +26167,23 @@ if (!response.ok) {
                             continue;
                         }
 
-                        apolloHideTyping();
-
-                        if (!message.isConnected) {
-                            apolloMessages.appendChild(
-                                message
-                            );
+                        if (!message) {
+                            const promoted =
+                                apolloPromotePendingAssistant();
+                            if (!promoted) {
+                                throw new Error(
+                                    "Could not continue the pending response."
+                                );
+                            }
+                            message = promoted.message;
+                            text = promoted.text;
+                            apolloStreamingMessage = message;
+                            apolloStreamRenderer =
+                                window.ApolloGenUI?.createStreamRenderer?.(
+                                    text,
+                                    {scrollElement: apolloMessages}
+                                ) || null;
                         }
-
-                        message.style.display = "";
 
                         if (apolloStreamRenderer) {
                             apolloStreamRenderer.update(assistantContent);
@@ -26230,20 +26218,22 @@ if (!response.ok) {
                             isRequestChatVisible()
                         ) {
 
-                            apolloHideTyping();
-
                             const streamedRoot =
                                 apolloStreamRenderer?.finish(assistantContent);
+                            if (!message) {
+                                apolloHideTyping();
+                            }
                             const finalRendered = apolloAddMessage(
                                 "assistant",
                                 assistantContent,
                                 data.message?.attachments || [],
-                                false
+                                false,
+                                message
                             );
                             if (streamedRoot && finalRendered?.isConnected) {
                                 finalRendered.replaceWith(streamedRoot);
                             }
-                            message.remove();
+                            message?.classList.remove("apollo-response-fade");
 
                         } else {
 
@@ -26252,7 +26242,7 @@ if (!response.ok) {
                              * requestChatId. We intentionally render nothing
                              * into whichever conversation is now visible.
                              */
-                            message.remove();
+                            message?.remove();
 
                         }
 

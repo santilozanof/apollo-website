@@ -38,7 +38,8 @@ class GenerativeUITests(unittest.TestCase):
             "_APOLLO_UI_TYPES", "_APOLLO_UI_ACTIONS", "_apollo_safe_ui_url",
             "_apollo_ui_number", "_apollo_clean_ui_actions",
             "_apollo_normalize_quiz", "_apollo_normalize_ui_block",
-            "apollo_sanitize_genui_content",
+            "_apollo_normalize_expression", "_apollo_extract_ui_requirements",
+            "_apollo_validate_ui_requirements", "apollo_sanitize_genui_content",
         )
 
     def test_routine_ui_uses_authoritative_ids_and_state(self):
@@ -120,7 +121,9 @@ class GenerativeUITests(unittest.TestCase):
         self.assertIn("one useful, complete sentence", prompt)
         self.assertIn("Function explorer:", prompt)
         self.assertIn("Metric trend:", prompt)
-        self.assertIn('type?:"number"|"slider"|"segmented"', prompt)
+        self.assertIn('type:"number"|"slider"|"segmented"|"select"', prompt)
+        self.assertIn('expression:<safe expression>', prompt)
+        self.assertIn('Selector: {type:"selector"', prompt)
         self.assertIn("V60 dose question must include", prompt)
         self.assertIn("safe removable_hole function_explorer", prompt)
         self.assertIn('metric_trend with unit "%"', prompt)
@@ -205,6 +208,95 @@ class GenerativeUITests(unittest.TestCase):
         self.assertEqual(len(cleaned[0]["items"]), 1)
         self.assertEqual(cleaned[1]["x_label"], "Category")
         self.assertEqual(cleaned[1]["data_kind"], "reported")
+
+    def test_safe_expression_calculator_supports_compound_interest(self):
+        sanitize = self.items["apollo_sanitize_genui_content"]
+        payload = {"blocks": [{
+            "type": "calculator", "id": "compound-interest",
+            "fields": [
+                {"id": "principal", "label": "Principal", "type": "slider",
+                 "value": 10000, "min": 100, "max": 100000, "step": 100,
+                 "unit": "$"},
+                {"id": "rate", "label": "Annual rate", "type": "slider",
+                 "value": 5, "min": 0, "max": 20, "step": 0.1, "unit": "%"},
+                {"id": "years", "label": "Years", "type": "segmented",
+                 "value": 10, "min": 1, "max": 30, "step": 1,
+                 "options": [{"label": "5", "value": 5},
+                             {"label": "10", "value": 10},
+                             {"label": "20", "value": 20}]},
+                {"id": "periods", "label": "Compounding", "type": "segmented",
+                 "value": 12, "min": 1, "max": 365, "step": 1,
+                 "options": [{"label": "Monthly", "value": 12},
+                             {"label": "Quarterly", "value": 4}]},
+            ],
+            "expression": {"op": "multiply", "args": [
+                {"field": "principal"},
+                {"op": "power", "args": [
+                    {"op": "add", "args": [1, {"op": "divide", "args": [
+                        {"op": "divide", "args": [{"field": "rate"}, 100]},
+                        {"field": "periods"}
+                    ]}]},
+                    {"op": "multiply", "args": [
+                        {"field": "periods"}, {"field": "years"}
+                    ]}
+                ]}
+            ]},
+            "output": {"label": "Final balance", "format": "currency",
+                       "currency": "USD", "decimals": 2},
+        }]}
+        cleaned = blocks(sanitize("```apollo-ui\n" + json.dumps(payload) + "\n```"))
+        calculator = cleaned[0]
+        self.assertEqual(calculator["expression"]["op"], "multiply")
+        self.assertEqual(calculator["output"]["format"], "currency")
+
+    def test_selector_requires_visible_options_and_local_details(self):
+        sanitize = self.items["apollo_sanitize_genui_content"]
+        payload = {"blocks": [{
+            "type": "selector", "id": "recipes", "title": "Pick a recipe",
+            "options": [
+                {"id": "espresso", "label": "Espresso", "title": "Espresso",
+                 "description": "18 g in, 36 g out.",
+                 "details": [{"label": "Ratio", "value": "1:2"}]},
+                {"id": "v60", "label": "V60", "title": "V60",
+                 "description": "15 g coffee, 250 g water.",
+                 "details": [{"label": "Grind", "value": "Medium-fine"}]},
+                {"id": "aeropress", "label": "AeroPress", "title": "AeroPress",
+                 "description": "15 g coffee, 220 g water.",
+                 "details": [{"label": "Time", "value": "2 min"}]},
+            ],
+            "selected": "espresso", "control": "segmented",
+        }]}
+        selector = blocks(sanitize(
+            "```apollo-ui\n" + json.dumps(payload) + "\n```"
+        ))[0]
+        self.assertEqual([option["label"] for option in selector["options"]], [
+            "Espresso", "V60", "AeroPress",
+        ])
+
+        empty = {"blocks": [{"type": "button_group", "id": "empty",
+                              "title": "Pick one", "actions": []}]}
+        self.assertNotIn(
+            "apollo-ui",
+            sanitize("```apollo-ui\n" + json.dumps(empty) + "\n```"),
+        )
+
+    def test_explicit_requirement_contract_tracks_mixed_deliverables(self):
+        extract = self.items["_apollo_extract_ui_requirements"]
+        validate = self.items["_apollo_validate_ui_requirements"]
+        contract = extract(
+            "Teach me jazz harmony with an interactive mini-lesson, "
+            "a chord progression comparison, and a short quiz."
+        )
+        self.assertTrue(contract["quiz"])
+        self.assertTrue(contract["comparison"])
+        lesson_only = "Lesson.\n\n| Chord | Notes |\n|---|---|\n| Cmaj7 | C E G B |"
+        self.assertIn("quiz", validate(lesson_only, contract))
+
+        selector_contract = extract(
+            "Compare soup, salad, and pasta with a selector that changes details."
+        )
+        self.assertTrue(selector_contract["selector"])
+        self.assertGreaterEqual(selector_contract["option_count"], 3)
 
 
 if __name__ == "__main__":

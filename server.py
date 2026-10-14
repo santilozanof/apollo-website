@@ -1449,7 +1449,7 @@ component is complete instead of holding several components for one giant fence.
 The renderer accepts these block types:
 text, image, image_gallery, card, carousel, quiz, checklist, chart, table,
 progress, form, button_group, date_picker, slider, media, location, code,
-expandable, status, timeline, calculator, function_explorer, metric_trend,
+expandable, status, timeline, calculator, selector, function_explorer, metric_trend,
 sources.
 
 Common fields: id, title, subtitle, text, label, items, actions. Keep blocks
@@ -1486,14 +1486,29 @@ columns:[{key,label}] and rows:[{...}]. Timeline uses
 items:[{time,title,text?}]. Carousel uses compact
 items:[{title,text,url?,alt?,action?}].
 
-Calculator: {type,id,title?,subtitle?,operation:"sum"|"multiply"|"divide"|"percentage",
-fields:[{id,label,value,min?,max?,step?,unit?,type?:"number"|"slider"|"segmented",
-options?:[{label,value}]}],operands:["field-id",...],
-output:{label?,unit?,decimals?},note?}. Only use supported deterministic
-arithmetic. Prefer one slider plus one compact segmented selector when it makes
-the result faster to explore. A coffee ratio calculator should multiply dose
+Calculator: {type,id,title?,subtitle?,fields:[{id,label,value,min,max,step,unit?,
+type:"number"|"slider"|"segmented"|"select",options?:[{label,value}]}],
+expression:<safe expression>,output:{label?,unit?,decimals?,format?:"number"|
+"currency"|"percent",currency?:"USD"},note?}. A safe expression is a JSON AST:
+a number, {"field":"field-id"}, or {"op":"...","args":[...]}. Supported ops
+are add, subtract, multiply, divide, power, negate, abs, sqrt, exp, ln, log10,
+round, floor, ceil, min, and max. The AST, field references, arity, size, depth,
+and finite result are validated; never send JavaScript or a string expression.
+For multiple results, use outputs:[{label,unit?,decimals?,format?,currency?,
+expression},...]. Parentheses and precedence are expressed by AST nesting.
+Legacy operation plus operands remains available for simple sum, multiply,
+divide, and percentage calculators. Prefer a slider plus compact segmented or
+select controls when useful. A coffee ratio calculator should multiply dose
 grams by a selectable numeric ratio and label water in grams; if mentioning mL,
-say that it is an approximation.
+say that it is an approximation. Compound interest uses
+P*(1+(r/100)/n)^(n*t), with every requested input represented by a real field.
+
+Selector: {type:"selector",id,title?,subtitle?,control?:"segmented"|"select",
+selected?:"option-id",options:[{id,label,title?,subtitle?,description,
+details?:[{label,value}]}]}. Use this for a local choice that changes displayed
+details without another message. Every option must have visible content. Do not
+use button_group for local selection: its actions are for real external or
+message actions, not local state. Never emit an empty control container.
 
 Function explorer: {type:"function_explorer",id,title?,preset:"removable_hole",
 target,value,min,max,step}. This is the only supported adjustable math function.
@@ -1559,6 +1574,11 @@ function explorer and a short quiz; verified time-series data from a metric
 trend; historical evolution from a restrained timeline; planning from a
 checklist or timeline. A definition or casual question should remain concise
 text. Multiple types may coexist when each one does distinct useful work.
+Explicit deliverables are requirements, not suggestions. If the user explicitly
+asks for a quiz, selector, calculator, comparison, or more than one compatible
+deliverable, include every requested part as a complete functional component.
+Do not describe an interaction that you omit. If a requested component cannot
+be produced safely, say so plainly instead of emitting an empty shell.
 Apply these capability rules from the user's goal and available evidence, not
 from a literal keyword match:
 - When a practical answer is a supported arithmetic result with a meaningful
@@ -1586,7 +1606,7 @@ _APOLLO_UI_TYPES = {
     "text", "image", "image_gallery", "card", "carousel", "quiz",
     "checklist", "chart", "table", "progress", "form", "button_group",
     "date_picker", "slider", "media", "location", "code", "expandable",
-    "status", "timeline", "calculator", "function_explorer",
+    "status", "timeline", "calculator", "selector", "function_explorer",
     "metric_trend", "sources",
 }
 _APOLLO_UI_ACTIONS = {
@@ -1610,6 +1630,182 @@ def _apollo_ui_number(value):
         and value == value
         and abs(value) <= 1e308
     )
+
+
+def _apollo_normalize_expression(node, field_ids, depth=0, budget=None):
+    """Return a bounded numeric AST; model-authored code is never evaluated."""
+    if budget is None:
+        budget = [64]
+    budget[0] -= 1
+    if budget[0] < 0 or depth > 10:
+        return None
+    if _apollo_ui_number(node):
+        return node
+    if not isinstance(node, dict):
+        return None
+    if "field" in node and len(node) == 1:
+        field_id = str(node.get("field") or "").strip()
+        return {"field": field_id} if field_id in field_ids else None
+    if "const" in node and len(node) == 1 and _apollo_ui_number(node.get("const")):
+        return node["const"]
+
+    operation = str(node.get("op") or "").strip().lower()
+    arguments = node.get("args")
+    arities = {
+        "add": (2, 8), "subtract": (2, 2), "multiply": (2, 8),
+        "divide": (2, 2), "power": (2, 2), "min": (2, 8),
+        "max": (2, 8), "negate": (1, 1), "abs": (1, 1),
+        "sqrt": (1, 1), "exp": (1, 1), "ln": (1, 1),
+        "log10": (1, 1), "round": (1, 1), "floor": (1, 1),
+        "ceil": (1, 1),
+    }
+    if operation not in arities or not isinstance(arguments, list):
+        return None
+    minimum, maximum = arities[operation]
+    if not minimum <= len(arguments) <= maximum:
+        return None
+    cleaned = [
+        _apollo_normalize_expression(
+            argument, field_ids, depth=depth + 1, budget=budget
+        )
+        for argument in arguments
+    ]
+    if any(argument is None for argument in cleaned):
+        return None
+    return {"op": operation, "args": cleaned}
+
+
+def _apollo_extract_ui_requirements(message):
+    """Track only explicit user deliverables; optional UI remains model-led."""
+    text = str(message or "")
+    lower = re.sub(r"\s+", " ", text.lower().replace("‑", "-").replace("–", "-"))
+    quiz = bool(re.search(r"\b(quiz|knowledge check|practice questions?)\b", lower))
+    calculator = bool(re.search(r"\bcalculator\b", lower))
+    selector = bool(re.search(
+        r"\b(selector|selectable|dropdown|switch(?:es|ing)? between|"
+        r"choose between|changes? (?:the )?(?:recipe )?details)\b",
+        lower,
+    ))
+    if calculator and not re.search(
+        r"\b(selector|dropdown)\b.{0,60}\b(changes?|updates?|shows?)\b.{0,30}\bdetails\b",
+        lower,
+    ):
+        selector = False
+    comparison = bool(re.search(r"\b(compare|comparison|versus|vs\.?)\b", lower))
+    interactive_demo = bool(re.search(
+        r"\binteractive\b.{0,50}\b(demo(?:nstration)?|simulation|explorer|example)\b",
+        lower,
+    ))
+
+    control_count = len(re.findall(
+        r"\b(slider|selector|dropdown|numeric input|number input|control)\b",
+        lower,
+    )) if calculator else 0
+
+    option_count = 0
+    compare_match = re.search(
+        r"\bcompare\s+(.{1,180}?)(?:\.|;|\bmake\b|\bwith\b)",
+        lower,
+    )
+    if compare_match:
+        values = [
+            value.strip(" ,")
+            for value in re.split(r"\s*,\s*|\s+and\s+|\s+versus\s+|\s+vs\.?\s+", compare_match.group(1))
+            if value.strip(" ,")
+        ]
+        option_count = min(len(values), 8) if len(values) >= 2 else 0
+    number_words = {
+        "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8,
+    }
+    count_match = re.search(r"\b(two|three|four|five|six|seven|eight|[2-8])-option\b", lower)
+    if count_match:
+        option_count = max(
+            option_count,
+            number_words.get(count_match.group(1), int(count_match.group(1))
+                             if count_match.group(1).isdigit() else 0),
+        )
+
+    return {
+        "quiz": quiz,
+        "calculator": calculator,
+        "selector": selector,
+        "comparison": comparison,
+        "interactive_demo": interactive_demo,
+        "calculator_field_count": min(max(control_count, 1 if calculator else 0), 8),
+        "option_count": option_count,
+    }
+
+
+def _apollo_ui_requirement_prompt(requirements):
+    required = []
+    for name in ("calculator", "selector", "comparison", "interactive_demo", "quiz"):
+        if requirements.get(name):
+            required.append(name)
+    if not required:
+        return ""
+    return (
+        "EXPLICIT DELIVERABLE CONTRACT\n"
+        + json.dumps(requirements, separators=(",", ":"))
+        + "\nEvery true deliverable is mandatory and compatible deliverables must "
+        "coexist in this response. Use only the trusted schemas. A calculator "
+        "must contain at least the requested number of functional controls and "
+        "a valid expression. A selector must contain real local options and "
+        "details. A quiz must be answerable and correctly keyed. A comparison "
+        "needs a table or selector with comparable details."
+    )
+
+
+def _apollo_validate_ui_requirements(content, requirements):
+    blocks = []
+    for match in re.finditer(
+        r"```apollo-ui\s*\n([\s\S]*?)\n```", str(content or ""), re.IGNORECASE
+    ):
+        try:
+            payload = json.loads(match.group(1))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict) and isinstance(payload.get("blocks"), list):
+            blocks.extend(item for item in payload["blocks"] if isinstance(item, dict))
+
+    missing = []
+    if requirements.get("quiz") and not any(
+        block.get("type") == "quiz" and block.get("questions") for block in blocks
+    ):
+        missing.append("quiz")
+    if requirements.get("calculator"):
+        minimum = max(1, int(requirements.get("calculator_field_count") or 1))
+        if not any(
+            block.get("type") == "calculator"
+            and len(block.get("fields") or []) >= minimum
+            and (block.get("expression") is not None or block.get("operation"))
+            for block in blocks
+        ):
+            missing.append("calculator")
+    if requirements.get("selector"):
+        minimum = max(2, int(requirements.get("option_count") or 2))
+        if not any(
+            block.get("type") == "selector"
+            and len(block.get("options") or []) >= minimum
+            for block in blocks
+        ):
+            missing.append("selector")
+    if requirements.get("comparison") and not any(
+        block.get("type") == "table"
+        or (block.get("type") == "selector" and len(block.get("options") or []) >= 2)
+        for block in blocks
+    ):
+        missing.append("comparison")
+    if requirements.get("interactive_demo") and not any(
+        block.get("type") in {
+            "calculator", "selector", "function_explorer", "metric_trend",
+            "slider", "checklist", "quiz",
+        }
+        and not (block.get("type") == "quiz" and requirements.get("quiz"))
+        for block in blocks
+    ):
+        missing.append("interactive demonstration")
+    return missing
 
 
 def _apollo_clean_ui_actions(value):
@@ -1767,18 +1963,17 @@ def _apollo_normalize_ui_block(block):
         normalized["items"] = items
 
     if kind == "calculator":
-        if block.get("operation") not in ("sum", "multiply", "divide", "percentage"):
-            return None
         fields = block.get("fields")
-        operands = block.get("operands")
         normalized_fields = []
         field_ids = set()
         for position, field in enumerate(fields or []):
             if not isinstance(field, dict):
                 return None
-            field_id = str(field.get("id") or f"field-{position + 1}")
+            field_id = str(field.get("id") or f"field-{position + 1}").strip()
+            if not field_id or field_id in field_ids:
+                return None
             field_type = str(field.get("type") or "number")
-            if field_type not in ("number", "slider", "segmented"):
+            if field_type not in ("number", "slider", "segmented", "select"):
                 return None
             value = field.get("value")
             if not _apollo_ui_number(value):
@@ -1797,7 +1992,7 @@ def _apollo_normalize_ui_block(block):
                 return None
             if item["step"] <= 0 or item["max"] <= item["min"]:
                 return None
-            if field_type == "segmented":
+            if field_type in ("segmented", "select"):
                 options = []
                 for option in field.get("options") or []:
                     if not isinstance(option, dict) or not _apollo_ui_number(option.get("value")):
@@ -1806,17 +2001,149 @@ def _apollo_normalize_ui_block(block):
                         "label": str(option.get("label") or option["value"])[:80],
                         "value": option["value"],
                     })
-                if not 2 <= len(options) <= 6:
+                if not 2 <= len(options) <= 12:
                     return None
                 item["options"] = options
+                if not any(option["value"] == value for option in options):
+                    item["value"] = options[0]["value"]
+            else:
+                item["value"] = min(item["max"], max(item["min"], value))
             normalized_fields.append(item)
             field_ids.add(field_id)
-        if not field_ids or not isinstance(operands, list) or any(
-                str(operand) not in field_ids for operand in operands):
+        if not field_ids:
             return None
+
+        expression = None
+        if block.get("expression") is not None:
+            expression = _apollo_normalize_expression(block["expression"], field_ids)
+        else:
+            operation = block.get("operation")
+            operands = [str(item) for item in block.get("operands") or []]
+            if operation not in ("sum", "multiply", "divide", "percentage"):
+                return None
+            if not operands or any(operand not in field_ids for operand in operands):
+                return None
+            references = [{"field": operand} for operand in operands]
+            if operation == "sum":
+                expression = {"op": "add", "args": references}
+            elif operation == "multiply":
+                expression = {"op": "multiply", "args": references}
+            elif operation == "divide" and len(references) >= 2:
+                expression = {"op": "divide", "args": references[:2]}
+            elif operation == "percentage" and len(references) >= 2:
+                expression = {"op": "multiply", "args": [
+                    {"op": "divide", "args": [references[0], 100]}, references[1]
+                ]}
+            normalized["operation"] = operation
+            normalized["operands"] = operands
+        if expression is None:
+            return None
+
+        def normalize_output(raw_output, output_expression):
+            if not isinstance(raw_output, dict):
+                raw_output = {}
+            output_format = str(raw_output.get("format") or "number").lower()
+            if output_format not in ("number", "currency", "percent"):
+                return None
+            try:
+                decimals = int(raw_output.get("decimals", 2 if output_format == "currency" else 1))
+            except (TypeError, ValueError):
+                return None
+            if not 0 <= decimals <= 6:
+                return None
+            currency = str(raw_output.get("currency") or "USD").upper()
+            if output_format == "currency" and not re.fullmatch(r"[A-Z]{3}", currency):
+                return None
+            return {
+                "label": str(raw_output.get("label") or "Result")[:120],
+                "unit": str(raw_output.get("unit") or "")[:30],
+                "decimals": decimals,
+                "format": output_format,
+                "currency": currency,
+                "expression": output_expression,
+            }
+
+        normalized_outputs = []
+        raw_outputs = block.get("outputs")
+        if isinstance(raw_outputs, list) and raw_outputs:
+            for raw_output in raw_outputs[:4]:
+                if not isinstance(raw_output, dict):
+                    return None
+                output_expression = _apollo_normalize_expression(
+                    raw_output.get("expression"), field_ids
+                )
+                output = normalize_output(raw_output, output_expression)
+                if output_expression is None or output is None:
+                    return None
+                normalized_outputs.append(output)
+        else:
+            output = normalize_output(block.get("output"), expression)
+            if output is None:
+                return None
+            normalized_outputs.append(output)
+
         normalized["fields"] = normalized_fields
-        normalized["operands"] = [str(operand) for operand in operands]
+        normalized["expression"] = normalized_outputs[0]["expression"]
+        normalized["output"] = {
+            key: value for key, value in normalized_outputs[0].items()
+            if key != "expression"
+        }
+        normalized["outputs"] = normalized_outputs
         normalized["note"] = str(block.get("note") or "")[:500]
+
+    if kind == "selector":
+        raw_options = block.get("options")
+        if not isinstance(raw_options, list):
+            raw_options = block.get("items")
+        options = []
+        option_ids = set()
+        for position, option in enumerate(raw_options or []):
+            if not isinstance(option, dict):
+                return None
+            option_id = str(option.get("id") or f"option-{position + 1}").strip()
+            label = str(option.get("label") or option.get("title") or "").strip()
+            if not option_id or option_id in option_ids or not label:
+                return None
+            description = str(
+                option.get("description") or option.get("text") or ""
+            ).strip()[:2000]
+            details = []
+            for detail in (option.get("details") or [])[:12]:
+                if not isinstance(detail, dict):
+                    return None
+                detail_label = str(detail.get("label") or "").strip()[:120]
+                detail_value = str(detail.get("value") or "").strip()[:500]
+                if not detail_label or not detail_value:
+                    return None
+                details.append({"label": detail_label, "value": detail_value})
+            if not description and not details:
+                return None
+            options.append({
+                "id": option_id,
+                "label": label[:120],
+                "title": str(option.get("title") or label)[:180],
+                "subtitle": str(option.get("subtitle") or "")[:500],
+                "description": description,
+                "details": details,
+            })
+            option_ids.add(option_id)
+        if not 2 <= len(options) <= 8:
+            return None
+        selected = str(block.get("selected") or "").strip()
+        if selected not in option_ids:
+            selected = options[0]["id"]
+        control = str(block.get("control") or "segmented").strip().lower()
+        if control not in ("segmented", "select"):
+            control = "segmented"
+        normalized = {
+            "type": kind,
+            "id": normalized["id"],
+            "title": str(block.get("title") or "Choose an option")[:180],
+            "subtitle": str(block.get("subtitle") or "")[:500],
+            "control": control,
+            "selected": selected,
+            "options": options,
+        }
 
     if kind == "function_explorer":
         if block.get("preset") != "removable_hole":
@@ -1875,6 +2202,8 @@ def _apollo_normalize_ui_block(block):
 
     if "actions" in normalized:
         normalized["actions"] = _apollo_clean_ui_actions(normalized["actions"])
+    if kind == "button_group" and not normalized.get("actions"):
+        return None
     if isinstance(normalized.get("action"), dict):
         actions = _apollo_clean_ui_actions([normalized["action"]])
         normalized["action"] = actions[0] if actions else None
@@ -23625,6 +23954,13 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
             # Stream Hermes response.
 
+            ui_requirements = _apollo_extract_ui_requirements(
+                user_message
+            )
+            ui_requirement_prompt = _apollo_ui_requirement_prompt(
+                ui_requirements
+            )
+
             messages.insert(
                 0,
                 {
@@ -23632,6 +23968,14 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     "content": APOLLO_GENERATIVE_UI_PROMPT,
                 }
             )
+            if ui_requirement_prompt:
+                messages.insert(
+                    1,
+                    {
+                        "role": "system",
+                        "content": ui_requirement_prompt,
+                    },
+                )
 
             try:
                 self.send_response(200)
@@ -23687,6 +24031,78 @@ class ApolloHandler(BaseHTTPRequestHandler):
                         assistant_message
                     )
                 )
+
+                missing_ui = _apollo_validate_ui_requirements(
+                    assistant_message,
+                    ui_requirements,
+                )
+                turn_timings["ui_recovery_used"] = bool(missing_ui)
+                if missing_ui:
+                    recovery_started = time.perf_counter()
+                    status_event = json.dumps({
+                        "type": "status",
+                        "status": "Finishing requested interactions…",
+                    })
+                    self.wfile.write(
+                        f"data: {status_event}\n\n".encode("utf-8")
+                    )
+                    self.wfile.flush()
+
+                    recovery_prompt = (
+                        "The response above is missing these explicit user "
+                        "deliverables: " + ", ".join(missing_ui) + ". Return "
+                        "only the smallest missing content needed to satisfy "
+                        "them, using complete trusted apollo-ui fences. Do not "
+                        "repeat the existing lesson or comparison. Never return "
+                        "HTML or JavaScript."
+                    )
+                    try:
+                        recovery_raw = ask_hermes(
+                            messages + [
+                                {"role": "assistant", "content": assistant_message},
+                                {"role": "user", "content": recovery_prompt},
+                            ],
+                            timeout=120,
+                        )
+                    except Exception as recovery_error:
+                        print(
+                            "[Apollo UI Recovery] Failed safely: "
+                            f"{recovery_error}"
+                        )
+                        recovery_raw = ""
+                    recovery_content = apollo_sanitize_genui_content(
+                        recovery_raw
+                    )
+                    candidate = (
+                        assistant_message
+                        + "\n\n"
+                        + recovery_content
+                    ).strip()
+                    remaining_ui = _apollo_validate_ui_requirements(
+                        candidate,
+                        ui_requirements,
+                    )
+                    if recovery_content and len(remaining_ui) < len(missing_ui):
+                        assistant_message = candidate
+                        recovery_event = json.dumps({
+                            "type": "content",
+                            "content": "\n\n" + recovery_content,
+                        })
+                        self.wfile.write(
+                            f"data: {recovery_event}\n\n".encode("utf-8")
+                        )
+                        self.wfile.flush()
+                        missing_ui = remaining_ui
+                    turn_timings["ui_recovery_ms"] = round(
+                        (time.perf_counter() - recovery_started) * 1000
+                    )
+
+                if missing_ui:
+                    assistant_message += (
+                        "\n\nI couldn’t safely complete the requested "
+                        + ", ".join(missing_ui)
+                        + " in this response."
+                    )
 
             except urllib.error.HTTPError as error:
 

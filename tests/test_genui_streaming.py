@@ -19,6 +19,35 @@ def run_node(source):
 
 
 class GenerativeUIStreamingTests(unittest.TestCase):
+    def test_safe_expression_evaluator_matches_compound_interest(self):
+        script = r"""
+const gen = require('./apollo_genui.js');
+const expression = {
+  op: 'multiply', args: [
+    {field: 'principal'},
+    {op: 'power', args: [
+      {op: 'add', args: [1, {op: 'divide', args: [
+        {op: 'divide', args: [{field: 'rate'}, 100]}, {field: 'periods'}
+      ]}]},
+      {op: 'multiply', args: [{field: 'periods'}, {field: 'years'}]}
+    ]}
+  ]
+};
+const cases = [
+  [{principal: 10000, rate: 5, periods: 12, years: 10}, 16470.09],
+  [{principal: 5000, rate: 7, periods: 4, years: 5}, 7073.89],
+  [{principal: 25000, rate: 3.25, periods: 365, years: 2}, 26678.90]
+];
+for (const [values, expected] of cases) {
+  const actual = gen.evaluateExpression(expression, values);
+  if (Math.abs(actual - expected) > 0.01) process.exit(2);
+}
+if (gen.evaluateExpression({op: 'divide', args: [1, 0]}, {}) !== null) process.exit(3);
+if (gen.evaluateExpression({op: 'unknown', args: [1]}, {}) !== null) process.exit(4);
+console.log('compound-ok');
+"""
+        self.assertEqual(run_node(script), "compound-ok")
+
     def test_katex_supports_required_technical_notation(self):
         expressions = [
             r"\frac{d}{dx}x^2=2x",
@@ -126,10 +155,30 @@ console.log('safe-cancel');
         retry_end = page.index("function apolloGetClientContext", retry_start)
         retry = page[retry_start:retry_end]
         self.assertIn("const requestChatId = apolloChatId;", retry)
+        self.assertIn("const isRequestChatVisible =", retry)
+        self.assertIn("if (!isRequestChatVisible())", retry)
+        self.assertIn("newMessage?.remove()", retry)
         self.assertIn("`/api/chats/${requestChatId}/messages`", retry)
         self.assertIn("apolloShowTyping(\n            userMessage,", retry)
         self.assertNotIn("isImageGeneration", retry)
         self.assertNotIn("hasAttachments", retry)
+
+    def test_streaming_reuses_one_assistant_lifecycle_row(self):
+        page = (ROOT / "index.html").read_text()
+        retry_start = page.index("async function apolloRetryMessage")
+        retry_end = page.index("function apolloGetClientContext", retry_start)
+        retry = page[retry_start:retry_end]
+        retry_setup = retry[:retry.index("while (true)")]
+        self.assertNotIn("apolloMessages.appendChild(newMessage)", retry_setup)
+
+        send_start = page.index("async function apolloSendMessage")
+        send_end = page.index("/* Sidebar navigation */", send_start)
+        send = page[send_start:send_end]
+        stream_setup_start = send.index("let message = null")
+        stream_setup_end = send.index("while (true)", stream_setup_start)
+        stream_setup = send[stream_setup_start:stream_setup_end]
+        self.assertNotIn("apolloMessages.appendChild(\n                message", stream_setup)
+        self.assertIn("apolloHideTyping()", send)
 
     def test_quiz_content_uses_the_same_math_renderer(self):
         client = (ROOT / "apollo_genui.js").read_text()

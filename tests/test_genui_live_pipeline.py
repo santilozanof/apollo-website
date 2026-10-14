@@ -63,7 +63,7 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         connection.commit()
         connection.close()
 
-    def run_turn(self, response):
+    def run_turn(self, response, prompt="Show the appropriate response", recovery=""):
         status, raw = request("POST", "/api/chats", {})
         self.assertEqual(status, 201)
         chat_id = json.loads(raw)["id"]
@@ -79,11 +79,12 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
             "stream_hermes": lambda _messages: iter(
                 [response[: len(response) // 2], response[len(response) // 2 :]]
             ),
+            "ask_hermes": lambda *_a, **_k: recovery,
             "generate_chat_title": lambda _history: "Generative UI test",
         }
         with mock.patch.multiple(server, **patches):
             status, raw = request("POST", f"/api/chats/{chat_id}/messages", {
-                "content": "Show the appropriate response",
+                "content": prompt,
                 "client_context": {
                     "local_time": "2026-10-14T12:00:00+02:00",
                     "time_zone": "Europe/Zurich",
@@ -97,6 +98,14 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         self.assertIn("backend_to_done_ms", events[-1]["timings"])
         self.assertIn("model_ttft_ms", events[-1]["timings"])
         expected = server.apollo_sanitize_genui_content(response)
+        if recovery:
+            recovered = server.apollo_sanitize_genui_content(recovery)
+            candidate = (expected + "\n\n" + recovered).strip()
+            requirements = server._apollo_extract_ui_requirements(prompt)
+            if len(server._apollo_validate_ui_requirements(candidate, requirements)) < len(
+                server._apollo_validate_ui_requirements(expected, requirements)
+            ):
+                expected = candidate
         self.assertEqual(events[-1]["message"]["content"], expected)
 
         status, raw = request("GET", f"/api/chats/{chat_id}")
@@ -158,6 +167,128 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
     def test_ordinary_text_response_remains_plain(self):
         events = self.run_turn("The derivative of x³ is 3x².")
         self.assertNotIn("apollo-ui", events[-1]["message"]["content"])
+
+    def test_missing_explicit_quiz_is_recovered_once(self):
+        comparison = {"blocks": [{
+            "type": "table", "id": "chords",
+            "columns": [{"key": "name", "label": "Progression"}],
+            "rows": [{"name": "ii–V–I"}],
+        }]}
+        quiz = {"blocks": [{
+            "type": "quiz", "id": "jazz-check", "allow_retry": True,
+            "questions": [{
+                "id": "q1", "question": "Which chord is the dominant in C?",
+                "options": [{"id": "g7", "label": "G7"},
+                            {"id": "dm7", "label": "Dm7"}],
+                "correct_answer_id": "g7",
+                "explanation": "G is scale degree five in C.",
+            }],
+        }]}
+        events = self.run_turn(
+            "Jazz uses voice-leading.\n\n```apollo-ui\n"
+            + json.dumps(comparison) + "\n```",
+            "Teach me jazz harmony with a chord comparison and a short quiz.",
+            "```apollo-ui\n" + json.dumps(quiz) + "\n```",
+        )
+        final = events[-1]
+        self.assertTrue(final["timings"]["ui_recovery_used"])
+        self.assertEqual(
+            server._apollo_validate_ui_requirements(
+                final["message"]["content"],
+                server._apollo_extract_ui_requirements(
+                    "Teach me jazz harmony with a chord comparison and a short quiz."
+                ),
+            ),
+            [],
+        )
+
+    def test_unsupported_compound_calculator_is_recovered_with_safe_ast(self):
+        prompt = (
+            "Build me an interactive compound-interest calculator with a "
+            "principal slider, annual interest-rate slider, and time-period "
+            "selector. Show the final balance updating immediately."
+        )
+        calculator = {"blocks": [{
+            "type": "calculator", "id": "compound-interest",
+            "title": "Compound-interest calculator",
+            "fields": [
+                {"id": "principal", "label": "Principal", "type": "slider",
+                 "value": 10000, "min": 100, "max": 100000, "step": 100},
+                {"id": "rate", "label": "Annual rate", "type": "slider",
+                 "value": 5, "min": 0, "max": 20, "step": 0.1},
+                {"id": "years", "label": "Years", "type": "segmented",
+                 "value": 10, "min": 1, "max": 30, "step": 1,
+                 "options": [
+                     {"label": "5", "value": 5},
+                     {"label": "10", "value": 10},
+                     {"label": "20", "value": 20},
+                 ]},
+            ],
+            "expression": {
+                "op": "multiply", "args": [
+                    {"field": "principal"},
+                    {"op": "power", "args": [
+                        {"op": "add", "args": [
+                            1, {"op": "divide", "args": [
+                                {"op": "divide", "args": [
+                                    {"field": "rate"}, 100,
+                                ]}, 12,
+                            ]},
+                        ]},
+                        {"op": "multiply", "args": [12, {"field": "years"}]},
+                    ]},
+                ],
+            },
+            "output": {"label": "Final balance", "format": "currency",
+                       "currency": "USD", "decimals": 2},
+        }]}
+        events = self.run_turn(
+            "A compound-interest calculator needs more than basic arithmetic.",
+            prompt,
+            "```apollo-ui\n" + json.dumps(calculator) + "\n```",
+        )
+        final = events[-1]
+        self.assertTrue(final["timings"]["ui_recovery_used"])
+        self.assertEqual(
+            server._apollo_validate_ui_requirements(
+                final["message"]["content"],
+                server._apollo_extract_ui_requirements(prompt),
+            ),
+            [],
+        )
+        self.assertIn('"op":"power"', final["message"]["content"])
+
+    def test_empty_selector_is_replaced_by_functional_local_selector(self):
+        empty = {"blocks": [{
+            "type": "button_group", "id": "recipes", "title": "Pick a recipe",
+            "actions": [],
+        }]}
+        selector = {"blocks": [{
+            "type": "selector", "id": "recipes", "title": "Pick a recipe",
+            "options": [
+                {"id": "espresso", "label": "Espresso", "description": "18 g in, 36 g out."},
+                {"id": "v60", "label": "V60", "description": "15 g coffee, 250 g water."},
+                {"id": "aeropress", "label": "AeroPress", "description": "15 g coffee, 220 g water."},
+            ],
+        }]}
+        prompt = (
+            "Compare espresso, V60, and AeroPress with a small selector "
+            "that changes the recipe details."
+        )
+        events = self.run_turn(
+            "Comparison.\n\n```apollo-ui\n" + json.dumps(empty) + "\n```",
+            prompt,
+            "```apollo-ui\n" + json.dumps(selector) + "\n```",
+        )
+        final = events[-1]["message"]["content"]
+        self.assertNotIn('"type":"button_group"', final)
+        self.assertIn('"type":"selector"', final)
+        self.assertEqual(
+            server._apollo_validate_ui_requirements(
+                final, server._apollo_extract_ui_requirements(prompt)
+            ),
+            [],
+        )
 
     def test_general_water_question_never_activates_personal_hydration(self):
         chat_id = self.create_chat()

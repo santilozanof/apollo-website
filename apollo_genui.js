@@ -6,7 +6,7 @@
     "text", "image", "image_gallery", "card", "carousel", "quiz",
     "checklist", "chart", "table", "progress", "form", "button_group",
     "date_picker", "slider", "media", "location", "code", "expandable",
-    "status", "timeline", "calculator", "function_explorer",
+    "status", "timeline", "calculator", "selector", "function_explorer",
     "metric_trend", "sources"
   ]);
   const ACTIONS = new Set([
@@ -19,6 +19,12 @@
     "illustrative", "hypothetical"
   ]);
   const CALCULATIONS = new Set(["sum", "multiply", "divide", "percentage"]);
+  const EXPRESSION_ARITIES = {
+    add: [2, 8], subtract: [2, 2], multiply: [2, 8], divide: [2, 2],
+    power: [2, 2], min: [2, 8], max: [2, 8], negate: [1, 1],
+    abs: [1, 1], sqrt: [1, 1], exp: [1, 1], ln: [1, 1],
+    log10: [1, 1], round: [1, 1], floor: [1, 1], ceil: [1, 1]
+  };
   const MAX_BLOCKS = 30;
   const MAX_ITEMS = 60;
 
@@ -30,6 +36,55 @@
   const list = (value, length = MAX_ITEMS) =>
     Array.isArray(value) ? value.slice(0, length) : [];
   const unique = values => new Set(values).size === values.length;
+  function validateExpression(raw, fieldIds, depth = 0, budget = {remaining: 64}) {
+    budget.remaining -= 1;
+    if (budget.remaining < 0 || depth > 10) return null;
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    if (Object.keys(raw).length === 1 && typeof raw.field === "string") {
+      return fieldIds.has(raw.field) ? {field: raw.field} : null;
+    }
+    if (Object.keys(raw).length === 1 && finite(raw.const)) return Number(raw.const);
+    const operation = str(raw.op, 30).toLowerCase();
+    const arity = EXPRESSION_ARITIES[operation];
+    const args = Array.isArray(raw.args) ? raw.args : [];
+    if (!arity || args.length < arity[0] || args.length > arity[1]) return null;
+    const normalized = args.map(value => validateExpression(value, fieldIds, depth + 1, budget));
+    if (normalized.some(value => value === null)) return null;
+    return {op: operation, args: normalized};
+  }
+  function evaluateExpression(expression, values, depth = 0) {
+    if (depth > 10) return null;
+    if (typeof expression === "number") return Number.isFinite(expression) ? expression : null;
+    if (!expression || typeof expression !== "object") return null;
+    if (typeof expression.field === "string") {
+      const value = Number(values instanceof Map ? values.get(expression.field) : values?.[expression.field]);
+      return Number.isFinite(value) ? value : null;
+    }
+    const args = (expression.args || []).map(value => evaluateExpression(value, values, depth + 1));
+    if (args.some(value => value === null)) return null;
+    let result = null;
+    switch (expression.op) {
+      case "add": result = args.reduce((sum, value) => sum + value, 0); break;
+      case "subtract": result = args[0] - args[1]; break;
+      case "multiply": result = args.reduce((product, value) => product * value, 1); break;
+      case "divide": result = args[1] === 0 ? null : args[0] / args[1]; break;
+      case "power": result = Math.abs(args[1]) > 1000 ? null : Math.pow(args[0], args[1]); break;
+      case "min": result = Math.min(...args); break;
+      case "max": result = Math.max(...args); break;
+      case "negate": result = -args[0]; break;
+      case "abs": result = Math.abs(args[0]); break;
+      case "sqrt": result = args[0] < 0 ? null : Math.sqrt(args[0]); break;
+      case "exp": result = Math.exp(args[0]); break;
+      case "ln": result = args[0] <= 0 ? null : Math.log(args[0]); break;
+      case "log10": result = args[0] <= 0 ? null : Math.log10(args[0]); break;
+      case "round": result = Math.round(args[0]); break;
+      case "floor": result = Math.floor(args[0]); break;
+      case "ceil": result = Math.ceil(args[0]); break;
+      default: return null;
+    }
+    return Number.isFinite(result) && Math.abs(result) <= 1e308 ? result : null;
+  }
   const el = (tag, className, text) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -270,18 +325,81 @@
       if (!block.items.length) return null;
     }
     if (block.type === "calculator") {
-      block.operation = CALCULATIONS.has(raw.operation) ? raw.operation : "divide";
+      if (block.fields.length < 1 || !unique(block.fields.map(field => field.id))) return null;
+      if (block.fields.some(field => !["number", "slider", "segmented", "select", ""].includes(field.type))) return null;
+      if (block.fields.some(field => ["segmented", "select"].includes(field.type) && field.options.length < 2)) return null;
+      const fieldIds = new Set(block.fields.map(field => field.id));
+      block.operation = CALCULATIONS.has(raw.operation) ? raw.operation : "";
       block.operands = list(raw.operands, 8).map(value => str(value, 80)).filter(Boolean);
-      block.output = raw.output && typeof raw.output === "object" ? {
-        label: str(raw.output.label, 120) || "Result",
-        unit: str(raw.output.unit, 30),
-        decimals: Math.round(num(raw.output.decimals, 0, 6, 1))
-      } : {label: "Result", unit: "", decimals: 1};
-      if (block.fields.length < 1 || block.operands.length < 1) return null;
-      if (block.fields.some(field => !["number", "slider", "segmented", ""].includes(field.type))) return null;
-      if (block.fields.some(field => field.type === "segmented" && field.options.length < 2)) return null;
+      let expression = validateExpression(raw.expression, fieldIds);
+      if (!expression && block.operation && block.operands.every(id => fieldIds.has(id))) {
+        const references = block.operands.map(field => ({field}));
+        if (block.operation === "sum") expression = {op: "add", args: references};
+        if (block.operation === "multiply") expression = {op: "multiply", args: references};
+        if (block.operation === "divide" && references.length >= 2) {
+          expression = {op: "divide", args: references.slice(0, 2)};
+        }
+        if (block.operation === "percentage" && references.length >= 2) {
+          expression = {op: "multiply", args: [
+            {op: "divide", args: [references[0], 100]}, references[1]
+          ]};
+        }
+      }
+      if (!expression) return null;
+      const normalizeOutput = (value, fallbackExpression) => {
+        const output = value && typeof value === "object" ? value : {};
+        const format = ["number", "currency", "percent"].includes(output.format)
+          ? output.format : "number";
+        const outputExpression = validateExpression(output.expression, fieldIds)
+          || fallbackExpression;
+        if (!outputExpression) return null;
+        const currency = /^[A-Z]{3}$/.test(str(output.currency, 3).toUpperCase())
+          ? str(output.currency, 3).toUpperCase() : "USD";
+        return {
+          label: str(output.label, 120) || "Result",
+          unit: str(output.unit, 30),
+          decimals: Math.round(num(output.decimals, 0, 6, format === "currency" ? 2 : 1)),
+          format,
+          currency,
+          expression: outputExpression
+        };
+      };
+      block.outputs = list(raw.outputs, 4).map(value => normalizeOutput(value, null)).filter(Boolean);
+      if (!block.outputs.length) block.outputs = [normalizeOutput(raw.output, expression)].filter(Boolean);
+      if (!block.outputs.length) return null;
+      block.expression = block.outputs[0].expression;
+      block.output = {...block.outputs[0]};
+      delete block.output.expression;
       block.note = str(raw.note, 500);
     }
+    if (block.type === "selector") {
+      const rawOptions = list(raw.options ?? raw.items, 8);
+      block.options = rawOptions.map((option, optionIndex) => {
+        if (!option || typeof option !== "object") return null;
+        const id = str(option.id, 100) || `option-${optionIndex + 1}`;
+        const label = str(option.label ?? option.title, 120);
+        const description = str(option.description ?? option.text, 2000);
+        const details = list(option.details, 12).map(detail =>
+          detail && typeof detail === "object" && str(detail.label, 120) && str(detail.value, 500)
+            ? {label: str(detail.label, 120), value: str(detail.value, 500)}
+            : null
+        ).filter(Boolean);
+        if (!label || (!description && !details.length)) return null;
+        return {
+          id, label, title: str(option.title, 180) || label,
+          subtitle: str(option.subtitle, 500), description, details
+        };
+      });
+      if (
+        block.options.some(option => !option)
+        || block.options.length < 2
+        || !unique(block.options.map(option => option.id))
+      ) return null;
+      block.control = ["segmented", "select"].includes(raw.control) ? raw.control : "segmented";
+      block.selected = block.options.some(option => option.id === raw.selected)
+        ? raw.selected : block.options[0].id;
+    }
+    if (block.type === "button_group" && !block.actions.length) return null;
     if (block.type === "function_explorer") {
       if (
         block.preset !== "removable_hole"
@@ -1104,6 +1222,31 @@
     if (operation === "divide") return values.length >= 2 && values[1] !== 0 ? values[0] / values[1] : null;
     return null;
   }
+  function formatCalculatedValue(result, output) {
+    if (result === null || !Number.isFinite(result)) return "—";
+    if (output.format === "currency") {
+      try {
+        return new Intl.NumberFormat(undefined, {
+          style: "currency", currency: output.currency || "USD",
+          minimumFractionDigits: output.decimals,
+          maximumFractionDigits: output.decimals
+        }).format(result);
+      } catch (_) {}
+    }
+    if (output.format === "percent") {
+      try {
+        return new Intl.NumberFormat(undefined, {
+          style: "percent", minimumFractionDigits: output.decimals,
+          maximumFractionDigits: output.decimals
+        }).format(result);
+      } catch (_) {}
+    }
+    const value = result.toLocaleString(undefined, {
+      minimumFractionDigits: output.decimals,
+      maximumFractionDigits: output.decimals
+    });
+    return `${value}${output.unit ? ` ${output.unit}` : ""}`;
+  }
   function renderCalculator(block) {
     const root = el("section", "apollo-ui-block apollo-ui-calculator");
     const inside = header(block);
@@ -1148,6 +1291,16 @@
         }
         select(input.value);
         inputRow.append(segmented, input);
+      } else if (field.type === "select") {
+        input = el("select", "apollo-ui-select");
+        field.options.forEach(option => {
+          const optionNode = el("option", null, option.label);
+          optionNode.value = option.value;
+          input.appendChild(optionNode);
+        });
+        input.value = field.options.some(option => Number(option.value) === initial)
+          ? String(initial) : String(field.options[0].value);
+        inputRow.appendChild(input);
       } else if (field.type === "slider") {
         input = el("input", "apollo-ui-slider");
         input.type = "range";
@@ -1177,18 +1330,23 @@
       grid.appendChild(wrapper);
       inputs.set(field.id, input);
     });
-    const output = el("div", "apollo-ui-calculator-output");
-    const outputValue = el("strong");
-    output.append(el("span", null, block.output.label), outputValue);
+    const output = el("div", "apollo-ui-calculator-outputs");
+    const outputRows = block.outputs.map((definition, index) => {
+      const row = el("div", `apollo-ui-calculator-output${index === 0 ? " primary" : ""}`);
+      const value = el("strong");
+      row.append(el("span", null, definition.label), value);
+      output.appendChild(row);
+      return {definition, value};
+    });
     const refresh = () => {
-      const values = block.operands.map(id => Number(inputs.get(id)?.value));
-      const result = calculate(block.operation, values);
-      outputValue.textContent = result === null || !Number.isFinite(result)
-        ? "—"
-        : `${result.toFixed(block.output.decimals)}${block.output.unit ? ` ${block.output.unit}` : ""}`;
-      outputValue.classList.remove("is-updating");
-      void outputValue.offsetWidth;
-      outputValue.classList.add("is-updating");
+      const values = new Map([...inputs].map(([id, input]) => [id, Number(input.value)]));
+      outputRows.forEach(({definition, value}) => {
+        const result = evaluateExpression(definition.expression, values);
+        value.textContent = formatCalculatedValue(result, definition);
+        value.classList.remove("is-updating");
+        void value.offsetWidth;
+        value.classList.add("is-updating");
+      });
       inputs.forEach((input, id) => { state[id] = Number(input.value); });
       stateSet(block, state);
     };
@@ -1197,6 +1355,82 @@
     if (block.note) inside.appendChild(el("div", "apollo-ui-calculator-note", block.note));
     root.appendChild(inside);
     refresh();
+    return root;
+  }
+
+  function renderSelector(block) {
+    const root = el("section", "apollo-ui-block apollo-ui-selector");
+    const inside = header(block);
+    const state = stateGet(block);
+    let selected = block.options.some(option => option.id === state.selected)
+      ? state.selected : block.selected;
+    const detail = el("div", "apollo-ui-selector-detail");
+    const updateDetail = () => {
+      const option = block.options.find(item => item.id === selected) || block.options[0];
+      selected = option.id;
+      detail.replaceChildren();
+      const copy = el("div", "apollo-ui-selector-copy");
+      copy.appendChild(el("div", "apollo-ui-selector-title", option.title || option.label));
+      if (option.subtitle) copy.appendChild(el("div", "apollo-ui-subtitle", option.subtitle));
+      if (option.description) copy.appendChild(richText(option.description, new Map()));
+      detail.appendChild(copy);
+      if (option.details.length) {
+        const grid = el("dl", "apollo-ui-selector-details");
+        option.details.forEach(item => {
+          const pair = el("div", "apollo-ui-selector-detail-row");
+          pair.append(el("dt", null, item.label), el("dd", null, item.value));
+          grid.appendChild(pair);
+        });
+        detail.appendChild(grid);
+      }
+      state.selected = selected;
+      stateSet(block, state);
+    };
+
+    if (block.control === "select") {
+      const control = el("select", "apollo-ui-select apollo-ui-selector-control");
+      control.setAttribute("aria-label", block.title || "Choose an option");
+      block.options.forEach(option => {
+        const node = el("option", null, option.label);
+        node.value = option.id;
+        control.appendChild(node);
+      });
+      control.value = selected;
+      control.addEventListener("change", () => {
+        selected = control.value;
+        updateDetail();
+      });
+      inside.appendChild(control);
+    } else {
+      const controls = el("div", "apollo-ui-segmented apollo-ui-selector-controls");
+      controls.setAttribute("role", "radiogroup");
+      controls.setAttribute("aria-label", block.title || "Choose an option");
+      block.options.forEach(option => {
+        const button = el("button", "apollo-ui-segment", option.label);
+        button.type = "button";
+        button.setAttribute("role", "radio");
+        const refresh = () => {
+          const active = selected === option.id;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-checked", String(active));
+        };
+        button.addEventListener("click", () => {
+          selected = option.id;
+          [...controls.children].forEach(child => {
+            const active = child === button;
+            child.classList.toggle("active", active);
+            child.setAttribute("aria-checked", String(active));
+          });
+          updateDetail();
+        });
+        controls.appendChild(button);
+        refresh();
+      });
+      inside.appendChild(controls);
+    }
+    inside.appendChild(detail);
+    root.appendChild(inside);
+    updateDetail();
     return root;
   }
 
@@ -1413,6 +1647,7 @@
     if (block.type === "form") return renderForm(block);
     if (block.type === "card") return renderCard(block);
     if (block.type === "calculator") return renderCalculator(block);
+    if (block.type === "selector") return renderSelector(block);
     if (block.type === "function_explorer") return renderFunctionExplorer(block);
     if (block.type === "metric_trend") return renderMetricTrend(block);
     if (block.type === "sources") return renderSources(block);
@@ -1724,6 +1959,14 @@
     if (block.type === "calculator") return [
       block.title, ...block.fields.map(field => `${field.label}: ${field.value}${field.unit || ""}`)
     ].filter(Boolean).join("\n");
+    if (block.type === "selector") return [
+      block.title,
+      ...block.options.map(option => [
+        option.label,
+        option.description,
+        ...option.details.map(detail => `${detail.label}: ${detail.value}`)
+      ].filter(Boolean).join(" — "))
+    ].filter(Boolean).join("\n");
     if (block.type === "function_explorer") return [
       block.title,
       `f(x) = (x² - ${block.target ** 2}) / (x - ${block.target})`,
@@ -1750,8 +1993,8 @@
   function install() {
     const original = window.apolloAddMessage;
     if (typeof original !== "function" || original.apolloGenUIInstalled) return;
-    const wrapped = function(role, content, attachments, autoScroll) {
-      const text = original.call(this, role, content, attachments, autoScroll);
+    const wrapped = function(role, content, attachments, autoScroll, existingMessage) {
+      const text = original.call(this, role, content, attachments, autoScroll, existingMessage);
       if (role !== "assistant") return text;
       const rich = render(content);
       const body = text.closest(".apollo-message-body");
@@ -1767,7 +2010,7 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, {once: true});
     else install();
   }
-  const api = {parse, validate, render, copyText, install, keyFor, completeStreamSegments, hasIncompleteInline, createStreamRenderer};
+  const api = {parse, validate, render, copyText, install, keyFor, completeStreamSegments, hasIncompleteInline, createStreamRenderer, evaluateExpression};
   if (typeof window !== "undefined") window.ApolloGenUI = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();
