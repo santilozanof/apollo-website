@@ -37,9 +37,19 @@ class VisualSpacingRegressionTests(unittest.TestCase):
     def test_chat_actions_wrap_below_the_complete_response(self):
         source = (ROOT / "apollo_polish_v1.css").read_text()
         self.assertIn(".apollo-message.assistant {", source)
-        self.assertIn("flex-wrap: wrap !important", source)
-        self.assertIn("flex: 0 0 100% !important", source)
+        self.assertIn("grid-template-columns: var(--apollo-assistant-mark-size) minmax(0, 1fr) !important", source)
+        self.assertIn("grid-column: 2 !important", source)
+        self.assertIn("padding-left: 0 !important", source)
         self.assertIn("align-self: flex-start !important", source)
+
+    def test_genui_polish_uses_systemic_heading_media_and_source_rules(self):
+        source = (ROOT / "apollo_genui.css").read_text()
+        self.assertIn(".apollo-rich-text > :first-child { margin-top: 0; }", source)
+        self.assertIn("margin: 0 0 10px", source)
+        self.assertIn(".apollo-ui-gallery", source)
+        self.assertIn("border: 0; background: transparent", source)
+        self.assertIn("counter(apollo-source, decimal-leading-zero)", source)
+        self.assertIn("@keyframes apolloQuizForward", source)
 
     def test_mobile_routines_prioritize_primary_content(self):
         source = (ROOT / "routines.css").read_text()

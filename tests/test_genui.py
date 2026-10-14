@@ -84,6 +84,11 @@ class GenerativeUITests(unittest.TestCase):
         self.assertIn("state.current += 1", source)
         self.assertIn('block.type === "sources"', source)
         self.assertIn('block.type === "calculator"', source)
+        self.assertNotIn('"Image unavailable"', source)
+        self.assertIn("apollo-ui-card-text-only", source)
+        self.assertIn("container.remove()", source)
+        self.assertIn("dataset.quizTransition", source)
+        self.assertIn("prefers-reduced-motion: reduce", source)
 
     def test_index_masks_partial_structured_streams(self):
         source = (ROOT / "index.html").read_text()

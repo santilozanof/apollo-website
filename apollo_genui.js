@@ -552,7 +552,18 @@
     image.alt = item.alt || item.title || "";
     image.loading = "lazy";
     image.src = item.url;
-    image.addEventListener("error", () => figure.replaceWith(el("div", "apollo-ui-error", "Image unavailable")));
+    image.addEventListener("load", () => figure.classList.add("is-loaded"));
+    image.addEventListener("error", () => {
+      const container = figure.parentElement;
+      figure.remove();
+      if (container?.classList.contains("apollo-ui-card")) {
+        container.classList.add("apollo-ui-card-text-only");
+      } else if (container?.classList.contains("apollo-ui-gallery")) {
+        const remaining = container.querySelectorAll(".apollo-ui-figure").length;
+        container.classList.toggle("one", remaining === 1);
+        if (!remaining) container.remove();
+      }
+    });
     image.addEventListener("click", () => openImage(image.src, image.alt));
     figure.appendChild(image);
     if (item.caption) figure.appendChild(el("figcaption", null, item.caption));
@@ -673,8 +684,28 @@
     state.solved = state.solved && typeof state.solved === "object" ? state.solved : {};
     state.singleAnswers = state.singleAnswers && typeof state.singleAnswers === "object" ? state.singleAnswers : {};
     const persist = () => stateSet(block, state);
-    const paint = () => {
-      root.replaceChildren();
+    let paintTimer = 0;
+    const commitPaint = (content, direction) => {
+      const oldHeight = root.getBoundingClientRect().height;
+      root.classList.remove("is-transitioning");
+      root.style.height = "";
+      root.replaceChildren(content);
+      const next = root.firstElementChild;
+      if (next) next.dataset.quizTransition = direction;
+      if (!oldHeight || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const newHeight = root.scrollHeight;
+      window.clearTimeout(paintTimer);
+      root.style.height = `${oldHeight}px`;
+      requestAnimationFrame(() => {
+        root.classList.add("is-transitioning");
+        root.style.height = `${newHeight}px`;
+      });
+      paintTimer = window.setTimeout(() => {
+        root.classList.remove("is-transitioning");
+        root.style.height = "";
+      }, 260);
+    };
+    const paint = (direction = "settle") => {
       if (state.current >= block.questions.length) {
         const completed = Object.keys(state.solved).length;
         const totalAttempts = Object.values(state.attempts).reduce(
@@ -692,12 +723,12 @@
           state.attempts = {};
           state.solved = {};
           state.singleAnswers = {};
-          paint();
+          paint("reverse");
         });
         const row = el("div", "apollo-ui-quiz-nav");
         row.appendChild(restart);
         summary.appendChild(row);
-        root.appendChild(summary);
+        commitPaint(summary, direction);
         return;
       }
       const question = block.questions[state.current];
@@ -738,7 +769,7 @@
           if (isCorrect) state.solved[question.id] = option.id;
           else if (block.single_attempt) state.singleAnswers[question.id] = option.id;
           persist();
-          paint();
+          paint("settle");
         });
         options.appendChild(optionButton);
       });
@@ -760,7 +791,7 @@
       if (state.current > 0) {
         const previous = el("button", "apollo-ui-button", "Previous");
         previous.type = "button";
-        previous.addEventListener("click", () => { state.current -= 1; persist(); paint(); });
+        previous.addEventListener("click", () => { state.current -= 1; persist(); paint("reverse"); });
         navigation.appendChild(previous);
       }
       if (solvedId || singleAnswer) {
@@ -769,11 +800,11 @@
           state.current === block.questions.length - 1 ? "View results" : "Next question"
         );
         next.type = "button";
-        next.addEventListener("click", () => { state.current += 1; persist(); paint(); });
+        next.addEventListener("click", () => { state.current += 1; persist(); paint("forward"); });
         navigation.appendChild(next);
       }
       inside.appendChild(navigation);
-      root.appendChild(inside);
+      commitPaint(inside, direction);
     };
     paint();
     return root;
@@ -1014,6 +1045,9 @@
       outputValue.textContent = result === null || !Number.isFinite(result)
         ? "—"
         : `${result.toFixed(block.output.decimals)}${block.output.unit ? ` ${block.output.unit}` : ""}`;
+      outputValue.classList.remove("is-updating");
+      void outputValue.offsetWidth;
+      outputValue.classList.add("is-updating");
       inputs.forEach((input, id) => { state[id] = Number(input.value); });
       stateSet(block, state);
     };

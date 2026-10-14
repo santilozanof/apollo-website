@@ -390,21 +390,36 @@
 
 /* Chat response actions belong below the full response, including GenUI. */
 #apolloView .apollo-message.assistant {
-    flex-wrap: wrap !important;
+    --apollo-assistant-mark-size: 24px;
+    --apollo-assistant-column-gap: 14px;
+    display: grid !important;
+    grid-template-columns: var(--apollo-assistant-mark-size) minmax(0, 1fr) !important;
+    align-items: start !important;
+    column-gap: var(--apollo-assistant-column-gap) !important;
+    row-gap: 0 !important;
+}
+
+#apolloView .apollo-message.assistant > .apollo-message-mark {
+    grid-column: 1 !important;
+}
+
+#apolloView .apollo-message.assistant > .apollo-message-body {
+    grid-column: 2 !important;
+    min-width: 0 !important;
 }
 
 #apolloView .apollo-message.assistant > .apollo-message-actions {
+    grid-column: 2 !important;
     position: static !important;
     display: flex !important;
     align-items: center !important;
     gap: 4px !important;
-    flex: 0 0 100% !important;
     align-self: flex-start !important;
     box-sizing: border-box !important;
     width: 100% !important;
     height: auto !important;
     margin: 8px 0 0 !important;
-    padding-left: 43px !important;
+    padding-left: 0 !important;
     opacity: .72 !important;
     visibility: visible !important;
     pointer-events: auto !important;
@@ -424,10 +439,6 @@
 }
 
 @media (max-width: 640px) {
-    #apolloView .apollo-message.assistant > .apollo-message-actions {
-        padding-left: 39px !important;
-    }
-
     #apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action {
         width: 38px !important;
         height: 38px !important;
