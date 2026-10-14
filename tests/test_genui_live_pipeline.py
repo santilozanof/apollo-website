@@ -246,8 +246,22 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
             "output": {"label": "Final balance", "format": "currency",
                        "currency": "USD", "decimals": 2},
         }]}
+        generic = {"blocks": [{
+            "type": "calculator", "id": "generic-sum", "operation": "sum",
+            "fields": [
+                {"id": "value-1", "label": "Value 1", "type": "number",
+                 "value": 0, "min": 0, "max": 100, "step": 1},
+                {"id": "value-2", "label": "Value 2", "type": "number",
+                 "value": 0, "min": 0, "max": 100, "step": 1},
+                {"id": "value-3", "label": "Value 3", "type": "number",
+                 "value": 0, "min": 0, "max": 100, "step": 1},
+            ],
+            "operands": ["value-1", "value-2", "value-3"],
+            "output": {"label": "Total", "decimals": 2},
+        }]}
         events = self.run_turn(
-            "A compound-interest calculator needs more than basic arithmetic.",
+            "A calculator.\n\n```apollo-ui\n"
+            + json.dumps(generic) + "\n```",
             prompt,
             "```apollo-ui\n" + json.dumps(calculator) + "\n```",
         )
@@ -261,6 +275,7 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
             [],
         )
         self.assertIn('"op":"power"', final["message"]["content"])
+        self.assertNotIn("generic-sum", final["message"]["content"])
 
     def test_empty_selector_is_replaced_by_functional_local_selector(self):
         empty = {"blocks": [{

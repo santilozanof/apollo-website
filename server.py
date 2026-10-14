@@ -1709,6 +1709,30 @@ def _apollo_extract_ui_requirements(message):
         lower,
     ))
 
+    control_pattern = re.compile(
+        r"(?:^|,\s*(?:and\s+)?|\band\s+|\bwith\s+)"
+        r"(?:an?\s+|the\s+)?([a-z][a-z0-9 -]{0,48}?)\s+"
+        r"(slider|selector|dropdown|numeric input|number input|control)\b"
+    )
+    calculator_controls = control_pattern.findall(lower) if calculator else []
+    calculator_control_terms = [
+        re.sub(r"[-\s]+", " ", label).strip()
+        for label, _control_type in calculator_controls
+    ]
+    calculator_control_types = [
+        "selector" if control_type in ("selector", "dropdown") else
+        "number" if control_type in ("numeric input", "number input") else
+        control_type
+        for _label, control_type in calculator_controls
+    ]
+
+    required_operations = []
+    if re.search(
+        r"\b(compound(?:ed|ing)?|exponent(?:iation)?|power|squared|cubed)\b",
+        lower,
+    ):
+        required_operations.append("power")
+
     adjusted_control_count = 0
     adjusted_match = re.search(
         r"\badjust\s+(.{1,100}?)(?:\s*,|\.|\bplus\b|\bwith\b|$)",
@@ -1773,6 +1797,15 @@ def _apollo_extract_ui_requirements(message):
         "calculator_field_count": min(
             max(numeric_control_count, 1 if calculator else 0), 8
         ),
+        "calculator_control_terms": calculator_control_terms[:8],
+        "calculator_control_types": calculator_control_types[:8],
+        "required_operations": required_operations,
+        "calculator_output_format": "currency" if (
+            calculator and "compound" in lower
+        ) else "",
+        "calculator_nonzero_defaults": bool(
+            calculator and "compound" in lower
+        ),
         "interactive_control_count": min(
             max(numeric_control_count, adjusted_control_count), 8
         ) if interactive_demo else 0,
@@ -1800,6 +1833,9 @@ def _apollo_ui_requirement_prompt(requirements):
         " A quiz and interactive demonstration must match the current topic."
         " A numeric demonstration must expose at least interactive_control_count"
         " adjustable controls when that count is nonzero."
+        " A calculator must preserve calculator_control_types and the meaning"
+        " of calculator_control_terms, reference every requested field, include"
+        " every required_operations entry, and use calculator_output_format."
     )
 
 
@@ -1822,6 +1858,108 @@ def _apollo_ui_demo_control_count(block):
     if kind in ("selector", "metric_trend", "checklist"):
         return 1
     return 0
+
+
+def _apollo_expression_facts(node, field_ids=None, operations=None):
+    field_ids = field_ids if field_ids is not None else set()
+    operations = operations if operations is not None else set()
+    if isinstance(node, dict):
+        if isinstance(node.get("field"), str):
+            field_ids.add(node["field"])
+        if isinstance(node.get("op"), str):
+            operations.add(node["op"])
+        for value in node.values():
+            _apollo_expression_facts(value, field_ids, operations)
+    elif isinstance(node, list):
+        for value in node:
+            _apollo_expression_facts(value, field_ids, operations)
+    return field_ids, operations
+
+
+def _apollo_calculator_field_matches(label, field):
+    phrase_tokens = set(re.findall(r"[a-z][a-z0-9]{2,}", str(label).lower()))
+    field_tokens = set(re.findall(
+        r"[a-z][a-z0-9]{2,}",
+        (str(field.get("id") or "") + " " + str(field.get("label") or "")).lower(),
+    ))
+    alias_groups = (
+        {"period", "years", "year", "duration", "term", "time"},
+        {"principal", "starting", "balance", "amount"},
+        {"rate", "return", "interest", "apr"},
+        {"contribution", "deposit", "payment"},
+    )
+    expanded_phrase = set(phrase_tokens)
+    expanded_field = set(field_tokens)
+    for group in alias_groups:
+        if phrase_tokens & group:
+            expanded_phrase.update(group)
+        if field_tokens & group:
+            expanded_field.update(group)
+    return bool(expanded_phrase & expanded_field)
+
+
+def _apollo_calculator_meets_requirements(block, requirements):
+    fields = block.get("fields") or []
+    minimum = max(1, int(requirements.get("calculator_field_count") or 1))
+    if block.get("type") != "calculator" or len(fields) < minimum:
+        return False
+
+    requested_terms = requirements.get("calculator_control_terms") or []
+    requested_types = requirements.get("calculator_control_types") or []
+    matched_field_ids = set()
+    used_positions = set()
+    for position, term in enumerate(requested_terms):
+        requested_type = requested_types[position] if position < len(requested_types) else "control"
+        candidates = []
+        for field_position, field in enumerate(fields):
+            if field_position in used_positions:
+                continue
+            field_type = str(field.get("type") or "number")
+            type_matches = (
+                field_type == requested_type
+                or requested_type == "control"
+                or (requested_type == "selector" and field_type in ("segmented", "select"))
+                or (requested_type == "number" and field_type == "number")
+            )
+            if type_matches and _apollo_calculator_field_matches(term, field):
+                candidates.append((field_position, field))
+        if not candidates:
+            return False
+        field_position, field = candidates[0]
+        used_positions.add(field_position)
+        matched_field_ids.add(str(field.get("id") or ""))
+
+    expressions = [block.get("expression")]
+    expressions.extend(
+        output.get("expression")
+        for output in (block.get("outputs") or [])
+        if isinstance(output, dict)
+    )
+    referenced_fields, operations = _apollo_expression_facts(expressions)
+    if matched_field_ids and not matched_field_ids.issubset(referenced_fields):
+        return False
+    if any(
+        operation not in operations
+        for operation in (requirements.get("required_operations") or [])
+    ):
+        return False
+
+    required_format = str(requirements.get("calculator_output_format") or "")
+    outputs = block.get("outputs") or [block.get("output") or {}]
+    if required_format and not any(
+        isinstance(output, dict) and output.get("format") == required_format
+        for output in outputs
+    ):
+        return False
+    if requirements.get("calculator_nonzero_defaults") and matched_field_ids:
+        matched_fields = [
+            field for field in fields
+            if str(field.get("id") or "") in matched_field_ids
+        ]
+        if any(not _apollo_ui_number(field.get("value")) or field["value"] <= 0
+               for field in matched_fields):
+            return False
+    return True
 
 
 def _apollo_validate_ui_requirements(content, requirements):
@@ -1851,11 +1989,8 @@ def _apollo_validate_ui_requirements(content, requirements):
         elif not quiz_blocks:
             missing.append("quiz")
     if requirements.get("calculator"):
-        minimum = max(1, int(requirements.get("calculator_field_count") or 1))
         if not any(
-            block.get("type") == "calculator"
-            and len(block.get("fields") or []) >= minimum
-            and (block.get("expression") is not None or block.get("operation"))
+            _apollo_calculator_meets_requirements(block, requirements)
             for block in blocks
         ):
             missing.append("calculator")
@@ -1908,6 +2043,12 @@ def _apollo_prune_misaligned_ui(content, requirements):
         kept = []
         for block in payload["blocks"]:
             if not isinstance(block, dict):
+                continue
+            if (
+                requirements.get("calculator")
+                and block.get("type") == "calculator"
+                and not _apollo_calculator_meets_requirements(block, requirements)
+            ):
                 continue
             if (
                 requirements.get("quiz")

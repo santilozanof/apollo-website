@@ -40,6 +40,8 @@ class GenerativeUITests(unittest.TestCase):
             "_apollo_normalize_quiz", "_apollo_normalize_ui_block",
             "_apollo_normalize_expression", "_apollo_extract_ui_requirements",
             "_apollo_ui_block_matches_topic", "_apollo_ui_demo_control_count",
+            "_apollo_expression_facts", "_apollo_calculator_field_matches",
+            "_apollo_calculator_meets_requirements",
             "_apollo_validate_ui_requirements", "apollo_sanitize_genui_content",
         )
 
@@ -349,6 +351,40 @@ class GenerativeUITests(unittest.TestCase):
         ]}
         correct_content = "```apollo-ui\n" + json.dumps(correct) + "\n```"
         self.assertEqual(validate(correct_content, requirements), [])
+
+    def test_compound_contract_rejects_generic_three_field_sum(self):
+        extract = self.items["_apollo_extract_ui_requirements"]
+        validate = self.items["_apollo_validate_ui_requirements"]
+        prompt = (
+            "Build me an interactive compound-interest calculator with a "
+            "principal slider, annual interest-rate slider, and time-period "
+            "selector. Show the final balance updating immediately."
+        )
+        requirements = extract(prompt)
+        self.assertEqual(
+            requirements["calculator_control_types"],
+            ["slider", "slider", "selector"],
+        )
+        self.assertEqual(requirements["required_operations"], ["power"])
+
+        generic = {"blocks": [{
+            "type": "calculator", "id": "generic", "operation": "sum",
+            "fields": [
+                {"id": "value-1", "label": "Value 1", "type": "number",
+                 "value": 0, "min": 0, "max": 100, "step": 1},
+                {"id": "value-2", "label": "Value 2", "type": "number",
+                 "value": 0, "min": 0, "max": 100, "step": 1},
+                {"id": "value-3", "label": "Value 3", "type": "number",
+                 "value": 0, "min": 0, "max": 100, "step": 1},
+            ],
+            "operands": ["value-1", "value-2", "value-3"],
+            "output": {"label": "Total", "decimals": 2},
+        }]}
+        generic_content = "```apollo-ui\n" + json.dumps(generic) + "\n```"
+        sanitized_generic = self.items["apollo_sanitize_genui_content"](
+            generic_content
+        )
+        self.assertEqual(validate(sanitized_generic, requirements), ["calculator"])
 
 
 if __name__ == "__main__":
