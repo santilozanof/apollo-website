@@ -234,12 +234,10 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
                     {"op": "power", "args": [
                         {"op": "add", "args": [
                             1, {"op": "divide", "args": [
-                                {"op": "divide", "args": [
-                                    {"field": "rate"}, 100,
-                                ]}, 12,
+                                {"field": "rate"}, 100,
                             ]},
                         ]},
-                        {"op": "multiply", "args": [12, {"field": "years"}]},
+                        {"field": "years"},
                     ]},
                 ],
             },

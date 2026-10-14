@@ -1,5 +1,6 @@
 import ast
 import json
+import math
 import re
 import unittest
 import urllib.parse
@@ -20,7 +21,9 @@ def load_server_items(*names):
             }
             if defined & set(names):
                 wanted.append(node)
-    namespace = {"json": json, "re": re, "urllib": __import__("urllib")}
+    namespace = {
+        "json": json, "math": math, "re": re, "urllib": __import__("urllib")
+    }
     exec(compile(ast.Module(body=wanted, type_ignores=[]), str(SERVER), "exec"), namespace)
     return namespace
 
@@ -41,6 +44,8 @@ class GenerativeUITests(unittest.TestCase):
             "_apollo_normalize_expression", "_apollo_extract_ui_requirements",
             "_apollo_ui_block_matches_topic", "_apollo_ui_demo_control_count",
             "_apollo_expression_facts", "_apollo_calculator_field_matches",
+            "_apollo_evaluate_expression", "_apollo_calculator_find_field",
+            "_apollo_calculator_formula_matches",
             "_apollo_calculator_meets_requirements",
             "_apollo_validate_ui_requirements", "apollo_sanitize_genui_content",
         )
@@ -385,6 +390,81 @@ class GenerativeUITests(unittest.TestCase):
             generic_content
         )
         self.assertEqual(validate(sanitized_generic, requirements), ["calculator"])
+
+    def test_savings_contract_rejects_front_loaded_contributions(self):
+        extract = self.items["_apollo_extract_ui_requirements"]
+        validate = self.items["_apollo_validate_ui_requirements"]
+        sanitize = self.items["apollo_sanitize_genui_content"]
+        prompt = (
+            "Build an adjustable savings-growth calculator with a starting-balance "
+            "slider, monthly-contribution slider, annual-return slider, and years "
+            "selector. Update the projected balance locally as I change inputs."
+        )
+        requirements = extract(prompt)
+        self.assertEqual(requirements["calculator_formula_kind"], "recurring_savings")
+        fields = [
+            {"id": "starting", "label": "Starting balance", "type": "slider",
+             "value": 5000, "min": 0, "max": 100000, "step": 100},
+            {"id": "monthly", "label": "Monthly contribution", "type": "slider",
+             "value": 400, "min": 0, "max": 5000, "step": 25},
+            {"id": "return", "label": "Annual return", "type": "slider",
+             "value": 6, "min": 0.1, "max": 20, "step": 0.1},
+            {"id": "years", "label": "Years", "type": "select",
+             "value": 20, "min": 1, "max": 40, "step": 1,
+             "options": [{"label": "10 years", "value": 10},
+                         {"label": "20 years", "value": 20}]},
+        ]
+        wrong_expression = {"op": "multiply", "args": [
+            {"op": "add", "args": [
+                {"field": "starting"},
+                {"op": "multiply", "args": [
+                    {"field": "monthly"}, 12, {"field": "years"},
+                ]},
+            ]},
+            {"op": "power", "args": [
+                {"op": "add", "args": [
+                    1, {"op": "divide", "args": [{"field": "return"}, 100]},
+                ]},
+                {"field": "years"},
+            ]},
+        ]}
+        wrong = {"blocks": [{
+            "type": "calculator", "id": "wrong-savings", "fields": fields,
+            "expression": wrong_expression,
+            "output": {"label": "Projected balance", "format": "currency",
+                       "currency": "USD", "decimals": 2},
+        }]}
+        wrong_content = sanitize(
+            "```apollo-ui\n" + json.dumps(wrong) + "\n```"
+        )
+        self.assertEqual(validate(wrong_content, requirements), ["calculator"])
+
+        periodic_rate = {"op": "divide", "args": [
+            {"op": "divide", "args": [{"field": "return"}, 100]}, 12,
+        ]}
+        total_periods = {"op": "multiply", "args": [12, {"field": "years"}]}
+        growth = {"op": "power", "args": [
+            {"op": "add", "args": [1, periodic_rate]}, total_periods,
+        ]}
+        correct_expression = {"op": "add", "args": [
+            {"op": "multiply", "args": [{"field": "starting"}, growth]},
+            {"op": "multiply", "args": [
+                {"field": "monthly"},
+                {"op": "divide", "args": [
+                    {"op": "subtract", "args": [growth, 1]}, periodic_rate,
+                ]},
+            ]},
+        ]}
+        correct = {"blocks": [{
+            "type": "calculator", "id": "correct-savings", "fields": fields,
+            "expression": correct_expression,
+            "output": {"label": "Projected balance", "format": "currency",
+                       "currency": "USD", "decimals": 2},
+        }]}
+        correct_content = sanitize(
+            "```apollo-ui\n" + json.dumps(correct) + "\n```"
+        )
+        self.assertEqual(validate(correct_content, requirements), [])
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import re
 import sqlite3
@@ -1502,6 +1503,11 @@ select controls when useful. A coffee ratio calculator should multiply dose
 grams by a selectable numeric ratio and label water in grams; if mentioning mL,
 say that it is an approximation. Compound interest uses
 P*(1+(r/100)/n)^(n*t), with every requested input represented by a real field.
+Recurring-contribution savings uses
+P*(1+i)^m + c*((1+i)^m-1)/i, where i=(r/100)/n, m=n*t,
+and c is the contribution each period. For a monthly contribution, n=12.
+Never add every future contribution to principal before compounding it; that
+incorrectly treats money not yet contributed as invested from the start.
 
 Selector: {type:"selector",id,title?,subtitle?,control?:"segmented"|"select",
 selected?:"option-id",options:[{id,label,title?,subtitle?,description,
@@ -1733,6 +1739,16 @@ def _apollo_extract_ui_requirements(message):
     ):
         required_operations.append("power")
 
+    calculator_formula_kind = ""
+    if calculator and "compound" in lower and "interest" in lower:
+        calculator_formula_kind = "compound_interest"
+    elif (
+        calculator
+        and re.search(r"\bsavings?(?:[- ]growth)?\b", lower)
+        and re.search(r"\b(contribution|deposit|payment)\b", lower)
+    ):
+        calculator_formula_kind = "recurring_savings"
+
     adjusted_control_count = 0
     adjusted_match = re.search(
         r"\badjust\s+(.{1,100}?)(?:\s*,|\.|\bplus\b|\bwith\b|$)",
@@ -1800,11 +1816,12 @@ def _apollo_extract_ui_requirements(message):
         "calculator_control_terms": calculator_control_terms[:8],
         "calculator_control_types": calculator_control_types[:8],
         "required_operations": required_operations,
+        "calculator_formula_kind": calculator_formula_kind,
         "calculator_output_format": "currency" if (
-            calculator and "compound" in lower
+            calculator_formula_kind in ("compound_interest", "recurring_savings")
         ) else "",
         "calculator_nonzero_defaults": bool(
-            calculator and "compound" in lower
+            calculator_formula_kind in ("compound_interest", "recurring_savings")
         ),
         "interactive_control_count": min(
             max(numeric_control_count, adjusted_control_count), 8
@@ -1836,6 +1853,8 @@ def _apollo_ui_requirement_prompt(requirements):
         " A calculator must preserve calculator_control_types and the meaning"
         " of calculator_control_terms, reference every requested field, include"
         " every required_operations entry, and use calculator_output_format."
+        " When calculator_formula_kind is set, its safe AST must implement that"
+        " formula accurately at the supplied defaults."
     )
 
 
@@ -1876,6 +1895,63 @@ def _apollo_expression_facts(node, field_ids=None, operations=None):
     return field_ids, operations
 
 
+def _apollo_evaluate_expression(node, values, depth=0):
+    if depth > 10:
+        return None
+    if _apollo_ui_number(node):
+        return float(node)
+    if not isinstance(node, dict):
+        return None
+    if isinstance(node.get("field"), str):
+        value = values.get(node["field"])
+        return float(value) if _apollo_ui_number(value) else None
+    arguments = [
+        _apollo_evaluate_expression(argument, values, depth + 1)
+        for argument in (node.get("args") or [])
+    ]
+    if not arguments or any(argument is None for argument in arguments):
+        return None
+    operation = node.get("op")
+    try:
+        if operation == "add":
+            result = sum(arguments)
+        elif operation == "subtract":
+            result = arguments[0] - arguments[1]
+        elif operation == "multiply":
+            result = math.prod(arguments)
+        elif operation == "divide":
+            result = None if arguments[1] == 0 else arguments[0] / arguments[1]
+        elif operation == "power":
+            result = math.pow(arguments[0], arguments[1])
+        elif operation == "min":
+            result = min(arguments)
+        elif operation == "max":
+            result = max(arguments)
+        elif operation == "negate":
+            result = -arguments[0]
+        elif operation == "abs":
+            result = abs(arguments[0])
+        elif operation == "sqrt":
+            result = math.sqrt(arguments[0])
+        elif operation == "exp":
+            result = math.exp(arguments[0])
+        elif operation == "ln":
+            result = math.log(arguments[0])
+        elif operation == "log10":
+            result = math.log10(arguments[0])
+        elif operation == "round":
+            result = round(arguments[0])
+        elif operation == "floor":
+            result = math.floor(arguments[0])
+        elif operation == "ceil":
+            result = math.ceil(arguments[0])
+        else:
+            return None
+    except (ArithmeticError, OverflowError, ValueError):
+        return None
+    return float(result) if result is not None and math.isfinite(result) else None
+
+
 def _apollo_calculator_field_matches(label, field):
     phrase_tokens = set(re.findall(r"[a-z][a-z0-9]{2,}", str(label).lower()))
     field_tokens = set(re.findall(
@@ -1896,6 +1972,82 @@ def _apollo_calculator_field_matches(label, field):
         if field_tokens & group:
             expanded_field.update(group)
     return bool(expanded_phrase & expanded_field)
+
+
+def _apollo_calculator_find_field(fields, aliases):
+    aliases = set(aliases)
+    for field in fields:
+        tokens = set(re.findall(
+            r"[a-z][a-z0-9]{2,}",
+            (str(field.get("id") or "") + " " + str(field.get("label") or "")).lower(),
+        ))
+        if tokens & aliases:
+            return field
+    return None
+
+
+def _apollo_calculator_formula_matches(block, formula_kind):
+    if not formula_kind:
+        return True
+    fields = block.get("fields") or []
+    balance = _apollo_calculator_find_field(
+        fields, {"principal", "starting", "balance", "amount"}
+    )
+    rate = _apollo_calculator_find_field(
+        fields, {"rate", "return", "interest", "apr"}
+    )
+    years = _apollo_calculator_find_field(
+        fields, {"years", "year", "period", "duration", "term", "time"}
+    )
+    if not all((balance, rate, years)):
+        return False
+    contribution = None
+    if formula_kind == "recurring_savings":
+        contribution = _apollo_calculator_find_field(
+            fields, {"contribution", "deposit", "payment"}
+        )
+        if contribution is None:
+            return False
+    frequency = _apollo_calculator_find_field(
+        fields, {"frequency", "compounding", "periods"}
+    )
+    values = {
+        str(field.get("id") or ""): field.get("value")
+        for field in fields
+    }
+    expression = block.get("expression")
+    if isinstance(block.get("outputs"), list) and block["outputs"]:
+        expression = block["outputs"][0].get("expression") or expression
+    actual = _apollo_evaluate_expression(expression, values)
+    if actual is None:
+        return False
+
+    principal = float(balance["value"])
+    annual_rate = float(rate["value"]) / 100
+    duration = float(years["value"])
+    periods = float(frequency["value"]) if frequency else (
+        12.0 if formula_kind == "recurring_savings" else 1.0
+    )
+    if periods <= 0 or duration < 0:
+        return False
+    periodic_rate = annual_rate / periods
+    total_periods = periods * duration
+    try:
+        growth = math.pow(1 + periodic_rate, total_periods)
+        if formula_kind == "compound_interest":
+            expected = principal * growth
+        else:
+            periodic_contribution = float(contribution["value"])
+            expected = (
+                principal + periodic_contribution * total_periods
+                if periodic_rate == 0
+                else principal * growth
+                + periodic_contribution * (growth - 1) / periodic_rate
+            )
+    except (ArithmeticError, OverflowError, ValueError):
+        return False
+    tolerance = max(0.01, abs(expected) * 1e-7)
+    return math.isfinite(expected) and abs(actual - expected) <= tolerance
 
 
 def _apollo_calculator_meets_requirements(block, requirements):
@@ -1959,6 +2111,10 @@ def _apollo_calculator_meets_requirements(block, requirements):
         if any(not _apollo_ui_number(field.get("value")) or field["value"] <= 0
                for field in matched_fields):
             return False
+    if not _apollo_calculator_formula_matches(
+        block, str(requirements.get("calculator_formula_kind") or "")
+    ):
+        return False
     return True
 
 
