@@ -1,0 +1,384 @@
+/* Apollo spacing and proportion system.
+   Loaded after legacy page styles and before the phone-only layout contract. */
+
+:root {
+    --apollo-space-1: 4px;
+    --apollo-space-2: 8px;
+    --apollo-space-3: 12px;
+    --apollo-space-4: 16px;
+    --apollo-space-5: 20px;
+    --apollo-space-6: 24px;
+    --apollo-space-8: 32px;
+    --apollo-space-10: 40px;
+
+    --apollo-page-max: 1180px;
+    --apollo-page-readable: 920px;
+    --apollo-page-gutter: clamp(28px, 4vw, 56px);
+    --apollo-page-top: clamp(44px, 6vh, 64px);
+    --apollo-page-bottom: 72px;
+    --apollo-page-header-gap: var(--apollo-space-6);
+
+    --apollo-card-pad: var(--apollo-space-5);
+    --apollo-panel-pad: var(--apollo-space-6);
+    --apollo-section-gap: var(--apollo-space-8);
+    --apollo-control-height: 40px;
+    --apollo-input-height: 44px;
+}
+
+/* Product chrome */
+.sidebar {
+    padding: var(--apollo-space-4) var(--apollo-space-2) !important;
+}
+
+.nav {
+    margin-top: var(--apollo-space-6) !important;
+    gap: var(--apollo-space-1) !important;
+}
+
+.nav-button {
+    height: 40px !important;
+    padding-inline: 10px !important;
+}
+
+.nav-label {
+    margin-left: var(--apollo-space-3) !important;
+}
+
+/* Shared page grid and heading rhythm */
+.home,
+.apollo-music-inner,
+.apollo-tasks-shell,
+#settingsView,
+#calendarView,
+#routinesView {
+    --apollo-page-gutter: clamp(28px, 4vw, 56px);
+    --apollo-page-top: clamp(44px, 6vh, 64px);
+}
+
+.apollo-music-header,
+.apollo-tasks-header,
+#calendarView .apollo-week-header,
+.routine-header {
+    margin-bottom: var(--apollo-page-header-gap) !important;
+}
+
+.eyebrow,
+.apollo-page-eyebrow,
+.apollo-music-eyebrow,
+.apollo-tasks-eyebrow,
+.apollo-settings-eyebrow {
+    margin-bottom: var(--apollo-space-3) !important;
+}
+
+.home .subheading,
+.apollo-music-subtitle,
+.apollo-calendar-subtitle,
+.apollo-tasks-subtitle,
+.apollo-settings-subtitle,
+.routine-subtitle {
+    margin-top: var(--apollo-space-2) !important;
+}
+
+/* Home */
+.home .ask {
+    margin-top: var(--apollo-space-8) !important;
+}
+
+.home .ask-box {
+    min-height: 60px;
+    border-radius: var(--apollo-radius-lg, 18px);
+}
+
+.home .ask-input {
+    padding: 16px 64px 16px 24px;
+}
+
+.home .ask-send {
+    right: 10px;
+    bottom: 10px;
+    width: 38px;
+    height: 38px;
+}
+
+.home .dashboard {
+    gap: var(--apollo-space-3) !important;
+    margin-top: var(--apollo-space-8) !important;
+    padding-bottom: 0 !important;
+}
+
+.home .card {
+    min-height: 176px !important;
+    padding: var(--apollo-card-pad) !important;
+}
+
+.home .card-content {
+    margin-top: var(--apollo-space-4);
+}
+
+.home .card-secondary {
+    margin-top: var(--apollo-space-1) !important;
+}
+
+.home > .debrief {
+    margin-top: var(--apollo-section-gap) !important;
+}
+
+.debrief-box {
+    padding: var(--apollo-card-pad) !important;
+}
+
+.debrief-text {
+    margin-top: var(--apollo-space-2) !important;
+}
+
+.apollo-home-recent {
+    gap: 0 !important;
+    margin-top: var(--apollo-space-2) !important;
+}
+
+.apollo-home-recent-row {
+    gap: var(--apollo-space-3) !important;
+    padding: 7px var(--apollo-space-1) !important;
+}
+
+/* Chat */
+.apollo-view {
+    padding: var(--apollo-space-6) var(--apollo-space-8) !important;
+}
+
+.apollo-chat-header {
+    padding-bottom: var(--apollo-space-4) !important;
+}
+
+.apollo-messages {
+    padding: var(--apollo-space-5) 0 var(--apollo-space-8) !important;
+}
+
+.apollo-message {
+    gap: var(--apollo-space-3) !important;
+    margin-bottom: var(--apollo-space-5) !important;
+}
+
+.apollo-message.user .apollo-message-body {
+    padding: 10px 14px !important;
+    border-radius: var(--apollo-radius-md, 12px) !important;
+}
+
+.apollo-message-text {
+    line-height: 1.58 !important;
+}
+
+.apollo-composer {
+    gap: var(--apollo-space-2) !important;
+    min-height: 50px;
+    padding: 8px 8px 8px 14px !important;
+    border-radius: var(--apollo-radius-lg, 18px) !important;
+}
+
+.apollo-history-strip {
+    height: 42px !important;
+    margin-top: var(--apollo-space-1) !important;
+}
+
+.apollo-history-track {
+    gap: var(--apollo-space-2) !important;
+}
+
+/* Tasks */
+.apollo-task-add {
+    gap: var(--apollo-space-2) !important;
+    margin-bottom: var(--apollo-space-8) !important;
+    padding: var(--apollo-space-2) !important;
+}
+
+.apollo-task-input,
+.apollo-task-date,
+.apollo-task-time,
+.apollo-task-add-button {
+    height: var(--apollo-control-height) !important;
+}
+
+.apollo-task-section {
+    margin-top: var(--apollo-space-8) !important;
+}
+
+.apollo-task-section-head {
+    margin-bottom: var(--apollo-space-2) !important;
+}
+
+.apollo-task-row {
+    min-height: 60px !important;
+    gap: var(--apollo-space-3) !important;
+}
+
+.apollo-task-info {
+    padding: var(--apollo-space-3) 0 !important;
+}
+
+.apollo-task-meta {
+    margin-top: var(--apollo-space-1) !important;
+}
+
+.apollo-task-empty {
+    padding: var(--apollo-space-5) 2px !important;
+}
+
+/* Settings and forms */
+.apollo-settings-section {
+    margin-top: var(--apollo-section-gap) !important;
+}
+
+.apollo-settings-section-title {
+    margin: 0 0 var(--apollo-space-2) var(--apollo-space-1) !important;
+}
+
+.apollo-setting-row {
+    min-height: 64px !important;
+    gap: var(--apollo-space-5) !important;
+    padding: var(--apollo-space-3) var(--apollo-space-4) !important;
+}
+
+.apollo-setting-description {
+    margin-top: var(--apollo-space-1) !important;
+}
+
+.apollo-task-modal,
+.apollo-calendar-modal,
+.apollo-wip-editor,
+.apollo-confirm-modal {
+    padding: var(--apollo-panel-pad) !important;
+}
+
+.apollo-task-modal-title,
+.apollo-calendar-modal-title,
+.apollo-wip-editor-title {
+    margin-bottom: var(--apollo-space-5) !important;
+}
+
+.apollo-task-modal-field,
+.apollo-calendar-field,
+.apollo-wip-field {
+    margin-top: var(--apollo-space-4) !important;
+}
+
+.apollo-task-modal-actions,
+.apollo-calendar-modal-actions,
+.apollo-wip-modal-footer,
+.apollo-confirm-actions {
+    gap: var(--apollo-space-2) !important;
+    margin-top: var(--apollo-space-6) !important;
+}
+
+/* Calendar */
+#calendarView .apollo-week-header {
+    gap: var(--apollo-space-4) !important;
+}
+
+#calendarView .apollo-week-controls {
+    gap: var(--apollo-space-2) !important;
+}
+
+#calendarView .apollo-week-button {
+    min-width: 36px;
+    height: 36px;
+}
+
+.apollo-week-event {
+    padding: var(--apollo-space-2) !important;
+}
+
+.apollo-week-event-time,
+.apollo-week-event-meta {
+    margin-top: var(--apollo-space-1) !important;
+}
+
+/* Music and queue */
+.apollo-now-playing {
+    min-height: 450px !important;
+    gap: clamp(32px, 5vw, 64px) !important;
+    padding: clamp(32px, 4vw, 48px) !important;
+}
+
+.apollo-now-label {
+    margin-bottom: var(--apollo-space-3) !important;
+}
+
+.apollo-now-artist {
+    margin-top: var(--apollo-space-3) !important;
+}
+
+.apollo-now-progress {
+    margin-top: var(--apollo-space-8) !important;
+}
+
+.apollo-now-controls {
+    gap: var(--apollo-space-3) !important;
+    margin-top: var(--apollo-space-5) !important;
+}
+
+.apollo-queue-header {
+    min-height: 52px !important;
+    gap: var(--apollo-space-1) !important;
+    padding: 10px 10px 6px 14px !important;
+}
+
+.apollo-queue-scroll {
+    padding: 0 var(--apollo-space-2) var(--apollo-space-3) !important;
+}
+
+.apollo-queue-section-label {
+    padding: 10px 7px 6px !important;
+}
+
+.apollo-queue-row {
+    gap: var(--apollo-space-2) !important;
+    padding: 6px !important;
+}
+
+.apollo-queue-footer {
+    padding: var(--apollo-space-2) !important;
+}
+
+/* Studio */
+.apollo-wip-grid {
+    gap: var(--apollo-space-4) !important;
+}
+
+.apollo-wip-card-copy {
+    padding-top: var(--apollo-space-3) !important;
+}
+
+/* Popovers and empty states */
+.apollo-tools-menu,
+.apollo-history-menu,
+.apollo-queue-menu,
+.apollo-date-picker,
+.apollo-time-picker,
+.routine-options-menu {
+    padding: var(--apollo-space-2) !important;
+}
+
+.apollo-tools-item,
+.apollo-history-menu-item,
+.apollo-queue-menu button,
+.apollo-queue-menu a {
+    min-height: 36px !important;
+    padding-inline: var(--apollo-space-3) !important;
+}
+
+.apollo-task-empty,
+.apollo-queue-status,
+.routine-empty {
+    line-height: 1.5;
+}
+
+@media (max-width: 980px) {
+    :root {
+        --apollo-page-gutter: 28px;
+    }
+
+    .apollo-now-playing {
+        gap: var(--apollo-space-8) !important;
+        padding: var(--apollo-space-8) !important;
+    }
+}

@@ -31,7 +31,7 @@
     align-items: flex-end;
     justify-content: space-between;
     gap: var(--apollo-space-5, 20px);
-    margin-bottom: 30px;
+    margin-bottom: var(--apollo-space-6, 24px);
     animation: routine-page-enter 300ms var(--apollo-motion-ease, cubic-bezier(.22,1,.36,1)) both;
 }
 
@@ -156,8 +156,8 @@
     grid-template-columns: 32px minmax(0, 1fr) auto;
     align-items: center;
     gap: 12px;
-    min-height: 72px;
-    padding: 14px 15px;
+    min-height: 68px;
+    padding: 12px 15px;
 }
 
 .routine-card-toggle,
@@ -231,7 +231,7 @@
 .routine-menu-button svg,
 .routine-icon-button svg { fill: currentColor; }
 
-.routine-progress-track { height: 1px; margin: 0 15px; overflow: hidden; background: var(--border); }
+.routine-progress-track { height: 2px; margin: 0 15px; overflow: hidden; background: var(--border); }
 .routine-progress-fill { width: var(--progress); height: 100%; background: #68c49a; transition: width var(--apollo-motion-normal, 180ms) var(--apollo-motion-ease, ease); }
 
 .routine-body-wrap {
@@ -242,7 +242,7 @@
 }
 .routine-card.expanded .routine-body-wrap { grid-template-rows: 1fr; opacity: 1; }
 .routine-body { min-height: 0; overflow: hidden; }
-.routine-body-inner { padding: 4px 15px 15px 58px; }
+.routine-body-inner { padding: 4px 15px 14px 58px; }
 .routine-description,
 .routine-no-steps { margin: 10px 0; color: var(--muted); font-size: var(--apollo-font-md, 13px); line-height: 1.5; }
 
@@ -251,7 +251,7 @@
     grid-template-columns: 26px minmax(0, 1fr) auto;
     align-items: center;
     gap: 10px;
-    min-height: 50px;
+    min-height: 48px;
     border-top: 1px solid var(--border);
 }
 .routine-step-label { min-width: 0; overflow: hidden; color: var(--text); font-size: var(--apollo-font-md, 13px); text-overflow: ellipsis; white-space: nowrap; }
@@ -297,19 +297,19 @@
 .routine-menu-divider { display: block; height: 1px; margin: 5px; background: var(--border); }
 
 .hydration-card,
-.routine-history-panel { padding: 18px; }
+.routine-history-panel { padding: var(--apollo-space-4, 16px); }
 .routine-panel-label { color: var(--dim); font-size: 9px; font-weight: var(--apollo-weight-strong, 650); letter-spacing: .17em; text-transform: uppercase; }
-.hydration-value { margin: 12px 0; color: var(--text); font-size: 24px; font-weight: 500; letter-spacing: -.035em; }
+.hydration-value { margin: 10px 0; color: var(--text); font-size: 24px; font-weight: 500; letter-spacing: -.035em; }
 .hydration-value span { color: var(--muted); font-size: 13px; }
 .hydration-water { height: 5px; overflow: hidden; border-radius: 999px; background: var(--border); }
 .hydration-water > div { width: var(--progress); height: 100%; border-radius: inherit; background: #78a9d6; transition: width var(--apollo-motion-normal, 180ms) var(--apollo-motion-ease, ease); }
-.hydration-quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 14px; }
+.hydration-quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
 .hydration-quick button { padding: 0 7px; }
 .hydration-foot,
 .routine-history-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 13px; }
 .hydration-foot > span { display: flex; gap: 14px; }
 
-.routine-heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-top: 15px; }
+.routine-heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-top: 12px; }
 .routine-heat { aspect-ratio: 1; padding: 0; border: 1px solid transparent; border-radius: 5px; background: var(--border); }
 .routine-heat[data-level="1"] { background: color-mix(in srgb, #68c49a 28%, var(--surface)); }
 .routine-heat[data-level="2"] { background: color-mix(in srgb, #68c49a 52%, var(--surface)); }
@@ -449,19 +449,20 @@ textarea.routine-input { min-height: 80px; padding: 12px 13px; resize: vertical;
 }
 
 @media (max-width: 760px) {
-    #routinesView { padding: 42px var(--apollo-mobile-gutter, 20px) 100px; }
-    .routine-header { align-items: center; margin-bottom: 24px; }
+    #routinesView { padding: 32px var(--apollo-mobile-gutter, 20px) calc(88px + env(safe-area-inset-bottom)); }
+    .routine-header { align-items: center; margin-bottom: 20px; }
     .routine-title { font-size: 34px; }
     .routine-subtitle { margin-top: 9px; }
     .routine-primary { width: 40px; min-width: 40px; padding: 0; font-size: 0; }
     .routine-primary > span:first-child { display: none; }
     .routine-primary-mobile { display: inline; font-size: 21px; font-weight: 400; }
-    .routine-layout { grid-template-columns: 1fr; gap: var(--apollo-space-4, 16px); }
-    .routine-side { position: static; grid-row: 1; grid-template-columns: 1fr; }
+    .routine-layout { display: flex; flex-direction: column; gap: var(--apollo-space-4, 16px); }
+    .routine-list { order: 1; }
+    .routine-side { position: static; order: 2; grid-template-columns: 1fr; }
     .routine-card-head { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; padding: 13px; }
     .routine-body-inner { padding: 4px 13px 13px; }
     .routine-progress-track { margin: 0 13px; }
-    .routine-step { min-height: 54px; }
+    .routine-step { min-height: 48px; }
     .routine-step-target,
     .routine-icon-button[data-step-move] { display: none; }
     .routine-options-menu { position: fixed; z-index: 10040; right: 12px; bottom: max(72px, calc(58px + env(safe-area-inset-bottom))); top: auto; width: min(260px, calc(100vw - 24px)); padding: 8px; border-radius: var(--apollo-radius-lg, 18px); }

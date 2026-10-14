@@ -1300,6 +1300,199 @@
 
 
 /* =========================================================
+   APOLLO MOBILE SPACING CONTRACT V1.9
+   Final shared rhythm for primary pages and floating surfaces.
+   ========================================================= */
+
+@media (max-width: 760px) {
+    :root {
+        --mobile-header-padding-top: 20px;
+        --mobile-content-gap: 24px;
+        --mobile-page-padding-x: 20px;
+        --apollo-page-gutter: 20px;
+        --apollo-page-top: 32px;
+        --apollo-page-bottom: calc(88px + env(safe-area-inset-bottom));
+    }
+
+    .home .subheading,
+    .apollo-tasks-subtitle,
+    .apollo-settings-subtitle,
+    .apollo-studio-copy,
+    #studioView .studio5-brandcopy p,
+    #calendarView .apollo-week-month {
+        margin-top: 8px !important;
+    }
+
+    .home .ask {
+        margin-top: 24px !important;
+    }
+
+    .home .ask-box {
+        min-height: 56px !important;
+        border-radius: 16px !important;
+    }
+
+    .home .ask-input {
+        padding: 14px 58px 14px 18px !important;
+    }
+
+    .home .ask-send {
+        right: 8px !important;
+        bottom: 8px !important;
+        width: 38px !important;
+        height: 38px !important;
+    }
+
+    .home .dashboard {
+        gap: 12px !important;
+        margin-top: 24px !important;
+    }
+
+    .home .card {
+        min-height: 0 !important;
+        padding: 18px !important;
+        border-radius: 16px !important;
+    }
+
+    .home .card-content {
+        margin-top: 16px !important;
+    }
+
+    .home > .debrief,
+    .home .debrief {
+        margin-top: 24px !important;
+    }
+
+    #apolloView .apollo-messages {
+        padding-right: 16px !important;
+        padding-left: 16px !important;
+    }
+
+    #apolloView .apollo-message {
+        gap: 10px !important;
+        margin-bottom: 20px !important;
+    }
+
+    #apolloView .apollo-message.user .apollo-message-body {
+        max-width: 86% !important;
+        padding: 10px 13px !important;
+    }
+
+    #apolloView .apollo-message.assistant .apollo-message-body {
+        max-width: calc(100% - 34px) !important;
+    }
+
+    #apolloView .apollo-composer-wrap {
+        right: 12px !important;
+        left: 12px !important;
+        width: auto !important;
+    }
+
+    #apolloView .apollo-composer {
+        min-height: 56px !important;
+        padding: 8px 8px 8px 14px !important;
+        border-radius: 17px !important;
+    }
+
+    .apollo-mobile-history-sheet {
+        padding: 18px 16px calc(20px + env(safe-area-inset-bottom)) !important;
+    }
+
+    .apollo-mobile-history-list {
+        gap: 8px !important;
+    }
+
+    .apollo-mobile-history-card {
+        min-height: 54px !important;
+        padding: 10px 13px !important;
+    }
+
+    .apollo-task-add {
+        gap: 8px !important;
+        margin-bottom: 28px !important;
+        padding: 8px !important;
+    }
+
+    .apollo-task-section {
+        margin-top: 28px !important;
+    }
+
+    .apollo-task-row {
+        min-height: 58px !important;
+        gap: 10px !important;
+    }
+
+    .apollo-setting-row {
+        min-height: 60px !important;
+        gap: 16px !important;
+        padding: 12px 14px !important;
+    }
+
+    .apollo-settings-section {
+        margin-top: 28px !important;
+    }
+
+    #calendarView .apollo-week-header {
+        gap: 12px !important;
+        margin-bottom: 20px !important;
+    }
+
+    #calendarView .apollo-week-controls {
+        gap: 6px !important;
+    }
+
+    .apollo-play-queue {
+        max-height: calc(100dvh - 70px) !important;
+    }
+
+    .apollo-queue-header {
+        min-height: 52px !important;
+        padding: 10px 10px 6px 14px !important;
+    }
+
+    .apollo-queue-row {
+        gap: 8px !important;
+        padding: 7px 6px !important;
+    }
+
+    .apollo-task-modal-backdrop,
+    .apollo-calendar-modal-backdrop,
+    .apollo-wip-editor-overlay,
+    .apollo-confirm-overlay {
+        padding: 12px 12px max(12px, env(safe-area-inset-bottom)) !important;
+    }
+
+    .apollo-task-modal,
+    .apollo-calendar-modal,
+    .apollo-wip-editor,
+    .apollo-confirm-modal {
+        max-height: calc(100dvh - 24px - env(safe-area-inset-bottom)) !important;
+        overflow-y: auto !important;
+        padding: 20px !important;
+        border-radius: 22px !important;
+    }
+
+    .apollo-wip-grid,
+    #studioView .studio5-grid {
+        gap: 20px !important;
+    }
+}
+
+@media (max-width: 430px) {
+    .home .greeting,
+    .apollo-music-title,
+    .apollo-tasks-title,
+    .apollo-settings-title,
+    #calendarView .apollo-week-title,
+    #calendarView .apollo-calendar-title,
+    .apollo-studio-heading,
+    #studioView .studio5-brandcopy h1 {
+        font-size: 32px !important;
+    }
+}
+
+
+/* =========================================================
    APOLLO MOBILE V1.6 — LIQUID GLASS NAVIGATION
    Keep the DOM order intact for the existing index-based
    routing, while placing Home in the visual center.
@@ -4090,4 +4283,55 @@ and (
         min-height: 38px;
     }
 
+}
+
+/* Keep the shared V1.9 rhythm authoritative over older compatibility layers. */
+@media (max-width: 760px) {
+    :root {
+        --mobile-header-padding-top: 20px;
+        --mobile-content-gap: 24px;
+        --mobile-page-padding-x: 20px;
+        --apollo-page-gutter: 20px;
+        --apollo-page-top: 32px;
+        --apollo-page-bottom: calc(88px + env(safe-area-inset-bottom));
+    }
+
+    .home .ask,
+    .home .dashboard {
+        margin-top: 24px !important;
+    }
+
+    .home > .debrief,
+    .home .debrief {
+        margin-top: 24px !important;
+    }
+
+    #apolloView .apollo-messages {
+        padding-right: 16px !important;
+        padding-left: 16px !important;
+    }
+
+    #apolloView .apollo-message {
+        gap: 10px !important;
+        margin-bottom: 20px !important;
+    }
+
+    #apolloView .apollo-composer-wrap {
+        right: 12px !important;
+        left: 12px !important;
+        width: auto !important;
+    }
+
+    .apollo-task-add {
+        margin-bottom: 28px !important;
+    }
+
+    .apollo-task-section,
+    .apollo-settings-section {
+        margin-top: 28px !important;
+    }
+
+    #calendarView .apollo-week-header {
+        margin-bottom: 20px !important;
+    }
 }
