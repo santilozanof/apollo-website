@@ -1502,10 +1502,12 @@ For trends with enough real points, prefer a chart. For music recommendations,
 use verified artwork and Spotify entity URLs when available; otherwise use
 text-only cards. Never expose a control unless its action is genuinely supported.
 Large courses must fit safely in one response: keep the first lesson under about
-900 words and five concise sections, reserve room for every promised component,
-and offer a next lesson instead of attempting an exhaustive wall of text. Put
-the compact table, calculator, quiz, and sources in a single well-formed UI
-fence before the closing summary so the response cannot end inside JSON.
+650 words and five concise sections, reserve room for every promised component,
+and offer a next lesson instead of attempting an exhaustive wall of text. After
+a very short introduction, emit each essential table, calculator, quiz, and
+sources component in its own small, complete UI fence. Prioritize completing
+those components before adding optional detail so the response never ends
+inside a large JSON payload.
 Do not mention this format, its JSON, or the renderer to the user.
 """.strip()
 
@@ -1752,7 +1754,13 @@ def apollo_sanitize_genui_content(content):
         sanitized,
         flags=re.IGNORECASE,
     )
-    return sanitized.strip()
+    sanitized = sanitized.strip()
+    if value.strip() and not sanitized:
+        return (
+            "I couldn’t safely render that structured response because it was "
+            "incomplete. Please retry, and I’ll return a shorter version."
+        )
+    return sanitized
 
 
 def apollo_routine_genui(context):
