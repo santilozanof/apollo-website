@@ -22075,11 +22075,14 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     conn.close()
 
                 if routine_reply is not None:
-                    if any(
-                        word in user_message.lower()
-                        for word in (
-                            "show", "list", "what", "which",
-                            "steps", "scheduled", "today"
+                    if (
+                        turn_plan.get("primary_domain") == "routines"
+                        and any(
+                            word in user_message.lower()
+                            for word in (
+                                "show", "list", "what", "which",
+                                "steps", "scheduled", "today"
+                            )
                         )
                     ):
                         routine_reply += apollo_routine_genui(

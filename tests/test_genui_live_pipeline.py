@@ -186,7 +186,9 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
             "intent": "personal_query", "primary_domain": "hydration",
             "action_authorized": False,
         })
-        self.assertIn("You've logged 0 mL today", events[-1]["message"]["content"])
+        response = events[-1]["message"]["content"]
+        self.assertIn("You've logged 0 mL today", response)
+        self.assertNotIn("```apollo-ui", response)
 
     def test_explicit_hydration_action_persists_but_ambiguous_action_does_not(self):
         chat_id = self.create_chat()
