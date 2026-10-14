@@ -14,6 +14,7 @@ import shutil
 import hashlib
 import threading
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import routines
 import debrief_personalization
 import music_curator
@@ -87,6 +88,8 @@ SPOTIFY_CURATOR_START_LOCK = threading.Lock()
 SPOTIFY_CURATOR_JOB_LOCK = threading.RLock()
 SPOTIFY_CURATOR_JOBS = {}
 SPOTIFY_CURATOR_ACTIVE_JOB_ID = None
+WHOOP_RECOVERY_HISTORY_CACHE = {"value": None, "at": 0.0}
+WHOOP_RECOVERY_HISTORY_CACHE_LOCK = threading.Lock()
 
 # Created after all Apollo data adapters are available.  The worker remains
 # part of this process so systemd only needs to keep the existing backend
@@ -1433,6 +1436,12 @@ Compose one coherent response by interleaving normal Markdown and UI at the
 intended points. Do not dump all prose before all components. Each fenced block
 must contain only strict JSON:
 
+For every substantial response, start with one useful, complete sentence and a
+blank line. Then continue with the next paragraph or the first compact component.
+This lets Apollo render genuine content immediately; do not write a placeholder,
+promise, outline, or "let's dive in" sentence. Emit each UI fence as soon as that
+component is complete instead of holding several components for one giant fence.
+
 ```apollo-ui
 {"blocks":[{"type":"progress","title":"Session","progress":0.25}]}
 ```
@@ -1440,7 +1449,8 @@ must contain only strict JSON:
 The renderer accepts these block types:
 text, image, image_gallery, card, carousel, quiz, checklist, chart, table,
 progress, form, button_group, date_picker, slider, media, location, code,
-expandable, status, timeline, calculator, sources.
+expandable, status, timeline, calculator, function_explorer, metric_trend,
+sources.
 
 Common fields: id, title, subtitle, text, label, items, actions. Keep blocks
 compact. Use stable, unique ids within the response.
@@ -1476,9 +1486,27 @@ columns:[{key,label}] and rows:[{...}]. Timeline uses
 items:[{time,title,text?}]. Carousel uses compact
 items:[{title,text,url?,alt?,action?}].
 
-Calculator: {type,id,title?,operation:"sum"|"multiply"|"divide"|"percentage",
-fields:[{id,label,value,min?,max?,step?,unit?}],operands:["field-id",...],
-output:{label?,unit?,decimals?}}. Only use supported deterministic arithmetic.
+Calculator: {type,id,title?,subtitle?,operation:"sum"|"multiply"|"divide"|"percentage",
+fields:[{id,label,value,min?,max?,step?,unit?,type?:"number"|"slider"|"segmented",
+options?:[{label,value}]}],operands:["field-id",...],
+output:{label?,unit?,decimals?},note?}. Only use supported deterministic
+arithmetic. Prefer one slider plus one compact segmented selector when it makes
+the result faster to explore. A coffee ratio calculator should multiply dose
+grams by a selectable numeric ratio and label water in grams; if mentioning mL,
+say that it is an approximation.
+
+Function explorer: {type:"function_explorer",id,title?,preset:"removable_hole",
+target,value,min,max,step}. This is the only supported adjustable math function.
+It safely explores \(f(x)=(x^2-a^2)/(x-a)\) near \(x=a\), shows the removable
+hole, the simplified value \(x+a\), and the target limit \(2a\). Use it for an
+adjustable limits example; never send arbitrary expressions or executable code.
+
+Metric trend: {type:"metric_trend",id,title,subtitle?,unit,data_kind,
+ranges:[7,30],items:[{label,value,description?}]}. Use it for genuine measured
+time-series data such as WHOOP recovery_history. Include only ranges supported
+by the available points. Preserve source dates and values exactly. The widget
+provides local range selection, average, selected-day details, and a compact
+chart; do not create separate fake controls.
 
 Sources: {type,id,title?,items:[{url,title,publisher?,note?}]}. Cite sources in
 nearby prose as [1], [2], matching this deduplicated list. Use the real page
@@ -1512,10 +1540,21 @@ text-only cards. Never expose a control unless its action is genuinely supported
 Large courses must fit safely in one response: keep the first lesson under about
 650 words and five concise sections, reserve room for every promised component,
 and offer a next lesson instead of attempting an exhaustive wall of text. After
-a very short introduction, emit each essential table, calculator, quiz, and
+a single complete opening sentence followed by a blank line, emit each essential
+table, calculator, quiz, and
 sources component in its own small, complete UI fence. Prioritize completing
 those components before adding optional detail so the response never ends
 inside a large JSON payload.
+
+Choose components contextually, not mechanically. A practical quantity question
+often benefits from one calculator; an adjustable math lesson from one safe
+function explorer and a short quiz; verified time-series data from a metric
+trend; historical evolution from a restrained timeline; planning from a
+checklist or timeline. A definition or casual question should remain concise
+text. Multiple types may coexist when each one does distinct useful work.
+For an explicitly requested quiz, emit one short standalone introduction and
+then one validated quiz of 3–5 questions before optional explanation so the
+first usable component is not delayed by an oversized payload.
 Do not mention this format, its JSON, or the renderer to the user.
 """.strip()
 
@@ -1524,7 +1563,8 @@ _APOLLO_UI_TYPES = {
     "text", "image", "image_gallery", "card", "carousel", "quiz",
     "checklist", "chart", "table", "progress", "form", "button_group",
     "date_picker", "slider", "media", "location", "code", "expandable",
-    "status", "timeline", "calculator", "sources",
+    "status", "timeline", "calculator", "function_explorer",
+    "metric_trend", "sources",
 }
 _APOLLO_UI_ACTIONS = {
     "submit_message", "task_toggle", "routine_action", "open_url", "copy",
@@ -1708,11 +1748,107 @@ def _apollo_normalize_ui_block(block):
             return None
         fields = block.get("fields")
         operands = block.get("operands")
-        field_ids = {str(field.get("id")) for field in fields or []
-                     if isinstance(field, dict) and field.get("id")}
+        normalized_fields = []
+        field_ids = set()
+        for position, field in enumerate(fields or []):
+            if not isinstance(field, dict):
+                return None
+            field_id = str(field.get("id") or f"field-{position + 1}")
+            field_type = str(field.get("type") or "number")
+            if field_type not in ("number", "slider", "segmented"):
+                return None
+            value = field.get("value")
+            if not _apollo_ui_number(value):
+                return None
+            item = {
+                "id": field_id,
+                "label": str(field.get("label") or field_id)[:120],
+                "type": field_type,
+                "value": value,
+                "unit": str(field.get("unit") or "")[:30],
+                "min": field.get("min", 0),
+                "max": field.get("max", 100000),
+                "step": field.get("step", 1),
+            }
+            if not all(_apollo_ui_number(item[key]) for key in ("min", "max", "step")):
+                return None
+            if item["step"] <= 0 or item["max"] <= item["min"]:
+                return None
+            if field_type == "segmented":
+                options = []
+                for option in field.get("options") or []:
+                    if not isinstance(option, dict) or not _apollo_ui_number(option.get("value")):
+                        return None
+                    options.append({
+                        "label": str(option.get("label") or option["value"])[:80],
+                        "value": option["value"],
+                    })
+                if not 2 <= len(options) <= 6:
+                    return None
+                item["options"] = options
+            normalized_fields.append(item)
+            field_ids.add(field_id)
         if not field_ids or not isinstance(operands, list) or any(
                 str(operand) not in field_ids for operand in operands):
             return None
+        normalized["fields"] = normalized_fields
+        normalized["operands"] = [str(operand) for operand in operands]
+        normalized["note"] = str(block.get("note") or "")[:500]
+
+    if kind == "function_explorer":
+        if block.get("preset") != "removable_hole":
+            return None
+        for key in ("target", "value", "min", "max", "step"):
+            if not _apollo_ui_number(block.get(key)):
+                return None
+        if block["max"] <= block["min"] or block["step"] <= 0:
+            return None
+        if not block["min"] <= block["target"] <= block["max"]:
+            return None
+        normalized = {
+            "type": kind,
+            "id": normalized["id"],
+            "title": str(block.get("title") or "Explore the limit")[:180],
+            "subtitle": str(block.get("subtitle") or "")[:500],
+            "preset": "removable_hole",
+            "target": block["target"],
+            "value": block["value"],
+            "min": block["min"],
+            "max": block["max"],
+            "step": block["step"],
+        }
+
+    if kind == "metric_trend":
+        items = []
+        for position, item in enumerate(block.get("items") or []):
+            if not isinstance(item, dict) or not _apollo_ui_number(item.get("value")):
+                return None
+            items.append({
+                "id": str(item.get("id") or f"point-{position + 1}"),
+                "label": str(item.get("label") or "")[:120],
+                "value": item["value"],
+                "description": str(item.get("description") or "")[:500],
+            })
+        if len(items) < 2:
+            return None
+        ranges = []
+        for value in block.get("ranges") or []:
+            try:
+                current = int(value)
+            except (TypeError, ValueError):
+                continue
+            if current in (7, 14, 30) and current <= len(items) and current not in ranges:
+                ranges.append(current)
+        normalized = {
+            "type": kind,
+            "id": normalized["id"],
+            "title": str(block.get("title") or "Trend")[:180],
+            "subtitle": str(block.get("subtitle") or "")[:500],
+            "unit": str(block.get("unit") or "")[:30],
+            "data_kind": str(block.get("data_kind") or "measured")[:30],
+            "ranges": ranges or [min(7, len(items))],
+            "items": items,
+        }
 
     if "actions" in normalized:
         normalized["actions"] = _apollo_clean_ui_actions(normalized["actions"])
@@ -2126,6 +2262,10 @@ def _apollo_choose_hermes_toolsets(messages):
         "with sources",
         "masterclass on",
         "teach me everything about",
+        "beginner to expert",
+        "evolution of",
+        "with images",
+        "album artwork",
     )
 
     if any(x in lower for x in web_signals):
@@ -2760,6 +2900,143 @@ def apollo_conservative_intent_fallback(user_message):
     }
 
 
+def apollo_fast_context_plan(messages, user_message):
+    """Resolve only turns whose personal-data intent is unambiguous locally.
+
+    The semantic planner remains authoritative for mutations, short follow-ups,
+    multi-domain planning, and anything that could refer to earlier context.
+    This gate removes a redundant model round trip from clearly general
+    questions and a small set of explicit read-only personal queries.
+    """
+    text = str(user_message or "").strip()
+    lower = re.sub(r"\s+", " ", text.lower())
+    if not lower:
+        return None
+
+    base = {
+        "action_authorized": False,
+        "clarification": "",
+        "calendar": False,
+        "tasks": False,
+        "whoop": False,
+        "spotify": False,
+        "calendar_days": 7,
+        "planning_mode": "local",
+    }
+
+    # Consequential verbs and manual routing overrides always keep semantic
+    # planning in the loop. A local optimization must never grant authority.
+    if lower.startswith(("/tools", "/notools")) or re.search(
+        r"\b(add|log|create|delete|remove|rename|move|mark|complete|"
+        r"reopen|reschedule|schedule|cancel|play|pause|skip|start|stop|set|"
+        r"change|update|edit|send|book|remind|notify|queue|save|toggle|turn)\b",
+        lower,
+    ):
+        return None
+
+    # Short contextual continuations need recent-conversation semantics.
+    if len(lower.split()) <= 10 and re.match(
+        r"^(and|also|then|but|what about|how about|same|again|tomorrow|today)\b",
+        lower,
+    ):
+        return None
+
+    if len(lower.split()) <= 12 and re.search(
+        r"\b(this|that|it|these|those|above|earlier|previous|same)\b",
+        lower,
+    ):
+        return None
+
+    personal_whoop = (
+        re.search(r"\b(my|mine|for me|do i have|have i)\b", lower)
+        and re.search(r"\b(whoop|recovery|strain|hrv|resting heart rate|sleep performance)\b", lower)
+    )
+    if personal_whoop:
+        return {
+            **base,
+            "intent": "personal_query",
+            "primary_domain": "whoop",
+            "whoop": True,
+            "reason": "explicit read-only WHOOP request",
+        }
+
+    personal_tasks = (
+        re.search(r"\b(my|mine|do i have|have i)\b", lower)
+        and re.search(r"\b(tasks?|todos?|homework|assignments?)\b", lower)
+    )
+    if personal_tasks:
+        return {
+            **base,
+            "intent": "personal_query",
+            "primary_domain": "tasks",
+            "tasks": True,
+            "reason": "explicit read-only task request",
+        }
+
+    personal_calendar = (
+        re.search(r"\b(my|mine|do i have|have i)\b", lower)
+        and re.search(r"\b(calendar|schedule|events?|appointments?|meetings?)\b", lower)
+    )
+    if personal_calendar:
+        return {
+            **base,
+            "intent": "personal_query",
+            "primary_domain": "calendar",
+            "calendar": True,
+            "reason": "explicit read-only calendar request",
+        }
+
+    personal_spotify = bool(re.search(
+        r"\b(what(?:'s| is) playing|current (song|track)|my spotify)\b",
+        lower,
+    ))
+    if personal_spotify:
+        return {
+            **base,
+            "intent": "personal_query",
+            "primary_domain": "spotify",
+            "spotify": True,
+            "reason": "explicit read-only Spotify request",
+        }
+
+    personal_hydration = (
+        re.search(r"\b(my|have i|did i)\b", lower)
+        and re.search(r"\b(hydration|water (?:intake|goal)|logged water)\b", lower)
+    )
+    personal_routine = (
+        re.search(r"\b(my|mine|do i have|have i)\b", lower)
+        and re.search(r"\b(routines?|habits?|streaks?)\b", lower)
+    )
+    if personal_hydration or personal_routine:
+        return {
+            **base,
+            "intent": "personal_query",
+            "primary_domain": "hydration" if personal_hydration else "routines",
+            "reason": "explicit read-only Apollo data request",
+        }
+
+    # Personal planning and unresolved references can require several sources.
+    if re.search(r"\b(my|mine|for me|do i have|have i|our)\b", lower):
+        return None
+
+    return {
+        **base,
+        "intent": "general_knowledge",
+        "primary_domain": "general",
+        "reason": "clearly general request",
+    }
+
+
+def apollo_plan_turn(messages, user_message, client_context=None):
+    fast_plan = apollo_fast_context_plan(messages, user_message)
+    if fast_plan is not None:
+        print("[Apollo Context Planner]", fast_plan)
+        return fast_plan
+    plan = apollo_context_planner(messages, user_message, client_context)
+    plan.setdefault("planning_mode", "semantic")
+    return plan
+
+
 def apollo_intent_routes_to(plan, *domains):
     return (
         isinstance(plan, dict)
@@ -2871,6 +3148,12 @@ def apollo_context_whoop():
         whoop_current_summary()
     )
 
+    try:
+        recovery_history = whoop_recovery_history(30)
+    except Exception as exc:
+        print(f"[Apollo Context WHOOP] Recovery history failed: {exc}")
+        recovery_history = []
+
 
     if not whoop_summary_is_current_morning(
         summary
@@ -2878,7 +3161,8 @@ def apollo_context_whoop():
 
         return {
             "status": "processing",
-            "summary": {}
+            "summary": {},
+            "recovery_history": recovery_history,
         }
 
 
@@ -2915,7 +3199,8 @@ def apollo_context_whoop():
     return {
         "status": "ready",
         "summary": summary,
-        "latest_workout": workout
+        "latest_workout": workout,
+        "recovery_history": recovery_history,
     }
 
 
@@ -2966,106 +3251,43 @@ def apollo_fetch_planned_context(
             selected
     }
 
-
     errors = {}
 
+    try:
+        days = max(1, min(int(plan.get("calendar_days", 7) or 7), 30))
+    except (TypeError, ValueError):
+        days = 7
+    loaders = {
+        "calendar": lambda: {
+            "upcoming_days": days,
+            "events": apollo_context_calendar(days),
+        },
+        "tasks": apollo_context_tasks,
+        "whoop": apollo_context_whoop,
+        "spotify": apollo_context_spotify,
+    }
+    error_messages = {
+        "calendar": "Live calendar data could not be retrieved.",
+        "tasks": "Live task data could not be retrieved.",
+        "whoop": "Live WHOOP data could not be retrieved.",
+        "spotify": "Live Spotify playback could not be retrieved.",
+    }
 
-    if plan.get("calendar"):
-
-        try:
-
-            days = int(
-                plan.get(
-                    "calendar_days",
-                    7
-                )
-            )
-
-
-            context["calendar"] = {
-                "upcoming_days":
-                    days,
-
-                "events":
-                    apollo_context_calendar(
-                        days
-                    )
-            }
-
-
-        except Exception as exc:
-
-            print(
-                "[Apollo Context Calendar] "
-                f"{exc}"
-            )
-
-            errors["calendar"] = (
-                "Live calendar data could not be retrieved."
-            )
-
-
-    if plan.get("tasks"):
-
-        try:
-
-            context["tasks"] = (
-                apollo_context_tasks()
-            )
-
-
-        except Exception as exc:
-
-            print(
-                "[Apollo Context Tasks] "
-                f"{exc}"
-            )
-
-            errors["tasks"] = (
-                "Live task data could not be retrieved."
-            )
-
-
-    if plan.get("whoop"):
-
-        try:
-
-            context["whoop"] = (
-                apollo_context_whoop()
-            )
-
-
-        except Exception as exc:
-
-            print(
-                "[Apollo Context WHOOP] "
-                f"{exc}"
-            )
-
-            errors["whoop"] = (
-                "Live WHOOP data could not be retrieved."
-            )
-
-
-    if plan.get("spotify"):
-
-        try:
-
-            context["spotify"] = (
-                apollo_context_spotify()
-            )
-
-
-        except Exception as exc:
-
-            print(
-                "[Apollo Context Spotify] "
-                f"{exc}"
-            )
-
-            errors["spotify"] = (
-                "Live Spotify playback could not be retrieved."
-            )
+    # Selected sources do not depend on one another. Fetching them together
+    # keeps multi-source planning bounded by the slowest adapter instead of the
+    # sum of every adapter while preserving per-source failures.
+    with ThreadPoolExecutor(max_workers=min(len(selected), 4)) as executor:
+        futures = {
+            executor.submit(loaders[source]): source
+            for source in selected
+        }
+        for future in as_completed(futures):
+            source = futures[future]
+            try:
+                context[source] = future.result()
+            except Exception as exc:
+                print(f"[Apollo Context {source.title()}] {exc}")
+                errors[source] = error_messages[source]
 
 
     if errors:
@@ -8625,6 +8847,69 @@ def whoop_millis_hours(
         ValueError
     ):
         return None
+
+
+def whoop_recovery_history(days=30):
+    """Return a compact, cached recovery series from WHOOP's v2 API."""
+    days = max(1, min(int(days or 30), 30))
+    now = time.monotonic()
+    with WHOOP_RECOVERY_HISTORY_CACHE_LOCK:
+        cached = WHOOP_RECOVERY_HISTORY_CACHE.get("value")
+        cached_at = float(WHOOP_RECOVERY_HISTORY_CACHE.get("at") or 0)
+        if isinstance(cached, list) and now - cached_at < 300:
+            return cached[-days:]
+
+    start = (
+        datetime.now(timezone.utc) - timedelta(days=32)
+    ).isoformat().replace("+00:00", "Z")
+    records = []
+    next_token = None
+
+    while len(records) < 30:
+        remaining = 30 - len(records)
+        params = {
+            "limit": min(25, remaining),
+            "start": start,
+        }
+        if next_token:
+            params["nextToken"] = next_token
+        page = whoop_api_get(
+            "/recovery?" + urllib.parse.urlencode(params)
+        )
+        page_records = page.get("records") if isinstance(page, dict) else []
+        if not isinstance(page_records, list):
+            break
+        records.extend(page_records)
+        next_token = str(page.get("next_token") or "") if isinstance(page, dict) else ""
+        if not next_token or not page_records:
+            break
+
+    compact = []
+    for record in records:
+        if not isinstance(record, dict) or record.get("score_state") != "SCORED":
+            continue
+        score = record.get("score") or {}
+        recovery = score.get("recovery_score")
+        if not _apollo_ui_number(recovery):
+            continue
+        timestamp = str(
+            record.get("created_at") or record.get("updated_at") or ""
+        )
+        compact.append({
+            "date": timestamp[:10],
+            "recovery": round(float(recovery), 1),
+            "hrv_ms": score.get("hrv_rmssd_milli"),
+            "resting_heart_rate": score.get("resting_heart_rate"),
+            "spo2_percentage": score.get("spo2_percentage"),
+            "skin_temp_celsius": score.get("skin_temp_celsius"),
+        })
+
+    compact.sort(key=lambda item: item["date"])
+    compact = compact[-30:]
+    with WHOOP_RECOVERY_HISTORY_CACHE_LOCK:
+        WHOOP_RECOVERY_HISTORY_CACHE["value"] = compact
+        WHOOP_RECOVERY_HISTORY_CACHE["at"] = now
+    return compact[-days:]
 
 
 def whoop_current_summary():
@@ -21827,6 +22112,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            turn_started = time.perf_counter()
+            turn_timings = {}
+
             conn = db()
 
             chat = conn.execute(
@@ -22325,8 +22613,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
             # One semantic plan governs personal data access and every
             # consequential domain router for this turn. Domain availability
             # never overrides the current message's meaning.
+            planning_started = time.perf_counter()
             try:
-                turn_plan = apollo_context_planner(
+                turn_plan = apollo_plan_turn(
                     messages,
                     user_message,
                     client_context,
@@ -22339,6 +22628,13 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 turn_plan = apollo_conservative_intent_fallback(
                     user_message
                 )
+            turn_timings["intent_planning_ms"] = round(
+                (time.perf_counter() - planning_started) * 1000
+            )
+            turn_timings["planning_mode"] = turn_plan.get(
+                "planning_mode",
+                "fallback",
+            )
 
             if turn_plan.get("intent") == "ambiguous_action":
                 clarification = str(
@@ -23201,10 +23497,14 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 context_plan = turn_plan
 
 
+                context_started = time.perf_counter()
                 live_context = (
                     apollo_fetch_planned_context(
                         context_plan
                     )
+                )
+                turn_timings["context_retrieval_ms"] = round(
+                    (time.perf_counter() - context_started) * 1000
                 )
 
 
@@ -23255,6 +23555,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     "[Apollo Context Planner] "
                     f"Failed safely: {error}"
                 )
+                turn_timings["context_retrieval_ms"] = round(
+                    (time.perf_counter() - context_started) * 1000
+                ) if "context_started" in locals() else 0
 
 
             # ─────────────────────────────
@@ -23324,8 +23627,13 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 self.end_headers()
 
                 assistant_parts = []
+                model_started = time.perf_counter()
+                first_model_chunk_at = None
 
                 for content in stream_hermes(messages):
+
+                    if first_model_chunk_at is None:
+                        first_model_chunk_at = time.perf_counter()
 
                     assistant_parts.append(content)
 
@@ -23342,6 +23650,14 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 assistant_message = "".join(
                     assistant_parts
                 ).strip()
+
+                model_finished = time.perf_counter()
+                turn_timings["model_ttft_ms"] = round(
+                    ((first_model_chunk_at or model_finished) - model_started) * 1000
+                )
+                turn_timings["model_generation_ms"] = round(
+                    (model_finished - model_started) * 1000
+                )
 
                 assistant_message = (
                     apollo_sanitize_genui_content(
@@ -23457,22 +23773,14 @@ class ApolloHandler(BaseHTTPRequestHandler):
             # Generate a proper title after the first exchange.
 
             message_count = len(history)
-
-            if message_count == 2:
-
-                title = generate_chat_title(history)
-
-                conn.execute("""
-                    UPDATE chats
-                    SET title = ?
-                    WHERE id = ?
-                """, (
-                    title,
-                    chat_id
-                ))
-
             conn.commit()
-            conn.close()
+
+            # The answer is already durable, so signal visual completion before
+            # the optional title model call. Title generation must never hold
+            # Copy/Retry or the finished response hostage.
+            turn_timings["backend_to_done_ms"] = round(
+                (time.perf_counter() - turn_started) * 1000
+            )
 
             event = json.dumps({
                 "type": "done",
@@ -23480,13 +23788,35 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     "role": "assistant",
                     "content": assistant_message,
                     "attachments": assistant_attachments
-                }
+                },
+                "timings": turn_timings,
             })
 
             self.wfile.write(
                 f"data: {event}\n\n".encode("utf-8")
             )
             self.wfile.flush()
+
+            if message_count == 2:
+                try:
+                    title = generate_chat_title(history)
+                    conn.execute("""
+                        UPDATE chats
+                        SET title = ?
+                        WHERE id = ?
+                    """, (
+                        title,
+                        chat_id
+                    ))
+                    conn.commit()
+                except Exception as error:
+                    print(f"[Apollo Title] Failed safely: {error}")
+
+            conn.close()
+            print(
+                "[Apollo Performance] "
+                + json.dumps(turn_timings, separators=(",", ":"))
+            )
 
             return
 

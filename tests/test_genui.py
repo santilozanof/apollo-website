@@ -84,6 +84,10 @@ class GenerativeUITests(unittest.TestCase):
         self.assertIn("state.current += 1", source)
         self.assertIn('block.type === "sources"', source)
         self.assertIn('block.type === "calculator"', source)
+        self.assertIn('block.type === "function_explorer"', source)
+        self.assertIn('block.type === "metric_trend"', source)
+        self.assertIn("function renderFunctionExplorer", source)
+        self.assertIn("function renderMetricTrend", source)
         self.assertNotIn('"Image unavailable"', source)
         self.assertIn("apollo-ui-card-text-only", source)
         self.assertIn("container.remove()", source)
@@ -113,6 +117,42 @@ class GenerativeUITests(unittest.TestCase):
         self.assertIn("never create submit_message actions for quiz navigation", prompt)
         self.assertIn("data_kind", prompt)
         self.assertIn("Sources:", prompt)
+        self.assertIn("one useful, complete sentence", prompt)
+        self.assertIn("Function explorer:", prompt)
+        self.assertIn("Metric trend:", prompt)
+        self.assertIn('type?:"number"|"slider"|"segmented"', prompt)
+
+    def test_interactive_widget_schemas_are_bounded(self):
+        sanitize = self.items["apollo_sanitize_genui_content"]
+        payload = {"blocks": [
+            {
+                "type": "calculator", "id": "brew", "operation": "multiply",
+                "fields": [
+                    {"id": "dose", "label": "Coffee", "type": "slider",
+                     "value": 15, "min": 5, "max": 30, "step": 1, "unit": "g"},
+                    {"id": "ratio", "label": "Ratio", "type": "segmented",
+                     "value": 16, "min": 14, "max": 18, "step": 1,
+                     "options": [{"label": "1:15", "value": 15},
+                                 {"label": "1:16", "value": 16}]},
+                ],
+                "operands": ["dose", "ratio"],
+                "output": {"label": "Water", "unit": "g", "decimals": 0},
+            },
+            {"type": "function_explorer", "id": "limit", "preset": "removable_hole",
+             "target": 2, "value": 1.5, "min": 0, "max": 4, "step": 0.1},
+            {"type": "metric_trend", "id": "recovery", "unit": "%",
+             "data_kind": "measured", "ranges": [2],
+             "items": [{"label": "Mon", "value": 61},
+                       {"label": "Tue", "value": 73}]},
+        ]}
+        cleaned = blocks(sanitize("```apollo-ui\n" + json.dumps(payload) + "\n```"))
+        self.assertEqual([item["type"] for item in cleaned], [
+            "calculator", "function_explorer", "metric_trend",
+        ])
+
+        payload["blocks"][1]["preset"] = "eval_user_code"
+        cleaned = blocks(sanitize("```apollo-ui\n" + json.dumps(payload) + "\n```"))
+        self.assertNotIn("function_explorer", [item["type"] for item in cleaned])
 
     def test_sanitizer_normalizes_legacy_quiz_and_rejects_bad_key(self):
         sanitize = self.items["apollo_sanitize_genui_content"]

@@ -186,9 +186,9 @@ html[data-theme="light"] {
 
 </style>
 <link rel="stylesheet" href="/vendor/katex/katex.min.css?v=0.19.0">
-<link rel="stylesheet" href="/apollo_genui.css?v=20261014-4">
+<link rel="stylesheet" href="/apollo_genui.css?v=20261014-5">
 <script src="/vendor/katex/katex.min.js?v=0.19.0"></script>
-<script src="/apollo_genui.js?v=20261014-4"></script>
+<script src="/apollo_genui.js?v=20261014-5"></script>
 
 <style>
 :root {
@@ -24947,6 +24947,9 @@ async function apolloRetryMessage(message) {
 
         apolloSending = false;
         apolloSend.disabled = false;
+        if (typeof apolloRefreshHistory === "function") {
+            apolloRefreshHistory().catch(() => {});
+        }
         apolloInput.focus();
     }
 }
@@ -26282,6 +26285,14 @@ if (!response.ok) {
 
         apolloSending = false;
         apolloSend.disabled = false;
+        if (typeof apolloRefreshHistory === "function") {
+            /*
+             * The visible `done` event intentionally arrives before optional
+             * first-turn title generation. Refresh again when the stream truly
+             * closes so History receives the persisted title as well.
+             */
+            apolloRefreshHistory().catch(() => {});
+        }
         apolloInput.focus();
     }
 }

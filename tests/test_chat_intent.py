@@ -91,6 +91,25 @@ class ChatIntentPlannerTests(unittest.TestCase):
             "intent": "personal_query", "primary_domain": "whoop"
         }, "whoop"))
 
+    def test_fast_plan_skips_model_only_for_confident_turns(self):
+        fast = load_function("apollo_fast_context_plan", {"re": re})
+        coffee = fast([], "How much coffee should I use for a V60?")
+        calculus = fast([], "Teach me limits with an adjustable example.")
+        whoop = fast([], "Show me my recovery trend.")
+        mutation = fast([], "Delete my afternoon task.")
+        follow_up = fast([], "What about tomorrow?")
+        referenced_follow_up = fast([], "Can you explain that more simply?")
+        implied_action = fast([], "Turn this into tasks.")
+
+        self.assertEqual(coffee["intent"], "general_knowledge")
+        self.assertEqual(calculus["planning_mode"], "local")
+        self.assertEqual(whoop["primary_domain"], "whoop")
+        self.assertTrue(whoop["whoop"])
+        self.assertIsNone(mutation)
+        self.assertIsNone(follow_up)
+        self.assertIsNone(referenced_follow_up)
+        self.assertIsNone(implied_action)
+
 
 if __name__ == "__main__":
     unittest.main()

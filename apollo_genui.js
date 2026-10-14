@@ -6,7 +6,8 @@
     "text", "image", "image_gallery", "card", "carousel", "quiz",
     "checklist", "chart", "table", "progress", "form", "button_group",
     "date_picker", "slider", "media", "location", "code", "expandable",
-    "status", "timeline", "calculator", "sources"
+    "status", "timeline", "calculator", "function_explorer",
+    "metric_trend", "sources"
   ]);
   const ACTIONS = new Set([
     "submit_message", "task_toggle", "routine_action", "open_url", "copy",
@@ -171,6 +172,7 @@
       alt: str(raw.alt, 240),
       caption: str(raw.caption, 500),
       kind: str(raw.kind, 30),
+      preset: str(raw.preset, 40),
       unit: str(raw.unit, 30),
       persisted: Boolean(raw.persisted),
       multiple: Boolean(raw.multiple),
@@ -219,7 +221,12 @@
         max: num(field.max, -100000, 100000, 100000),
         step: num(field.step, 0.001, 100000, 1),
         required: Boolean(field.required),
-        options: list(field.options, 30)
+        options: list(field.options, 30).map(option => {
+          if (option && typeof option === "object" && finite(option.value)) {
+            return {label: str(option.label ?? option.value, 80), value: Number(option.value)};
+          }
+          return finite(option) ? {label: str(option, 80), value: Number(option)} : null;
+        }).filter(Boolean)
       };
     }).filter(Boolean);
 
@@ -271,6 +278,33 @@
         decimals: Math.round(num(raw.output.decimals, 0, 6, 1))
       } : {label: "Result", unit: "", decimals: 1};
       if (block.fields.length < 1 || block.operands.length < 1) return null;
+      if (block.fields.some(field => !["number", "slider", "segmented", ""].includes(field.type))) return null;
+      if (block.fields.some(field => field.type === "segmented" && field.options.length < 2)) return null;
+      block.note = str(raw.note, 500);
+    }
+    if (block.type === "function_explorer") {
+      if (
+        block.preset !== "removable_hole"
+        || ![raw.target, raw.value, raw.min, raw.max, raw.step].every(finite)
+        || Number(raw.max) <= Number(raw.min)
+        || Number(raw.step) <= 0
+        || Number(raw.target) < Number(raw.min)
+        || Number(raw.target) > Number(raw.max)
+      ) return null;
+      block.target = Number(raw.target);
+      block.value = num(raw.value, Number(raw.min), Number(raw.max), Number(raw.min));
+      block.min = Number(raw.min);
+      block.max = Number(raw.max);
+      block.step = Number(raw.step);
+    }
+    if (block.type === "metric_trend") {
+      const rawItems = list(raw.items);
+      if (rawItems.length < 2 || rawItems.some(item => !item || !finite(item.value))) return null;
+      block.ranges = list(raw.ranges, 3)
+        .map(value => Math.round(Number(value)))
+        .filter((value, index, values) => value > 1 && value <= block.items.length && values.indexOf(value) === index);
+      if (!block.ranges.length) block.ranges = [Math.min(7, block.items.length)];
+      block.data_kind = DATA_KINDS.has(raw.data_kind) ? raw.data_kind : "measured";
     }
     block.progress = num(raw.progress, 0, 1, 0);
     block.max = block.max === block.min ? block.min + 1 : block.max;
@@ -1077,18 +1111,69 @@
     const grid = el("div", "apollo-ui-calculator-fields");
     const inputs = new Map();
     block.fields.forEach(field => {
-      const wrapper = el("label", "apollo-ui-calculator-field");
-      wrapper.appendChild(el("span", null, field.label));
+      const wrapper = el("div", `apollo-ui-calculator-field ${field.type || "number"}`);
+      const fieldHead = el("div", "apollo-ui-calculator-field-head");
+      fieldHead.appendChild(el("span", null, field.label));
       const inputRow = el("div", "apollo-ui-calculator-input-row");
-      const input = el("input", "apollo-ui-input");
-      input.type = "number";
-      input.min = field.min;
-      input.max = field.max;
-      input.step = field.step;
-      input.value = finite(state[field.id]) ? state[field.id] : finite(field.value) ? field.value : 0;
-      inputRow.appendChild(input);
-      if (field.unit) inputRow.appendChild(el("span", null, field.unit));
-      wrapper.appendChild(inputRow);
+      const initial = finite(state[field.id]) ? Number(state[field.id]) : Number(field.value) || 0;
+      let input;
+      if (field.type === "segmented") {
+        input = el("input");
+        input.type = "hidden";
+        input.value = initial;
+        const segmented = el("div", "apollo-ui-segmented");
+        segmented.setAttribute("role", "radiogroup");
+        segmented.setAttribute("aria-label", field.label);
+        const select = value => {
+          input.value = value;
+          [...segmented.children].forEach(button => {
+            const active = Number(button.dataset.value) === Number(value);
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-checked", String(active));
+          });
+        };
+        field.options.forEach(option => {
+          const button = el("button", "apollo-ui-segment", option.label);
+          button.type = "button";
+          button.dataset.value = option.value;
+          button.setAttribute("role", "radio");
+          button.addEventListener("click", () => {
+            select(option.value);
+            input.dispatchEvent(new Event("input", {bubbles: true}));
+          });
+          segmented.appendChild(button);
+        });
+        if (!field.options.some(option => Number(option.value) === initial)) {
+          input.value = field.options[0].value;
+        }
+        select(input.value);
+        inputRow.append(segmented, input);
+      } else if (field.type === "slider") {
+        input = el("input", "apollo-ui-slider");
+        input.type = "range";
+        input.min = field.min;
+        input.max = field.max;
+        input.step = field.step;
+        input.value = initial;
+        const current = el("output", "apollo-ui-slider-value");
+        const labelValue = () => {
+          current.textContent = `${input.value}${field.unit ? ` ${field.unit}` : ""}`;
+        };
+        input.addEventListener("input", labelValue);
+        labelValue();
+        fieldHead.appendChild(current);
+        inputRow.appendChild(input);
+      } else {
+        input = el("input", "apollo-ui-input");
+        input.type = "number";
+        input.min = field.min;
+        input.max = field.max;
+        input.step = field.step;
+        input.value = initial;
+        inputRow.appendChild(input);
+        if (field.unit) inputRow.appendChild(el("span", null, field.unit));
+      }
+      wrapper.append(fieldHead, inputRow);
       grid.appendChild(wrapper);
       inputs.set(field.id, input);
     });
@@ -1109,8 +1194,168 @@
     };
     inputs.forEach(input => input.addEventListener("input", refresh));
     inside.append(grid, output);
+    if (block.note) inside.appendChild(el("div", "apollo-ui-calculator-note", block.note));
     root.appendChild(inside);
     refresh();
+    return root;
+  }
+
+  function renderFunctionExplorer(block) {
+    const root = el("section", "apollo-ui-block apollo-ui-function-explorer");
+    const inside = header(block);
+    const state = stateGet(block);
+    const target = block.target;
+    const sliderHead = el("div", "apollo-ui-row apollo-ui-between");
+    const sliderLabel = el("label", "apollo-ui-title", "Adjust x");
+    const sliderValue = el("output", "apollo-ui-slider-value");
+    const slider = el("input", "apollo-ui-slider");
+    slider.type = "range";
+    slider.min = block.min;
+    slider.max = block.max;
+    slider.step = block.step;
+    slider.value = finite(state.value)
+      ? num(state.value, block.min, block.max, block.value)
+      : block.value;
+    sliderLabel.htmlFor = `apollo-explorer-${hash(keyFor(block))}`;
+    slider.id = sliderLabel.htmlFor;
+    sliderHead.append(sliderLabel, sliderValue);
+
+    const formula = el("div", "apollo-ui-explorer-formula");
+    appendInline(formula, `\\(f(x)=\\frac{x^2-${target ** 2}}{x-${target}}=x+${target}\\), for \\(x\\ne ${target}\\)`);
+    const readouts = el("div", "apollo-ui-explorer-readouts");
+    const current = el("div");
+    const currentLabel = el("span", null, "f(x)");
+    const currentValue = el("strong");
+    current.append(currentLabel, currentValue);
+    const limit = el("div");
+    limit.append(el("span", null, `Limit as x → ${target}`), el("strong", null, String(2 * target)));
+    readouts.append(current, limit);
+    const graph = svgEl("svg", {viewBox: "0 0 360 150", role: "img"});
+    graph.setAttribute("aria-label", `Graph approaching a removable hole at x equals ${target}`);
+
+    const drawGraph = value => {
+      graph.replaceChildren();
+      const width = 360, height = 150, pad = 18;
+      const yMin = block.min + target;
+      const yMax = block.max + target;
+      const xFor = x => pad + (x - block.min) / (block.max - block.min) * (width - pad * 2);
+      const yFor = y => height - pad - (y - yMin) / Math.max(yMax - yMin, 1) * (height - pad * 2);
+      graph.append(
+        svgEl("line", {x1: pad, x2: width - pad, y1: height - pad, y2: height - pad, class: "apollo-ui-chart-grid"}),
+        svgEl("line", {x1: pad, x2: pad, y1: pad, y2: height - pad, class: "apollo-ui-chart-grid"})
+      );
+      const left = [], right = [];
+      for (let index = 0; index <= 64; index += 1) {
+        const x = block.min + (block.max - block.min) * index / 64;
+        const point = `${xFor(x)},${yFor(x + target)}`;
+        (x < target ? left : right).push(point);
+      }
+      [left, right].filter(points => points.length).forEach(points => {
+        graph.appendChild(svgEl("polyline", {points: points.join(" "), class: "apollo-ui-chart-series"}));
+      });
+      graph.appendChild(svgEl("circle", {
+        cx: xFor(target), cy: yFor(2 * target), r: 5,
+        class: "apollo-ui-explorer-hole"
+      }));
+      if (Math.abs(value - target) >= Math.max(block.step / 2, 1e-9)) {
+        graph.appendChild(svgEl("circle", {
+          cx: xFor(value), cy: yFor(value + target), r: 4,
+          class: "apollo-ui-chart-marker apollo-ui-explorer-marker"
+        }));
+      }
+    };
+    const refresh = () => {
+      const value = Number(slider.value);
+      const atHole = Math.abs(value - target) < Math.max(block.step / 2, 1e-9);
+      sliderValue.textContent = `x = ${Number(value.toFixed(6))}`;
+      currentValue.textContent = atHole ? "undefined" : String(Number((value + target).toFixed(4)));
+      currentValue.classList.toggle("is-undefined", atHole);
+      state.value = value;
+      stateSet(block, state);
+      drawGraph(value);
+    };
+    slider.addEventListener("input", refresh);
+    inside.append(formula, sliderHead, slider, graph, readouts);
+    root.appendChild(inside);
+    refresh();
+    return root;
+  }
+
+  function renderMetricTrend(block) {
+    const root = el("section", "apollo-ui-block apollo-ui-metric-trend");
+    const inside = header(block);
+    const state = stateGet(block);
+    let range = block.ranges.includes(Number(state.range))
+      ? Number(state.range)
+      : block.ranges[0];
+    const rangeControls = el("div", "apollo-ui-segmented apollo-ui-trend-ranges");
+    rangeControls.setAttribute("role", "radiogroup");
+    rangeControls.setAttribute("aria-label", "Trend range");
+    const summary = el("div", "apollo-ui-trend-summary");
+    const chartHost = el("div", "apollo-ui-trend-chart-host");
+    const detailRow = el("div", "apollo-ui-trend-detail-row");
+    const daySelect = el("select", "apollo-ui-select apollo-ui-trend-select");
+    daySelect.setAttribute("aria-label", "Selected day");
+    const detail = el("div", "apollo-ui-trend-detail");
+    detailRow.append(daySelect, detail);
+
+    const paintDetail = points => {
+      const selected = points.find(item => item.id === daySelect.value) || points.at(-1);
+      if (!selected) return;
+      daySelect.value = selected.id;
+      detail.replaceChildren(
+        el("strong", null, numberLabel(selected.value, block.unit)),
+        el("span", null, selected.description || selected.label)
+      );
+      state.point = selected.id;
+      stateSet(block, state);
+    };
+    const paint = () => {
+      const points = block.items.slice(-range);
+      const average = points.reduce((total, item) => total + item.value, 0) / points.length;
+      summary.replaceChildren(
+        el("span", null, `${range}-day average`),
+        el("strong", null, numberLabel(average, block.unit))
+      );
+      const chartBlock = validate({
+        type: "chart", id: `${block.id}-${range}`, kind: "line",
+        x_label: "Day", y_label: block.title || "Value", unit: block.unit,
+        data_kind: block.data_kind,
+        items: points.map(item => ({id: item.id, label: item.label, value: item.value}))
+      }, 0);
+      const chart = renderChart(chartBlock);
+      chart.classList.add("apollo-ui-trend-chart");
+      chartHost.replaceChildren(chart);
+      daySelect.replaceChildren();
+      points.forEach(item => {
+        const option = el("option", null, item.label);
+        option.value = item.id;
+        daySelect.appendChild(option);
+      });
+      if (points.some(item => item.id === state.point)) daySelect.value = state.point;
+      else daySelect.value = points.at(-1)?.id || "";
+      paintDetail(points);
+      [...rangeControls.children].forEach(button => {
+        const active = Number(button.dataset.range) === range;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-checked", String(active));
+      });
+      state.range = range;
+      stateSet(block, state);
+    };
+    block.ranges.forEach(value => {
+      const button = el("button", "apollo-ui-segment", `${value} days`);
+      button.type = "button";
+      button.dataset.range = value;
+      button.setAttribute("role", "radio");
+      button.addEventListener("click", () => { range = value; paint(); });
+      rangeControls.appendChild(button);
+    });
+    daySelect.addEventListener("change", () => paintDetail(block.items.slice(-range)));
+    if (block.ranges.length > 1) inside.appendChild(rangeControls);
+    inside.append(summary, chartHost, detailRow);
+    root.appendChild(inside);
+    paint();
     return root;
   }
 
@@ -1168,6 +1413,8 @@
     if (block.type === "form") return renderForm(block);
     if (block.type === "card") return renderCard(block);
     if (block.type === "calculator") return renderCalculator(block);
+    if (block.type === "function_explorer") return renderFunctionExplorer(block);
+    if (block.type === "metric_trend") return renderMetricTrend(block);
     if (block.type === "sources") return renderSources(block);
     if (block.type === "text") return richText(block.text, citations);
     if (block.type === "image") return imageNode(block);
@@ -1476,6 +1723,15 @@
     ].filter(Boolean).join("\n");
     if (block.type === "calculator") return [
       block.title, ...block.fields.map(field => `${field.label}: ${field.value}${field.unit || ""}`)
+    ].filter(Boolean).join("\n");
+    if (block.type === "function_explorer") return [
+      block.title,
+      `f(x) = (x² - ${block.target ** 2}) / (x - ${block.target})`,
+      `Target: x → ${block.target}; limit: ${2 * block.target}`
+    ].filter(Boolean).join("\n");
+    if (block.type === "metric_trend") return [
+      block.title, block.subtitle,
+      ...block.items.map(item => `${item.label}: ${numberLabel(item.value, block.unit)}${item.description ? ` — ${item.description}` : ""}`)
     ].filter(Boolean).join("\n");
     if (block.type === "code") return block.text;
     if (block.type === "image") return [block.caption || block.alt || block.title, block.url].filter(Boolean).join("\n");

@@ -85,6 +85,30 @@ console.log('buffered');
 """
         self.assertEqual(run_node(script), "buffered")
 
+    def test_cancelled_stream_keeps_only_complete_safe_segments(self):
+        source = (
+            "A complete opening sentence.\n\n"
+            "```apollo-ui\n"
+            '{"blocks":[{"type":"calculator","id":"partial"'
+        )
+        script = r"""
+const gen = require('./apollo_genui.js');
+const result = gen.completeStreamSegments(%s, false).segments;
+if (result.length !== 1) process.exit(2);
+if (result[0] !== 'A complete opening sentence.') process.exit(3);
+if (result.join('\n').includes('partial')) process.exit(4);
+console.log('safe-cancel');
+""" % json.dumps(source)
+        self.assertEqual(run_node(script), "safe-cancel")
+
+        page = (ROOT / "index.html").read_text()
+        start = page.index("function apolloFinalizeInterruptedStream")
+        end = page.index("async function apolloCreateChat", start)
+        cancellation = page[start:end]
+        self.assertIn("renderer?.interrupt", cancellation)
+        self.assertIn("completeStreamSegments?.(content, false)", cancellation)
+        self.assertNotIn("innerHTML", cancellation)
+
     def test_prompt_requires_consistent_math_and_complete_blocks(self):
         server = (ROOT / "server.py").read_text()
         self.assertIn("valid KaTeX-compatible LaTeX", server)

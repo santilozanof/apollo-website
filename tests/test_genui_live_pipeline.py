@@ -94,6 +94,8 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         self.assertEqual(status, 200)
         events = sse_events(raw)
         self.assertEqual(events[-1]["type"], "done")
+        self.assertIn("backend_to_done_ms", events[-1]["timings"])
+        self.assertIn("model_ttft_ms", events[-1]["timings"])
         expected = server.apollo_sanitize_genui_content(response)
         self.assertEqual(events[-1]["message"]["content"], expected)
 
