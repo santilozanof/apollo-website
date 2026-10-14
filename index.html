@@ -24708,15 +24708,10 @@ async function apolloRetryMessage(message) {
     let assistantContent = "";
 
     try {
-
-        if (isImageGeneration) {
-            apolloShowImageGenerating();
-        } else {
-            apolloShowTyping(
-                content,
-                hasAttachments
-            );
-        }
+        apolloShowTyping(
+            userMessage,
+            false
+        );
 
         const response = await fetch(
             `/api/chats/${requestChatId}/messages`,

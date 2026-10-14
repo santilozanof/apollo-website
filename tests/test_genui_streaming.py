@@ -98,6 +98,12 @@ console.log('buffered');
         self.assertEqual(page.count("apolloStreamRenderer.update(assistantContent)"), 2)
         self.assertEqual(page.count("apolloStreamRenderer?.finish(assistantContent)"), 2)
         self.assertIn('src="/vendor/katex/katex.min.js?v=0.19.0"', page)
+        retry_start = page.index("async function apolloRetryMessage")
+        retry_end = page.index("function apolloGetClientContext", retry_start)
+        retry = page[retry_start:retry_end]
+        self.assertIn("apolloShowTyping(\n            userMessage,", retry)
+        self.assertNotIn("isImageGeneration", retry)
+        self.assertNotIn("hasAttachments", retry)
 
     def test_quiz_content_uses_the_same_math_renderer(self):
         client = (ROOT / "apollo_genui.js").read_text()
