@@ -124,6 +124,8 @@ class GenerativeUITests(unittest.TestCase):
         self.assertIn("V60 dose question must include", prompt)
         self.assertIn("safe removable_hole function_explorer", prompt)
         self.assertIn('metric_trend with unit "%"', prompt)
+        self.assertIn('"id":"limit-explorer"', prompt)
+        self.assertIn("explorer and quiz are both required", prompt)
 
     def test_interactive_widget_schemas_are_bounded(self):
         sanitize = self.items["apollo_sanitize_genui_content"]

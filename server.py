@@ -1500,6 +1500,13 @@ target,value,min,max,step}. This is the only supported adjustable math function.
 It safely explores \(f(x)=(x^2-a^2)/(x-a)\) near \(x=a\), shows the removable
 hole, the simplified value \(x+a\), and the target limit \(2a\). Use it for an
 adjustable limits example; never send arbitrary expressions or executable code.
+A complete valid example is:
+```apollo-ui
+{"blocks":[{"type":"function_explorer","id":"limit-explorer","title":"Approach the hole","preset":"removable_hole","target":1,"value":0.5,"min":-1,"max":3,"step":0.1}]}
+```
+For an adjustable limits lesson, emit this component with suitable numeric
+parameters immediately after the opening explanation, before the practice quiz.
+Do not substitute prose that merely asks the user to imagine adjusting a value.
 
 Metric trend: {type:"metric_trend",id,title,subtitle?,unit,data_kind,
 ranges:[7,30],items:[{label,value,description?}]}. Use it for genuine measured
@@ -1560,7 +1567,8 @@ from a literal keyword match:
   and calculated water in grams.
 - When the user asks to learn a limit with an adjustable example, include the
   safe removable_hole function_explorer plus a short, independently validated
-  practice quiz. Do not merely tell the user to imagine changing a parameter.
+  practice quiz. The explorer and quiz are both required; neither substitutes
+  for the other.
 - When the user asks for a recovery trend and WHOOP recovery_history contains
   real points, include metric_trend with unit "%", the exact dated recovery
   values, every supported 7/30-day range, and selected-day descriptions. WHOOP
