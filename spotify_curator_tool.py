@@ -360,6 +360,8 @@ def playback_snapshot(data):
     item = data.get("item") if isinstance(data.get("item"), dict) else {}
     compact = compact_queue_item(item) if item else None
     device = data.get("device") if isinstance(data.get("device"), dict) else {}
+    actions = data.get("actions") if isinstance(data.get("actions"), dict) else {}
+    disallows = actions.get("disallows") if isinstance(actions.get("disallows"), dict) else {}
     if not compact:
         return {
             "playing": False,
@@ -382,10 +384,86 @@ def playback_snapshot(data):
         "sampled_at_ms": int(time.time() * 1000),
         "device": device.get("name"),
         "device_type": device.get("type"),
+        "device_key": hashlib.sha256(
+            str(device.get("id") or "").encode("utf-8")
+        ).hexdigest()[:16] if device.get("id") else None,
         "track_id": compact.get("id"),
         "spotify_url": compact.get("spotify_url"),
+        "disallows": disallows,
         "playback_state": "playing" if data.get("is_playing") else "paused",
         "connection_state": "connected",
+    }
+
+
+def playback_control(spotify, action, position_ms=None):
+    """Run one supported Spotify Connect transport operation.
+
+    Spotify controls the active device. Apollo never transfers playback or
+    rebuilds a context as a substitute for a transport command.
+    """
+    action = str(action or "").strip().lower()
+    if action not in {"play", "pause", "next", "previous", "seek"}:
+        raise ValueError("Invalid Spotify action")
+
+    state = spotify_read(spotify.current_playback, attempts=1) or {}
+    device = state.get("device") if isinstance(state.get("device"), dict) else {}
+    if not device.get("id") or device.get("is_restricted"):
+        device = active_device(spotify)
+    device_id = device.get("id")
+
+    if action == "play":
+        spotify.start_playback(device_id=device_id)
+    elif action == "pause":
+        spotify.pause_playback(device_id=device_id)
+    elif action == "next":
+        spotify.next_track(device_id=device_id)
+    elif action == "previous":
+        spotify.previous_track(device_id=device_id)
+    else:
+        try:
+            position_ms = max(0, int(position_ms))
+        except (TypeError, ValueError) as error:
+            raise ValueError("Invalid seek position") from error
+        spotify.seek_track(position_ms, device_id=device_id)
+
+    # Mutations are intentionally never retried: a timeout can occur after
+    # Spotify accepted the command. Only the idempotent state read is repeated
+    # briefly so the UI receives Spotify's authoritative post-command state.
+    before_item = state.get("item") if isinstance(state.get("item"), dict) else {}
+    before_track = before_item.get("id")
+    before_progress = int(state.get("progress_ms") or 0)
+    confirmed = {}
+    for attempt in range(3):
+        confirmed = spotify_read(spotify.current_playback, attempts=1) or {}
+        confirmed_item = (
+            confirmed.get("item")
+            if isinstance(confirmed.get("item"), dict)
+            else {}
+        )
+        confirmed_progress = int(confirmed.get("progress_ms") or 0)
+        settled = (
+            (action == "play" and confirmed.get("is_playing") is True)
+            or (action == "pause" and confirmed.get("is_playing") is False)
+            or (action == "next" and confirmed_item.get("id") != before_track)
+            or (
+                action == "previous"
+                and (
+                    confirmed_item.get("id") != before_track
+                    or confirmed_progress + 1000 < before_progress
+                )
+            )
+            or (
+                action == "seek"
+                and abs(confirmed_progress - position_ms) <= 2500
+            )
+        )
+        if settled or attempt == 2:
+            break
+        time.sleep(.15 * (attempt + 1))
+    return {
+        "ok": True,
+        "action": action,
+        "playback": playback_snapshot(confirmed),
     }
 
 
@@ -582,14 +660,14 @@ def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command not in {
         "context", "resolve", "play-queue", "start-curation", "restore-queue", "build-curation",
-        "playback-state", "recent-contexts", "queue", "queue-play",
+        "playback-state", "playback-control", "recent-contexts", "queue",
         "queue-add", "track-search", "shuffle",
     }:
         raise SystemExit(
             "Usage: spotify_curator_tool.py "
             "context|resolve|play-queue|start-curation|restore-queue|build-curation|"
-            "playback-state|recent-contexts|queue|"
-            "queue-play|queue-add|track-search|shuffle [JSON]"
+            "playback-state|playback-control|recent-contexts|queue|"
+            "queue-add|track-search|shuffle [JSON]"
         )
     try:
         if command == "context":
@@ -618,24 +696,18 @@ def main():
             result = playback_snapshot(
                 spotify_read(spotify_client().current_playback, attempts=1)
             )
+        elif command == "playback-control":
+            payload = json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
+            result = playback_control(
+                spotify_client(),
+                payload.get("action"),
+                payload.get("position_ms"),
+            )
         elif command == "recent-contexts":
             result = recent_contexts_snapshot(spotify_client())
         elif command == "queue":
             spotify = spotify_client()
             result = queue_snapshot(spotify_read(spotify.queue))
-        elif command == "queue-play":
-            payload = json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
-            uris = payload.get("uris") or []
-            if (
-                not isinstance(uris, list) or not uris or len(uris) > 100
-                or any(
-                    not isinstance(uri, str) or not uri.startswith("spotify:track:")
-                    for uri in uris
-                )
-            ):
-                raise ValueError("Invalid queue sequence")
-            spotify_client().start_playback(uris=uris)
-            result = {"ok": True}
         elif command == "queue-add":
             uri = str(sys.argv[2] if len(sys.argv) > 2 else "")
             if not uri.startswith("spotify:track:"):

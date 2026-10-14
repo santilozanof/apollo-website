@@ -504,12 +504,13 @@ class MusicQueueFrontendTests(unittest.TestCase):
         self.assertNotIn("queueData.queue.push(item)", source)
         self.assertIn("await loadQueue(true);", source)
 
-    def test_queue_rebuild_reuses_apollo_motion_and_resizes_the_player_grid(self):
+    def test_queue_is_an_independent_scrollable_overlay(self):
         source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
         self.assertIn("transition:opacity 220ms ease, transform 320ms var(--ease);", source)
         self.assertIn(".apollo-music-stage {", source)
-        self.assertIn("grid-template-columns:minmax(0,1fr) clamp(286px,25vw,324px);", source)
-        self.assertIn("gap:16px;", source)
+        self.assertIn("grid-template-columns:minmax(0,1fr);", source)
+        self.assertIn("position:fixed;", source)
+        self.assertNotIn("grid-template-columns:minmax(0,1fr) clamp(286px,25vw,324px);", source)
         self.assertIn("height:clamp(470px,58vh,540px);", source)
         self.assertIn(".apollo-queue-scroll { position:relative; flex:1; min-height:0; overflow-y:auto;", source)
         self.assertIn('musicStage.append(musicPlayer, musicQueuePanel);', source)
@@ -535,13 +536,25 @@ class MusicQueueFrontendTests(unittest.TestCase):
         self.assertNotIn("apollo-presence-queue", source)
         self.assertIn("body.apollo-music-queue-open #apolloPresence", source)
 
-    def test_shuffle_uses_spotify_and_never_reorders_the_browser_array(self):
+    def test_upcoming_queue_is_informational_and_has_no_fake_controls(self):
         source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
-        self.assertIn('fetch("/api/spotify/shuffle"', source)
-        self.assertIn("Turn on Spotify shuffle", source)
-        self.assertNotIn("Math.random() * (i + 1)", source)
-        self.assertNotIn("queueData.queue.splice", source)
-        self.assertNotIn("apollo.music.queue.order", source)
+        server = SERVER.read_text(encoding="utf-8")
+        adapter = (SERVER.parent / "spotify_curator_tool.py").read_text(encoding="utf-8")
+        for unsupported in (
+            "/api/spotify/queue/play", "playQueueIndex", "data-queue-index",
+            "apolloQueueActions", "apolloQueueRefresh", "apollo-queue-more",
+            "apollo-queue-art-play", "Turn on Spotify shuffle",
+            "Refresh from Spotify",
+        ):
+            self.assertNotIn(unsupported, source)
+        self.assertNotIn("apollo_spotify_queue_play", server)
+        self.assertNotIn('"queue-play"', adapter)
+        self.assertIn('fetch("/api/spotify/queue/add"', source)
+
+    def test_queue_automatically_synchronizes_while_open(self):
+        source = (SERVER.parent / "index.html").read_text(encoding="utf-8")
+        self.assertIn("queueSyncTimer = window.setInterval(() => loadQueue(true), 10000)", source)
+        self.assertIn("clearInterval(queueSyncTimer)", source)
 
     def test_progressive_worker_status_uses_existing_drawer(self):
         source = (SERVER.parent / "index.html").read_text(encoding="utf-8")

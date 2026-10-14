@@ -6115,29 +6115,14 @@ def spotify_play_recent_context(
 
 
 def spotify_playback_command(action, position_ms=None):
-    allowed = {
-        "pause": "pause",
-        "play": "resume",
-        "resume": "resume",
-        "next": "next",
-        "previous": "previous",
-        "seek": "seek"
-    }
-
-    command = allowed.get(
-        str(action).strip().lower()
-    )
-
-    if not command:
+    action = str(action or "").strip().lower()
+    if action == "resume":
+        action = "play"
+    if action not in {"pause", "play", "next", "previous", "seek"}:
         raise ValueError("Invalid Spotify action")
 
-    args = [
-        SPOTIFY_PYTHON,
-        SPOTIFY_TOOL,
-        command
-    ]
-
-    if command == "seek":
+    payload = {"action": action}
+    if action == "seek":
         try:
             position_ms = max(
                 0,
@@ -6145,29 +6130,24 @@ def spotify_playback_command(action, position_ms=None):
             )
         except (TypeError, ValueError):
             raise ValueError("Invalid seek position")
+        payload["position_ms"] = position_ms
 
-        args.append(
-            str(position_ms)
-        )
-
-    result = subprocess.run(
-        args,
-        capture_output=True,
-        text=True,
-        timeout=15
+    result = apollo_spotify_tool_command(
+        "playback-control",
+        json.dumps(payload, ensure_ascii=False),
+        timeout=12,
     )
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            result.stderr.strip()
-            or "Spotify command failed"
-        )
-
     apollo_spotify_invalidate_caches()
+    playback = spotify_playback_state(result.get("playback") or {})
+    with SPOTIFY_PLAYBACK_CACHE_LOCK:
+        SPOTIFY_PLAYBACK_CACHE.update(
+            value=dict(playback),
+            at=time.monotonic(),
+        )
     return {
         "ok": True,
         "action": action,
-        "playback": get_now_playing(force=True)
+        "playback": playback,
     }
 
 
@@ -6958,6 +6938,12 @@ def apollo_spotify_tool_command(command, argument=None, timeout=12):
             "invalid_grant", "refresh token", "not authenticated", "not authorized",
         )):
             raise RuntimeError("Spotify needs to be reconnected.")
+        if "no active, controllable spotify device" in raw_error:
+            raise RuntimeError("Open Spotify on an active device and try again.")
+        if failure.get("status") in {403, 404}:
+            raise RuntimeError(
+                "Spotify cannot control the current device or playback context."
+            )
         raise RuntimeError("Spotify is temporarily unavailable. Try again in a moment.")
     try:
         return json.loads(result.stdout.strip() or "{}")
@@ -7000,23 +6986,6 @@ def apollo_spotify_queue_snapshot(force=False):
         with SPOTIFY_QUEUE_CACHE_LOCK:
             SPOTIFY_QUEUE_CACHE.update(value=dict(value), at=time.monotonic())
         return value
-
-
-def apollo_spotify_queue_play(uris):
-    if (
-        not isinstance(uris, list) or not uris or len(uris) > 100
-        or any(
-            not isinstance(uri, str) or not uri.startswith("spotify:track:")
-            for uri in uris
-        )
-    ):
-        raise ValueError("Invalid queue sequence")
-    result = apollo_spotify_queue_command(
-        "queue-play",
-        json.dumps({"uris": uris}, ensure_ascii=False),
-    )
-    apollo_spotify_invalidate_caches()
-    return result
 
 
 def apollo_spotify_queue_add(uri):
@@ -20846,20 +20815,6 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     {"error": str(exc)},
                     500
                 )
-
-            return
-
-
-        # ─────────────────────────────
-        if self.path == "/api/spotify/queue/play":
-
-            try:
-                data = read_json(self)
-                json_response(self, apollo_spotify_queue_play(data.get("uris")))
-            except ValueError as exc:
-                json_response(self, {"error": str(exc)}, 400)
-            except Exception as exc:
-                json_response(self, {"error": str(exc)}, 503)
 
             return
 

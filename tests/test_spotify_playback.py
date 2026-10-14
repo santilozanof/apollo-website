@@ -6,6 +6,8 @@ import time
 import unittest
 from pathlib import Path
 
+import spotify_curator_tool
+
 
 SERVER = Path(__file__).resolve().parents[1] / "server.py"
 
@@ -161,3 +163,93 @@ class SpotifyPlaybackStateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Retry in 7 seconds"):
             command("queue")
         self.assertEqual(calls, [1])
+
+    def test_supported_controls_target_the_active_device_and_return_state(self):
+        calls = []
+
+        class Spotify:
+            def current_playback(self):
+                return {
+                    "is_playing": True,
+                    "progress_ms": 1000,
+                    "device": {"id": "active", "name": "Mac", "is_active": True},
+                    "item": {
+                        "id": "track", "uri": "spotify:track:track", "name": "Song",
+                        "duration_ms": 120000, "artists": [{"name": "Artist"}],
+                        "album": {"name": "Album", "images": []},
+                    },
+                }
+
+            def pause_playback(self, device_id=None):
+                calls.append(("pause", device_id))
+
+            def start_playback(self, device_id=None):
+                calls.append(("play", device_id))
+
+            def next_track(self, device_id=None):
+                calls.append(("next", device_id))
+
+            def previous_track(self, device_id=None):
+                calls.append(("previous", device_id))
+
+            def seek_track(self, position_ms, device_id=None):
+                calls.append(("seek", position_ms, device_id))
+
+        spotify = Spotify()
+        paused = spotify_curator_tool.playback_control(spotify, "pause")
+        spotify_curator_tool.playback_control(spotify, "play")
+        spotify_curator_tool.playback_control(spotify, "next")
+        spotify_curator_tool.playback_control(spotify, "previous")
+        sought = spotify_curator_tool.playback_control(spotify, "seek", 42000)
+        self.assertEqual(calls, [
+            ("pause", "active"), ("play", "active"), ("next", "active"),
+            ("previous", "active"), ("seek", 42000, "active"),
+        ])
+        self.assertTrue(paused["ok"])
+        self.assertEqual(sought["playback"]["track_id"], "track")
+
+    def test_missing_active_device_returns_actionable_error(self):
+        class Runner:
+            TimeoutExpired = subprocess.TimeoutExpired
+
+            @staticmethod
+            def run(*_args, **_kwargs):
+                return type("Result", (), {
+                    "returncode": 2,
+                    "stdout": "",
+                    "stderr": json.dumps({
+                        "status": None,
+                        "error": "No active, controllable Spotify device is available",
+                    }),
+                })()
+
+        command = load_function("apollo_spotify_tool_command", {
+            "json": json,
+            "subprocess": Runner,
+            "SPOTIFY_PYTHON": "python",
+            "SPOTIFY_CURATOR_TOOL": Path("spotify_curator_tool.py"),
+            "apollo_spotify_rate_limit_remaining": lambda: 0,
+            "apollo_spotify_set_rate_limit": lambda value: value,
+        })
+        with self.assertRaisesRegex(RuntimeError, "Open Spotify on an active device"):
+            command("playback-control", "{}")
+
+    def test_control_requires_an_active_controllable_device(self):
+        class Spotify:
+            def current_playback(self):
+                return {}
+
+            def devices(self):
+                return {"devices": [{"id": "restricted", "is_active": True, "is_restricted": True}]}
+
+        with self.assertRaisesRegex(RuntimeError, "No active, controllable Spotify device"):
+            spotify_curator_tool.playback_control(Spotify(), "next")
+
+    def test_control_backend_uses_the_shared_supported_adapter(self):
+        source = SERVER.read_text(encoding="utf-8")
+        start = source.index("def spotify_playback_command")
+        end = source.index("# APOLLO MUSIC — PERSONAL PLAYLIST ALIASES", start)
+        function = source[start:end]
+        self.assertIn('"playback-control"', function)
+        self.assertNotIn("SPOTIFY_TOOL", function)
+        self.assertNotIn("subprocess.run", function)

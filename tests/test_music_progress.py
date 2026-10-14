@@ -113,6 +113,9 @@ console.log(JSON.stringify({uninterrupted, paused, resumed, sought, changedTrack
         self.assertIn("|| trackChanged", index)
         self.assertIn("|| deviceChanged", index)
         self.assertIn("|| playStateChanged", index)
+        self.assertIn('progressTrack.addEventListener("click"', index)
+        self.assertIn('spotifyControl("seek", Math.round(nextPosition))', index)
+        self.assertIn('position_ms:', index)
 
     def test_music_view_reuses_the_single_global_poll(self):
         source = INDEX.read_text(encoding="utf-8")

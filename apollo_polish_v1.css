@@ -351,7 +351,6 @@
 /* Popovers and empty states */
 .apollo-tools-menu,
 .apollo-history-menu,
-.apollo-queue-menu,
 .apollo-date-picker,
 .apollo-time-picker,
 .routine-options-menu {
@@ -359,9 +358,7 @@
 }
 
 .apollo-tools-item,
-.apollo-history-menu-item,
-.apollo-queue-menu button,
-.apollo-queue-menu a {
+.apollo-history-menu-item {
     min-height: 36px !important;
     padding-inline: var(--apollo-space-3) !important;
 }

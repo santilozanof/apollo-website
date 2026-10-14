@@ -1442,7 +1442,10 @@
     }
 
     .apollo-play-queue {
-        max-height: calc(100dvh - 70px) !important;
+        bottom: calc(var(--apollo-mobile-nav-h, 64px) + env(safe-area-inset-bottom)) !important;
+        height: min(74dvh, calc(100dvh - 88px - env(safe-area-inset-bottom))) !important;
+        max-height: calc(100dvh - 88px - env(safe-area-inset-bottom)) !important;
+        border-radius: 22px !important;
     }
 
     .apollo-queue-header {
@@ -1453,6 +1456,10 @@
     .apollo-queue-row {
         gap: 8px !important;
         padding: 7px 6px !important;
+    }
+
+    .apollo-queue-footer {
+        padding: 8px 10px 12px !important;
     }
 
     .apollo-task-modal-backdrop,

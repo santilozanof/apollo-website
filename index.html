@@ -22242,7 +22242,7 @@ html.apollo-jarvis-mode .jv10-core-ring.inner::after {
 <link
     id="apollo-mobile-v1-css"
     rel="stylesheet"
-    href="/apollo_mobile_v1.css?v=20261014-1"
+    href="/apollo_mobile_v1.css?v=20261014-2"
 >
 
 
@@ -38270,7 +38270,13 @@ html[data-theme="light"]
 
     background: var(--border-hover);
 
-    cursor: default;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.apollo-now-progress-track:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--text) 45%, transparent);
+    outline-offset: 6px;
 }
 
 .apollo-now-progress-fill {
@@ -38380,17 +38386,11 @@ html[data-theme="light"]
 .apollo-queue-trigger { display:inline-grid; }
 .apollo-music-stage {
     display:grid;
-    grid-template-columns:minmax(0,1fr) 0;
+    grid-template-columns:minmax(0,1fr);
     grid-template-rows:minmax(0,1fr);
-    gap:0;
     align-items:stretch;
     min-width:0;
     height:clamp(470px,58vh,540px);
-    transition:grid-template-columns 320ms var(--ease), gap 320ms var(--ease);
-}
-.apollo-music-view.queue-open .apollo-music-stage {
-    grid-template-columns:minmax(0,1fr) clamp(286px,25vw,324px);
-    gap:16px;
 }
 .apollo-music-stage .apollo-now-playing { min-width:0; min-height:0; height:100%; }
 .apollo-play-queue-scrim {
@@ -38403,12 +38403,13 @@ html[data-theme="light"]
     transition:opacity 220ms ease;
 }
 .apollo-play-queue {
-    position:relative;
-    z-index:5;
-    width:100%;
-    min-width:0;
+    position:fixed;
+    z-index:1200;
+    top:24px;
+    right:24px;
+    bottom:24px;
+    width:min(360px,calc(100vw - 48px));
     min-height:0;
-    height:100%;
     display:flex;
     flex-direction:column;
     overflow:hidden;
@@ -38422,6 +38423,13 @@ html[data-theme="light"]
     transition:opacity 220ms ease, transform 320ms var(--ease);
 }
 .apollo-play-queue.is-open { opacity:1; transform:translate3d(0,0,0); pointer-events:auto; }
+.apollo-music-view.queue-open .apollo-play-queue-scrim { opacity:1; pointer-events:auto; }
+body.apollo-music-queue-open #apolloPresence {
+    opacity:0;
+    visibility:hidden;
+    pointer-events:none;
+    transform:translateY(8px);
+}
 .apollo-play-queue[hidden], .apollo-queue-search[hidden], .apollo-queue-results[hidden], .apollo-queue-add[hidden] { display:none; }
 .apollo-queue-sheet-handle { display:none; }
 .apollo-queue-header { display:flex; align-items:center; min-height:58px; padding:12px 12px 8px 16px; gap:4px; border-bottom:1px solid transparent; }
@@ -38442,24 +38450,18 @@ html[data-theme="light"]
 .apollo-queue-scroll:hover { scrollbar-color:var(--border-hover) transparent; }
 .apollo-queue-section-label { position:sticky; top:0; z-index:2; padding:11px 8px 7px; color:var(--dim); background:linear-gradient(var(--surface) 75%, transparent); font-size:9px; font-weight:650; letter-spacing:.13em; text-transform:uppercase; }
 .apollo-queue-list { min-height:72px; }
-.apollo-queue-row { position:relative; width:100%; min-width:0; display:grid; grid-template-columns:42px minmax(0,1fr) auto; align-items:center; gap:9px; padding:7px 6px; border:0; border-radius:11px; background:transparent; color:var(--text); text-align:left; transition:background 150ms ease, transform 220ms var(--ease), opacity 150ms ease; }
-.apollo-queue-row:hover, .apollo-queue-row:focus-within, .apollo-queue-row:focus-visible { background:var(--surface-hover); outline:none; }
+.apollo-queue-row { position:relative; width:100%; min-width:0; display:grid; grid-template-columns:42px minmax(0,1fr) auto; align-items:center; gap:9px; padding:7px 6px; border:0; border-radius:11px; background:transparent; color:var(--text); text-align:left; cursor:default; }
 .apollo-queue-row.current { grid-template-columns:8px 36px minmax(0,1fr); margin-bottom:2px; padding:4px 6px; background:transparent; }
 .apollo-queue-row.current .apollo-queue-art-wrap { width:36px; height:36px; }
 .apollo-queue-row.current .apollo-queue-title { font-size:12px; }
 .apollo-queue-row.current .apollo-queue-artist { margin-top:2px; font-size:10px; }
 .apollo-queue-art-wrap { position:relative; width:42px; height:42px; }
 .apollo-queue-art { width:100%; height:100%; display:block; border-radius:7px; object-fit:cover; background:var(--surface-hover); }
-.apollo-queue-art-play { position:absolute; inset:0; display:grid; place-items:center; border:0; border-radius:7px; color:white; background:rgba(0,0,0,.46); opacity:0; transition:opacity 140ms ease; }
-.apollo-queue-row:hover .apollo-queue-art-play { opacity:1; }
 .apollo-queue-copy { min-width:0; }
 .apollo-queue-title,.apollo-queue-artist { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .apollo-queue-title { font-size:13px; font-weight:570; }
 .apollo-queue-artist { margin-top:3px; color:var(--muted); font-size:11px; }
 .apollo-queue-duration { color:var(--dim); font-size:10px; font-variant-numeric:tabular-nums; }
-.apollo-queue-more { width:26px; height:26px; display:none; place-items:center; border:0; border-radius:50%; background:transparent; color:var(--muted); cursor:pointer; }
-.apollo-queue-row:hover .apollo-queue-more, .apollo-queue-row:focus-within .apollo-queue-more { display:grid; }
-.apollo-queue-row:hover .apollo-queue-duration, .apollo-queue-row:focus-within .apollo-queue-duration { display:none; }
 .apollo-queue-eq { display:flex; align-items:flex-end; gap:1px; height:10px; }
 .apollo-queue-eq i { width:2px; height:5px; border-radius:2px; background:var(--text); opacity:.62; animation:apolloQueueEq .8s ease-in-out infinite alternate; }
 .apollo-queue-eq i:nth-child(2){animation-delay:-.3s}.apollo-queue-eq i:nth-child(3){animation-delay:-.55s}
@@ -38475,10 +38477,6 @@ html[data-theme="light"]
 .apollo-queue-result { width:100%; display:grid; grid-template-columns:38px minmax(0,1fr) auto; gap:9px; align-items:center; padding:6px; border:0; border-radius:9px; background:transparent; color:var(--text); text-align:left; cursor:pointer; }
 .apollo-queue-result:hover { background:var(--surface-hover); }
 .apollo-queue-result img { width:38px; height:38px; border-radius:6px; object-fit:cover; }
-.apollo-queue-menu { position:fixed; z-index:1210; width:176px; padding:6px; border:1px solid var(--border); border-radius:12px; background:color-mix(in srgb,var(--surface) 94%,transparent); box-shadow:0 18px 44px rgba(0,0,0,.3); backdrop-filter:blur(18px); }
-.apollo-queue-menu button,.apollo-queue-menu a { width:100%; min-height:34px; display:flex; align-items:center; padding:0 10px; border:0; border-radius:7px; background:transparent; color:var(--text); text-decoration:none; font:inherit; font-size:11px; cursor:pointer; }
-.apollo-queue-menu button:hover,.apollo-queue-menu a:hover { background:var(--surface-hover); }
-.apollo-queue-menu .danger { color:#d98282; }
 .apollo-queue-status { max-width:220px; margin:0 auto; padding:26px 10px; color:var(--muted); font-size:12px; line-height:1.5; text-align:center; white-space:pre-line; }
 .apollo-queue-status button { margin-top:8px; border:0; background:transparent; color:var(--text); cursor:pointer; font:inherit; font-size:11px; }
 .apollo-queue-warning {
@@ -38489,8 +38487,7 @@ html[data-theme="light"]
 .apollo-queue-warning button { padding:0; border:0; background:transparent; color:var(--text); font:inherit; font-size:10px; cursor:pointer; }
 
 @media (max-width:900px) {
-    .apollo-music-stage,
-    .apollo-music-view.queue-open .apollo-music-stage { grid-template-columns:minmax(0,1fr); gap:0; height:auto; }
+    .apollo-music-stage { height:auto; }
     .apollo-play-queue {
         position:fixed;
         z-index:1200;
@@ -38535,6 +38532,19 @@ html[data-theme="light"]
     border-radius: 50%;
 
     background: #55b96a;
+}
+
+.apollo-now-control-status {
+    min-height: 16px;
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.4;
+}
+
+.apollo-now-control-status:empty {
+    min-height: 0;
+    margin-top: 0;
 }
 
 
@@ -38678,7 +38688,7 @@ html[data-theme="light"]
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .apollo-play-queue, .apollo-play-queue-scrim, .apollo-music-stage, .apollo-queue-row { transition-duration:1ms !important; }
+    .apollo-play-queue, .apollo-play-queue-scrim { transition-duration:1ms !important; }
     .apollo-queue-eq i { animation:none; height:7px; }
     .apollo-queue-build-dot { animation:none; }
 }
@@ -38792,6 +38802,10 @@ html[data-theme="light"]
                             id="apolloNowProgressTrack"
                             role="slider"
                             aria-label="Song position"
+                            aria-valuemin="0"
+                            aria-valuemax="0"
+                            aria-valuenow="0"
+                            tabindex="0"
                         >
                             <div
                                 class="apollo-now-progress-fill"
@@ -38880,10 +38894,6 @@ html[data-theme="light"]
                                 <div class="apollo-queue-header">
                                     <div class="apollo-queue-heading">Queue</div>
                                     <span class="apollo-queue-count" id="apolloQueueCount"></span>
-                                    <button class="apollo-queue-icon" id="apolloQueueRefresh" type="button" aria-label="Refresh queue" title="Refresh queue">
-                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8a7 7 0 1 0 1 5M19 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                                    </button>
-                                    <button class="apollo-queue-icon" id="apolloQueueActions" type="button" aria-label="Queue actions" title="Queue actions">•••</button>
                                     <button class="apollo-queue-icon" id="apolloQueueClose" type="button" aria-label="Close queue" title="Close queue">
                                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
                                     </button>
@@ -38922,6 +38932,13 @@ html[data-theme="light"]
                         </span>
 
                     </div>
+
+                    <div
+                        class="apollo-now-control-status"
+                        id="apolloNowControlStatus"
+                        role="status"
+                        aria-live="polite"
+                    ></div>
 
                 </div>
 
@@ -39047,6 +39064,11 @@ html[data-theme="light"]
             "#apolloNowProgressFill"
         );
 
+    const progressTrack =
+        musicView.querySelector(
+            "#apolloNowProgressTrack"
+        );
+
     const elapsed =
         musicView.querySelector(
             "#apolloNowElapsed"
@@ -39065,6 +39087,11 @@ html[data-theme="light"]
     const deviceText =
         musicView.querySelector(
             "#apolloNowDeviceText"
+        );
+
+    const controlStatus =
+        musicView.querySelector(
+            "#apolloNowControlStatus"
         );
 
     const playButton =
@@ -39090,9 +39117,7 @@ html[data-theme="light"]
     const queueScroll = musicView.querySelector("#apolloQueueScroll");
     const queueScrim = musicView.querySelector(".apollo-play-queue-scrim");
     const queueClose = musicView.querySelector("#apolloQueueClose");
-    const queueRefresh = musicView.querySelector("#apolloQueueRefresh");
     const queueCount = musicView.querySelector("#apolloQueueCount");
-    const queueActions = musicView.querySelector("#apolloQueueActions");
     const queueAdd = musicView.querySelector("#apolloQueueAdd");
     const queueSearch = musicView.querySelector("#apolloQueueSearch");
     const queueSearchInput = musicView.querySelector("#apolloQueueSearchInput");
@@ -39121,12 +39146,11 @@ html[data-theme="light"]
     let queueRefreshError = "";
     let queueFetchedAt = 0;
     let queueRequest = 0;
-    let queueMutationRunning = false;
     let queueTransitionTimer = null;
     let queueJobTimer = null;
+    let queueSyncTimer = null;
     let queueJobRevision = "";
     let queueSearchTimer = null;
-    let queueMenu = null;
 
     let lastRenderedTrackId = null;
 
@@ -39333,6 +39357,40 @@ html[data-theme="light"]
 
         fill.style.width =
             `${percentage}%`;
+
+        progressTrack.setAttribute(
+            "aria-valuemax",
+            String(Math.max(0, Math.round(total)))
+        );
+        progressTrack.setAttribute(
+            "aria-valuenow",
+            String(Math.max(0, Math.round(now)))
+        );
+        progressTrack.setAttribute(
+            "aria-valuetext",
+            `${formatMs(now)} of ${formatMs(total)}`
+        );
+    }
+
+
+    function applyControlAvailability() {
+        if (commandRunning) {
+            playButton.disabled = true;
+            previousButton.disabled = true;
+            nextButton.disabled = true;
+            progressTrack.setAttribute("aria-disabled", "true");
+            return;
+        }
+        const disallows = playback?.disallows || {};
+        playButton.disabled = Boolean(
+            playback?.playing ? disallows.pausing : disallows.resuming
+        );
+        previousButton.disabled = Boolean(disallows.skipping_prev);
+        nextButton.disabled = Boolean(disallows.skipping_next);
+        progressTrack.setAttribute(
+            "aria-disabled",
+            String(Boolean(disallows.seeking || !playback?.duration_ms))
+        );
     }
 
 
@@ -39447,6 +39505,11 @@ html[data-theme="light"]
 
             backdrop.style.backgroundImage =
                 "none";
+
+            playButton.disabled = true;
+            previousButton.disabled = true;
+            nextButton.disabled = true;
+            progressTrack.setAttribute("aria-disabled", "true");
 
             return;
         }
@@ -39581,6 +39644,8 @@ html[data-theme="light"]
             playback.playing
             ? "Pause"
             : "Play";
+
+        applyControlAvailability();
 
 
         if (playback.device) {
@@ -39767,16 +39832,9 @@ html[data-theme="light"]
         queueList.appendChild(status);
     }
 
-    function queueRow(item, index, currentTrack = false) {
+    function queueRow(item, currentTrack = false) {
         const row = document.createElement("div");
         row.className = `apollo-queue-row${currentTrack ? " current" : ""}`;
-        row.dataset.queueIndex = String(index);
-        row.dataset.queueUri = item.uri || "";
-        if (!currentTrack) {
-            row.tabIndex = 0;
-            row.setAttribute("role", "button");
-            row.setAttribute("aria-label", `Play ${item.name || "track"}`);
-        }
 
         if (currentTrack) {
             const eq = document.createElement("span");
@@ -39793,12 +39851,6 @@ html[data-theme="light"]
         image.loading = "lazy";
         image.src = item.artwork || "/local-files-cover.jpg";
         artWrap.appendChild(image);
-        if (!currentTrack) {
-            const play = document.createElement("span");
-            play.className = "apollo-queue-art-play";
-            play.textContent = "▶";
-            artWrap.appendChild(play);
-        }
 
         const copy = document.createElement("div");
         copy.className = "apollo-queue-copy";
@@ -39817,12 +39869,7 @@ html[data-theme="light"]
             const durationLabel = document.createElement("span");
             durationLabel.className = "apollo-queue-duration";
             durationLabel.textContent = item.duration_ms ? formatMs(item.duration_ms) : "";
-            const more = document.createElement("button");
-            more.type = "button";
-            more.className = "apollo-queue-more";
-            more.textContent = "•••";
-            more.setAttribute("aria-label", `More options for ${item.name || "track"}`);
-            row.append(durationLabel, more);
+            row.appendChild(durationLabel);
         }
         return row;
     }
@@ -39852,7 +39899,7 @@ html[data-theme="light"]
             const label = document.createElement("div");
             label.className = "apollo-queue-section-label";
             label.textContent = "Now playing";
-            queueList.append(label, queueRow(queueData.current, -1, true));
+            queueList.append(label, queueRow(queueData.current, true));
         }
         const items = queueData.queue || [];
         if (items.length) {
@@ -39860,7 +39907,7 @@ html[data-theme="light"]
             label.className = "apollo-queue-section-label";
             label.textContent = "Up next";
             queueList.appendChild(label);
-            items.forEach((item, index) => queueList.appendChild(queueRow(item, index)));
+            items.forEach(item => queueList.appendChild(queueRow(item)));
         }
         if (!queueData.current && !items.length) {
             queueStatus("Nothing queued yet.\nAdd a song or keep listening and Spotify will fill this up.");
@@ -39942,13 +39989,17 @@ html[data-theme="light"]
 
     function startQueueJobPolling() {
         clearInterval(queueJobTimer);
+        clearInterval(queueSyncTimer);
         pollQueueJob();
         queueJobTimer = window.setInterval(pollQueueJob, 1200);
+        queueSyncTimer = window.setInterval(() => loadQueue(true), 10000);
     }
 
     function stopQueueJobPolling() {
         clearInterval(queueJobTimer);
+        clearInterval(queueSyncTimer);
         queueJobTimer = null;
+        queueSyncTimer = null;
         queueJobRevision = "";
         queueBuildStatus.hidden = true;
     }
@@ -39990,128 +40041,6 @@ html[data-theme="light"]
     });
     queueScrim.addEventListener("click", closeQueue);
     queueClose.addEventListener("click", closeQueue);
-    queueRefresh.addEventListener("click", () => {
-        loadQueue(true);
-    });
-
-    async function playQueueIndex(index) {
-        if (queueMutationRunning || !queueData?.queue?.[index]) return;
-        queueMutationRunning = true;
-        try {
-            const uris = queueData.queue.slice(index)
-                .map(item => item.uri)
-                .filter(uri => uri?.startsWith("spotify:track:"))
-                .slice(0, 100);
-            const response = await fetch("/api/spotify/queue/play", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({uris})
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || "Spotify playback failed");
-            window.apolloStopWipPlayback?.();
-            await new Promise(resolve => setTimeout(resolve, 300));
-            await Promise.all([loadNowPlaying(), loadQueue(true)]);
-        } catch (error) {
-            console.error("Apollo Spotify queue play:", error);
-        } finally {
-            queueMutationRunning = false;
-            renderQueue();
-        }
-    }
-
-    function closeQueueMenu() {
-        queueMenu?.remove();
-        queueMenu = null;
-    }
-
-    function openQueueMenu(anchor, actions) {
-        closeQueueMenu();
-        queueMenu = document.createElement("div");
-        queueMenu.className = "apollo-queue-menu";
-        queueMenu.setAttribute("role", "menu");
-        actions.filter(Boolean).forEach(action => {
-            const element = action.href ? document.createElement("a") : document.createElement("button");
-            if (action.href) {
-                element.href = action.href;
-                element.target = "_blank";
-                element.rel = "noopener";
-            } else {
-                element.type = "button";
-            }
-            element.textContent = action.label;
-            if (action.danger) element.className = "danger";
-            if (action.run) element.addEventListener("click", () => {
-                closeQueueMenu();
-                action.run();
-            });
-            queueMenu.appendChild(element);
-        });
-        document.body.appendChild(queueMenu);
-        const bounds = anchor.getBoundingClientRect();
-        queueMenu.style.left = `${Math.min(window.innerWidth - 188, Math.max(8, bounds.right - 176))}px`;
-        queueMenu.style.top = `${Math.min(window.innerHeight - queueMenu.offsetHeight - 8, bounds.bottom + 5)}px`;
-        queueMenu.querySelector("button,a")?.focus();
-    }
-
-    function trackActions(index) {
-        const item = queueData.queue[index];
-        return [
-            {label: "Play now", run: () => playQueueIndex(index)},
-            item.album_uri && {label: "Go to album", href: `https://open.spotify.com/album/${item.album_uri.split(":").pop()}`},
-            item.artist_uri && {label: "Go to artist", href: `https://open.spotify.com/artist/${item.artist_uri.split(":").pop()}`},
-        ];
-    }
-
-    queueList.addEventListener("click", event => {
-        const row = event.target.closest(".apollo-queue-row[data-queue-index]");
-        if (!row || Number(row.dataset.queueIndex) < 0) return;
-        const index = Number(row.dataset.queueIndex);
-        const more = event.target.closest(".apollo-queue-more");
-        if (more) {
-            event.stopPropagation();
-            openQueueMenu(more, trackActions(index));
-        } else {
-            playQueueIndex(index);
-        }
-    });
-    queueList.addEventListener("keydown", event => {
-        const row = event.target.closest(".apollo-queue-row[data-queue-index]");
-        if (row && (event.key === "Enter" || event.key === " ")) {
-            event.preventDefault();
-            playQueueIndex(Number(row.dataset.queueIndex));
-        }
-    });
-    function queueNotice(message) {
-        queueBuildText.textContent = message;
-        queueBuildStatus.hidden = false;
-        window.setTimeout(() => {
-            if (queueBuildText.textContent === message) queueBuildStatus.hidden = true;
-        }, 3600);
-    }
-
-    async function enableSpotifyShuffle() {
-        try {
-            const response = await fetch("/api/spotify/shuffle", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({state: true})
-            });
-            const data = await response.json();
-            if (!response.ok || data.shuffle_state !== true) {
-                throw new Error(data.error || "Shuffle is not available for this playback context.");
-            }
-            queueNotice("Spotify shuffle is on.");
-            await loadQueue(true);
-        } catch (error) {
-            queueNotice(error.message || "Shuffle is not available for this playback context.");
-        }
-    }
-
-    queueActions.addEventListener("click", () => openQueueMenu(queueActions, [
-        {label: "Turn on Spotify shuffle", run: enableSpotifyShuffle},
-        {label: "Refresh from Spotify", run: () => loadQueue(true)},
-    ]));
 
     queueAdd.addEventListener("click", () => {
         queueAdd.hidden = true;
@@ -40155,17 +40084,8 @@ html[data-theme="light"]
         }, 280);
     });
 
-    document.addEventListener("pointerdown", event => {
-        if (queueMenu && !queueMenu.contains(event.target) && !event.target.closest(".apollo-queue-more,#apolloQueueActions")) {
-            closeQueueMenu();
-        }
-    });
     document.addEventListener("keydown", event => {
         if (event.key !== "Escape") return;
-        if (queueMenu) {
-            closeQueueMenu();
-            return;
-        }
         if (!queueSearch.hidden) {
             queueSearch.hidden = true;
             queueResults.hidden = true;
@@ -40185,7 +40105,8 @@ html[data-theme="light"]
        ===================================================== */
 
     async function spotifyControl(
-        action
+        action,
+        positionMs = null
     ) {
 
         /*
@@ -40213,6 +40134,8 @@ html[data-theme="light"]
 
         commandRunning = true;
 
+        controlStatus.textContent = "";
+
 
         playButton.disabled =
             true;
@@ -40239,7 +40162,11 @@ html[data-theme="light"]
 
                         body:
                             JSON.stringify({
-                                action
+                                action,
+                                position_ms:
+                                    action === "seek"
+                                    ? positionMs
+                                    : undefined
                             })
                     }
                 );
@@ -40276,6 +40203,11 @@ html[data-theme="light"]
                 await loadNowPlaying();
             }
 
+            window.dispatchEvent(new CustomEvent(
+                "apollo:spotify-playback",
+                {detail: data.playback || playback}
+            ));
+
         }
 
         catch (error) {
@@ -40285,6 +40217,12 @@ html[data-theme="light"]
                 error
             );
 
+            controlStatus.textContent =
+                error.message
+                || "Spotify could not complete that action.";
+
+            await loadNowPlaying();
+
         }
 
         finally {
@@ -40293,17 +40231,47 @@ html[data-theme="light"]
                 false;
 
 
-            playButton.disabled =
-                false;
-
-            previousButton.disabled =
-                false;
-
-            nextButton.disabled =
-                false;
+            applyControlAvailability();
 
         }
     }
+
+
+    function seekTo(positionMs) {
+        const total = Number(playback?.duration_ms) || 0;
+        if (
+            commandRunning
+            || !total
+            || playback?.disallows?.seeking
+        ) {
+            return;
+        }
+        const nextPosition = Math.max(0, Math.min(total, Number(positionMs) || 0));
+        progressAnchor = nextPosition;
+        progressAnchorTime = Date.now();
+        renderProgress();
+        spotifyControl("seek", Math.round(nextPosition));
+    }
+
+
+    progressTrack.addEventListener("click", event => {
+        const bounds = progressTrack.getBoundingClientRect();
+        if (!bounds.width) return;
+        const fraction = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+        seekTo((playback?.duration_ms || 0) * fraction);
+    });
+
+    progressTrack.addEventListener("keydown", event => {
+        const step = event.shiftKey ? 15000 : 5000;
+        let target = null;
+        if (event.key === "ArrowLeft") target = currentProgress() - step;
+        if (event.key === "ArrowRight") target = currentProgress() + step;
+        if (event.key === "Home") target = 0;
+        if (event.key === "End") target = playback?.duration_ms || 0;
+        if (target === null) return;
+        event.preventDefault();
+        seekTo(target);
+    });
 
 
     playButton.addEventListener(
@@ -78806,14 +78774,14 @@ html.apollo-jarvis-mode
 <link
     id="apollo-polish-v1-css"
     rel="stylesheet"
-    href="/apollo_polish_v1.css?v=20261014-1"
+    href="/apollo_polish_v1.css?v=20261014-2"
 >
 
 <!-- Loaded last so the shared mobile layout contract wins over legacy inline page rules. -->
 <link
     id="apollo-mobile-layout-v18-css"
     rel="stylesheet"
-    href="/apollo_mobile_v1.css?v=20261014-1"
+    href="/apollo_mobile_v1.css?v=20261014-2"
 >
 
 <script src="/apollo_notifications.js?v=20260904-3"></script>
