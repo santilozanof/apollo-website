@@ -78,7 +78,7 @@ class GenerativeUITests(unittest.TestCase):
         source = (ROOT / "index.html").read_text()
         self.assertIn('href="/apollo_genui.css"', source)
         self.assertIn('src="/apollo_genui.js"', source)
-        self.assertIn("window.apolloGenUIStreamingText", source)
+        self.assertEqual(source.count("? window.apolloGenUIStreamingText("), 2)
 
     def test_prompt_requires_real_data_and_simple_fallback(self):
         prompt = self.items["APOLLO_GENERATIVE_UI_PROMPT"]

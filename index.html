@@ -26141,7 +26141,11 @@ if (!response.ok) {
                         message.style.display = "";
 
                         text.textContent =
-                            assistantContent;
+                            window.apolloGenUIStreamingText
+                                ? window.apolloGenUIStreamingText(
+                                    assistantContent
+                                )
+                                : assistantContent;
 
                     }
 
