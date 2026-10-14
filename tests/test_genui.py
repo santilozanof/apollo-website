@@ -46,6 +46,7 @@ class GenerativeUITests(unittest.TestCase):
             "_apollo_expression_facts", "_apollo_calculator_field_matches",
             "_apollo_evaluate_expression", "_apollo_calculator_find_field",
             "_apollo_calculator_formula_matches",
+            "_apollo_financial_calculator_fallback",
             "_apollo_calculator_meets_requirements",
             "_apollo_validate_ui_requirements", "apollo_sanitize_genui_content",
         )
@@ -465,6 +466,26 @@ class GenerativeUITests(unittest.TestCase):
             "```apollo-ui\n" + json.dumps(correct) + "\n```"
         )
         self.assertEqual(validate(correct_content, requirements), [])
+
+    def test_financial_formula_registry_fallbacks_are_functional(self):
+        extract = self.items["_apollo_extract_ui_requirements"]
+        validate = self.items["_apollo_validate_ui_requirements"]
+        fallback = self.items["_apollo_financial_calculator_fallback"]
+        prompts = [
+            (
+                "Build a compound-interest calculator with a principal slider, "
+                "annual interest-rate slider, and time-period selector."
+            ),
+            (
+                "Build a savings-growth calculator with a starting-balance slider, "
+                "monthly-contribution slider, annual-return slider, and years selector."
+            ),
+        ]
+        for prompt in prompts:
+            requirements = extract(prompt)
+            content = fallback(requirements)
+            self.assertTrue(content)
+            self.assertEqual(validate(content, requirements), [])
 
 
 if __name__ == "__main__":

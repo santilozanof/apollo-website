@@ -110,6 +110,22 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
                 server._apollo_validate_ui_requirements(expected, requirements)
             ):
                 expected = candidate
+        missing = server._apollo_validate_ui_requirements(expected, requirements)
+        if "calculator" in missing:
+            fallback = server._apollo_financial_calculator_fallback(requirements)
+            candidate = (expected + "\n\n" + fallback).strip()
+            remaining = server._apollo_validate_ui_requirements(
+                candidate, requirements
+            )
+            if fallback and len(remaining) < len(missing):
+                expected = candidate
+                missing = remaining
+        if missing:
+            expected += (
+                "\n\nI couldn’t safely complete the requested "
+                + ", ".join(missing)
+                + " in this response."
+            )
         self.assertEqual(events[-1]["message"]["content"], expected)
 
         status, raw = request("GET", f"/api/chats/{chat_id}")
@@ -274,6 +290,29 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         )
         self.assertIn('"op":"power"', final["message"]["content"])
         self.assertNotIn("generic-sum", final["message"]["content"])
+
+    def test_failed_compound_recovery_uses_trusted_formula_fallback(self):
+        prompt = (
+            "Build me an interactive compound-interest calculator with a "
+            "principal slider, annual interest-rate slider, and time-period "
+            "selector. Show the final balance updating immediately."
+        )
+        events = self.run_turn(
+            "I will explain the formula instead.",
+            prompt,
+            "I still cannot produce the calculator.",
+        )
+        final = events[-1]
+        self.assertTrue(final["timings"]["ui_recovery_used"])
+        self.assertTrue(final["timings"]["ui_fallback_used"])
+        self.assertIn("compound-interest-fallback", final["message"]["content"])
+        self.assertEqual(
+            server._apollo_validate_ui_requirements(
+                final["message"]["content"],
+                server._apollo_extract_ui_requirements(prompt),
+            ),
+            [],
+        )
 
     def test_empty_selector_is_replaced_by_functional_local_selector(self):
         empty = {"blocks": [{

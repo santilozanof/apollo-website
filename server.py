@@ -2050,6 +2050,106 @@ def _apollo_calculator_formula_matches(block, formula_kind):
     return math.isfinite(expected) and abs(actual - expected) <= tolerance
 
 
+def _apollo_financial_calculator_fallback(requirements):
+    """Build a trusted formula-registry fallback after bounded model recovery."""
+    formula_kind = str(requirements.get("calculator_formula_kind") or "")
+    if formula_kind not in ("compound_interest", "recurring_savings"):
+        return ""
+
+    rate_expression = {
+        "op": "divide",
+        "args": [{"field": "annual-rate"}, 100],
+    }
+    if formula_kind == "compound_interest":
+        fields = [
+            {"id": "principal", "label": "Principal", "type": "slider",
+             "value": 10000, "min": 100, "max": 100000, "step": 100,
+             "unit": "$"},
+            {"id": "annual-rate", "label": "Annual interest rate",
+             "type": "slider", "value": 5, "min": 0.1, "max": 20,
+             "step": 0.1, "unit": "%"},
+            {"id": "years", "label": "Time period", "type": "select",
+             "value": 10, "min": 1, "max": 40, "step": 1,
+             "options": [
+                 {"label": "1 year", "value": 1},
+                 {"label": "5 years", "value": 5},
+                 {"label": "10 years", "value": 10},
+                 {"label": "20 years", "value": 20},
+                 {"label": "30 years", "value": 30},
+                 {"label": "40 years", "value": 40},
+             ]},
+        ]
+        expression = {"op": "multiply", "args": [
+            {"field": "principal"},
+            {"op": "power", "args": [
+                {"op": "add", "args": [1, rate_expression]},
+                {"field": "years"},
+            ]},
+        ]}
+        block = {
+            "type": "calculator", "id": "compound-interest-fallback",
+            "title": "Compound Interest Calculator",
+            "subtitle": "Assumes annual compounding", "fields": fields,
+            "expression": expression,
+            "output": {"label": "Final balance", "format": "currency",
+                       "currency": "USD", "decimals": 2},
+            "note": "Formula: principal × (1 + annual interest rate)ᵗ",
+        }
+    else:
+        fields = [
+            {"id": "starting-balance", "label": "Starting balance",
+             "type": "slider", "value": 1000, "min": 0, "max": 100000,
+             "step": 100, "unit": "$"},
+            {"id": "monthly-contribution", "label": "Monthly contribution",
+             "type": "slider", "value": 300, "min": 25, "max": 5000,
+             "step": 25, "unit": "$/month"},
+            {"id": "annual-rate", "label": "Annual return", "type": "slider",
+             "value": 7, "min": 0.1, "max": 20, "step": 0.1, "unit": "%"},
+            {"id": "years", "label": "Years", "type": "select",
+             "value": 10, "min": 1, "max": 50, "step": 1,
+             "options": [
+                 {"label": "1 year", "value": 1},
+                 {"label": "5 years", "value": 5},
+                 {"label": "10 years", "value": 10},
+                 {"label": "20 years", "value": 20},
+                 {"label": "30 years", "value": 30},
+                 {"label": "40 years", "value": 40},
+                 {"label": "50 years", "value": 50},
+             ]},
+        ]
+        periodic_rate = {"op": "divide", "args": [rate_expression, 12]}
+        total_periods = {"op": "multiply", "args": [12, {"field": "years"}]}
+        growth = {"op": "power", "args": [
+            {"op": "add", "args": [1, periodic_rate]}, total_periods,
+        ]}
+        expression = {"op": "add", "args": [
+            {"op": "multiply", "args": [
+                {"field": "starting-balance"}, growth,
+            ]},
+            {"op": "multiply", "args": [
+                {"field": "monthly-contribution"},
+                {"op": "divide", "args": [
+                    {"op": "subtract", "args": [growth, 1]}, periodic_rate,
+                ]},
+            ]},
+        ]}
+        block = {
+            "type": "calculator", "id": "savings-growth-fallback",
+            "title": "Savings Growth Calculator",
+            "subtitle": "Monthly contributions compounded monthly",
+            "fields": fields, "expression": expression,
+            "output": {"label": "Projected balance", "format": "currency",
+                       "currency": "USD", "decimals": 2},
+            "note": "Assumes contributions are made at the end of each month.",
+        }
+
+    return apollo_sanitize_genui_content(
+        "```apollo-ui\n"
+        + json.dumps({"blocks": [block]}, ensure_ascii=False)
+        + "\n```"
+    )
+
+
 def _apollo_calculator_meets_requirements(block, requirements):
     fields = block.get("fields") or []
     minimum = max(1, int(requirements.get("calculator_field_count") or 1))
@@ -24537,6 +24637,33 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     turn_timings["ui_recovery_ms"] = round(
                         (time.perf_counter() - recovery_started) * 1000
                     )
+
+                if missing_ui and "calculator" in missing_ui:
+                    fallback_content = _apollo_financial_calculator_fallback(
+                        ui_requirements
+                    )
+                    fallback_candidate = (
+                        assistant_message + "\n\n" + fallback_content
+                    ).strip()
+                    fallback_remaining = _apollo_validate_ui_requirements(
+                        fallback_candidate,
+                        ui_requirements,
+                    )
+                    if (
+                        fallback_content
+                        and len(fallback_remaining) < len(missing_ui)
+                    ):
+                        assistant_message = fallback_candidate
+                        fallback_event = json.dumps({
+                            "type": "content",
+                            "content": "\n\n" + fallback_content,
+                        })
+                        self.wfile.write(
+                            f"data: {fallback_event}\n\n".encode("utf-8")
+                        )
+                        self.wfile.flush()
+                        missing_ui = fallback_remaining
+                        turn_timings["ui_fallback_used"] = True
 
                 if missing_ui:
                     assistant_message += (
