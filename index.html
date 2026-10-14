@@ -185,6 +185,8 @@ html[data-theme="light"] {
 }
 
 </style>
+<link rel="stylesheet" href="/apollo_genui.css">
+<script src="/apollo_genui.js"></script>
 
 <style>
 :root {
@@ -24824,7 +24826,11 @@ async function apolloRetryMessage(message) {
                             data.content;
 
                         text.textContent =
-                            assistantContent;
+                            window.apolloGenUIStreamingText
+                                ? window.apolloGenUIStreamingText(
+                                    assistantContent
+                                )
+                                : assistantContent;
 
                     }
 

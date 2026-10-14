@@ -122,8 +122,10 @@ class RoutinesApiRegressionTests(unittest.TestCase):
             })
             self.assertEqual(status, 201)
 
+            current_day = routines.local_day("Europe/Zurich")
             status, state = request(
-                "GET", "/routines?date=2026-10-13&timezone=Europe%2FZurich"
+                "GET",
+                "/routines?date=" + current_day + "&timezone=Europe%2FZurich",
             )
             self.assertEqual(status, 200)
             self.assertEqual(state["routines"][0]["id"], created["id"])

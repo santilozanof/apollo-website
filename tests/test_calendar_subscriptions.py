@@ -1,6 +1,7 @@
 import ast
 import importlib.util
 import json
+import os
 import re
 import tempfile
 import unittest
@@ -181,16 +182,20 @@ END:VCALENDAR\r
 
     def test_repeated_sync_upserts_then_removes_and_reactivates_one_uid(self):
         with tempfile.TemporaryDirectory() as directory:
-            source = SERVER.read_text().replace(
-                'BASE_DIR = Path("/root/Apollo")',
-                f'BASE_DIR = Path({directory!r})',
-                1,
-            )
+            source = SERVER.read_text()
             module_path = Path(directory) / "isolated_server.py"
             module_path.write_text(source)
             spec = importlib.util.spec_from_file_location("isolated_apollo_server", module_path)
             module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            previous_base = os.environ.get("APOLLO_BASE_DIR")
+            os.environ["APOLLO_BASE_DIR"] = directory
+            try:
+                spec.loader.exec_module(module)
+            finally:
+                if previous_base is None:
+                    os.environ.pop("APOLLO_BASE_DIR", None)
+                else:
+                    os.environ["APOLLO_BASE_DIR"] = previous_base
             module.init_db()
 
             feed = [b"""BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:assignment-42\nSUMMARY:Essay\nDTSTART;VALUE=DATE:20260915\nDUE;VALUE=DATE:20260915\nDESCRIPTION:Submit it\\nhttps://canvas.example/courses/42/assignments/42\nX-CANVAS-CALENDAR-NAME:History 101\nEND:VEVENT\nEND:VCALENDAR\n"""]

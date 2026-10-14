@@ -34,7 +34,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
-BASE_DIR = Path("/root/Apollo")
+BASE_DIR = Path(
+    os.environ.get(
+        "APOLLO_BASE_DIR",
+        "/root/Apollo"
+    )
+)
 DB_PATH = BASE_DIR / "apollo.db"
 
 WIP_DIR = BASE_DIR / "wip"
@@ -1404,6 +1409,112 @@ file, or requests an actual external action. Do not browse or research merely to
 polish a normal conversational answer. For short follow-ups, use the existing
 conversation context and respond directly.
 """.strip()
+
+
+APOLLO_GENERATIVE_UI_PROMPT = r"""
+APOLLO GENERATIVE UI
+
+You may enrich a response with trusted interactive UI. Use it only when it is
+materially better than concise prose: a quiz, a real checklist, an agenda,
+real-data chart, compact comparison, media/card collection, required input, or
+contextual actions. Simple questions must stay simple text. Never invent data,
+URLs, images, IDs, action results, or integration state.
+
+Write normal conversational text, then place UI at the intended point using a
+fenced block whose entire contents are strict JSON:
+
+```apollo-ui
+{"blocks":[{"type":"progress","title":"Session","progress":0.25}]}
+```
+
+The renderer accepts these block types:
+text, image, image_gallery, card, carousel, quiz, checklist, chart, table,
+progress, form, button_group, date_picker, slider, media, location, code,
+expandable, status, timeline.
+
+Common fields: id, title, subtitle, text, label, items, actions. Keep blocks
+compact. Use stable, unique ids within the response.
+
+Quiz: {type, id, title?, question, options:[{id,label,correct,explanation?}],
+hint?, explanation?, actions?}. Never reveal the correct answer in prose before
+the learner answers. A Next Question action uses
+{"type":"submit_message","label":"Next question","value":"Give me the next question, adapting to my previous answer."}.
+
+Checklist: {type,id,title,subtitle?,persisted,items:[{id,label,completed,
+task_id?,action?}]}. For real Apollo tasks, use task_id from live context and
+persisted:true. Do not add an action for suggested/temporary items. Never claim
+temporary items are saved. A task item may use
+{"type":"task_toggle","task_id":123}. Routine actions are supplied only by
+trusted server-generated UI; never guess routine or step ids.
+
+Chart: {type,id,title,kind:"line"|"bar",unit?,items:[{label,value}]}. Chart only
+authoritative numeric data supplied in context. Table uses columns:[{key,label}]
+and rows:[{...}]. Timeline uses items:[{time,title,text?}]. Carousel uses compact
+items:[{title,text,url?,alt?,action?}]. Omit image URLs unless an authoritative
+URL is present in context. Do not use placeholder image services.
+
+Allowed actions are submit_message, task_toggle, routine_action, open_url, copy,
+and spotify_open. Use only real parameters or URLs from context. Rendering a
+button never means its action succeeded. Destructive or consequential actions
+must still follow Apollo's existing confirmation and backend authorization.
+
+For study requests, prefer one focused question at a time with progress and a
+Next Question action. For schedule requests with real events, prefer timeline
+or table. For real tasks/routines, prefer a checklist. For trends with enough
+real points, prefer a chart. For music recommendations without reliable artwork
+or Spotify entity URLs, use text or text-only cards and submit_message actions.
+Do not mention this format, its JSON, or the renderer to the user.
+""".strip()
+
+
+def apollo_routine_genui(context):
+    """Build trusted routine controls from authoritative database state."""
+    if not isinstance(context, dict):
+        return ""
+
+    blocks = []
+    local_date = str(context.get("local_date") or "")
+
+    for routine in context.get("routines") or []:
+        steps = routine.get("steps") or []
+        if not steps or routine.get("status") == "not_scheduled":
+            continue
+
+        items = []
+        for step in steps:
+            items.append({
+                "id": f"routine-step-{step.get('id')}",
+                "label": str(step.get("title") or "Step")[:300],
+                "completed": bool(step.get("complete")),
+                "action": {
+                    "type": "routine_action",
+                    "payload": {
+                        "action": "set_step",
+                        "routine_id": routine.get("id"),
+                        "step_id": step.get("id"),
+                        "date": local_date,
+                    },
+                },
+            })
+
+        blocks.append({
+            "type": "checklist",
+            "id": f"routine-{routine.get('id')}-{local_date}",
+            "title": str(routine.get("title") or "Routine")[:180],
+            "subtitle": (
+                f"{routine.get('completed_steps', 0)} of "
+                f"{routine.get('required_steps', len(items))} complete"
+            ),
+            "persisted": True,
+            "items": items,
+        })
+
+    if not blocks:
+        return ""
+
+    return "\n\n```apollo-ui\n" + json.dumps(
+        {"blocks": blocks}, ensure_ascii=False, separators=(",", ":")
+    ) + "\n```"
 
 def _apollo_router_text(content):
     if isinstance(content, str):
@@ -21669,6 +21780,16 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     conn.close()
 
                 if routine_reply is not None:
+                    if any(
+                        word in user_message.lower()
+                        for word in (
+                            "show", "list", "what", "which",
+                            "steps", "scheduled", "today"
+                        )
+                    ):
+                        routine_reply += apollo_routine_genui(
+                            routine_context
+                        )
                     apollo_send_direct_sse(self, chat_id, routine_reply)
                     return
 
@@ -22554,6 +22675,14 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
 
             # Stream Hermes response.
+
+            messages.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": APOLLO_GENERATIVE_UI_PROMPT,
+                }
+            )
 
             try:
                 self.send_response(200)
