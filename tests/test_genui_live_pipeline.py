@@ -94,12 +94,13 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         self.assertEqual(status, 200)
         events = sse_events(raw)
         self.assertEqual(events[-1]["type"], "done")
-        self.assertEqual(events[-1]["message"]["content"], response)
+        expected = server.apollo_sanitize_genui_content(response)
+        self.assertEqual(events[-1]["message"]["content"], expected)
 
         status, raw = request("GET", f"/api/chats/{chat_id}")
         self.assertEqual(status, 200)
         history = json.loads(raw)
-        self.assertEqual(history["messages"][-1]["content"], response)
+        self.assertEqual(history["messages"][-1]["content"], expected)
         return events
 
     def create_chat(self):
@@ -132,16 +133,19 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
     def test_quiz_checklist_cards_and_chart_survive_stream_and_history(self):
         payload = {
             "blocks": [
-                {"type": "quiz", "id": "q1", "question": "2 + 2?", "options": [
-                    {"id": "a", "label": "4", "correct": True},
-                    {"id": "b", "label": "5", "correct": False},
-                ]},
+                {"type": "quiz", "id": "q1", "allow_retry": True,
+                 "questions": [{"id": "math-1", "question": "2 + 2?", "options": [
+                    {"id": "a", "label": "4"},
+                    {"id": "b", "label": "5"},
+                 ], "correct_answer_id": "a"}]},
                 {"type": "checklist", "id": "list", "persisted": False,
                  "items": [{"id": "one", "label": "Review", "completed": False}]},
                 {"type": "carousel", "id": "cards", "items": [
                     {"title": "Album", "text": "Artist", "url": "https://example.com/cover.jpg"}
                 ]},
                 {"type": "chart", "id": "trend", "kind": "line",
+                 "x_label": "Day", "y_label": "Sessions", "unit": "sessions",
+                 "data_kind": "measured",
                  "items": [{"label": "Mon", "value": 2}, {"label": "Tue", "value": 4}]},
             ]
         }

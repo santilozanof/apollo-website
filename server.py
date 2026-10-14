@@ -1419,14 +1419,19 @@ provided, answer informationally or ask one concise clarification.
 APOLLO_GENERATIVE_UI_PROMPT = r"""
 APOLLO GENERATIVE UI
 
-You may enrich a response with trusted interactive UI. Use it only when it is
-materially better than concise prose: a quiz, a real checklist, an agenda,
-real-data chart, compact comparison, media/card collection, required input, or
-contextual actions. Simple questions must stay simple text. Never invent data,
-URLs, images, IDs, action results, or integration state.
+Before answering, silently choose the smallest useful response shape:
+- simple: ordinary prose only;
+- moderate: prose plus one focused component;
+- substantial/study: structured explanation with a few components at the
+  exact places where they help;
+- data/research: explanation, honest visualization or table, and sources.
+Do not mention this planning step. Richness must be proportional to the request.
+Simple questions must stay simple text. Never invent data, URLs, images, IDs,
+action results, citations, precision, or integration state.
 
-Write normal conversational text, then place UI at the intended point using a
-fenced block whose entire contents are strict JSON:
+Compose one coherent response by interleaving normal Markdown and UI at the
+intended points. Do not dump all prose before all components. Each fenced block
+must contain only strict JSON:
 
 ```apollo-ui
 {"blocks":[{"type":"progress","title":"Session","progress":0.25}]}
@@ -1435,15 +1440,24 @@ fenced block whose entire contents are strict JSON:
 The renderer accepts these block types:
 text, image, image_gallery, card, carousel, quiz, checklist, chart, table,
 progress, form, button_group, date_picker, slider, media, location, code,
-expandable, status, timeline.
+expandable, status, timeline, calculator, sources.
 
 Common fields: id, title, subtitle, text, label, items, actions. Keep blocks
 compact. Use stable, unique ids within the response.
 
-Quiz: {type, id, title?, question, options:[{id,label,correct,explanation?}],
-hint?, explanation?, actions?}. Never reveal the correct answer in prose before
-the learner answers. A Next Question action uses
-{"type":"submit_message","label":"Next question","value":"Give me the next question, adapting to my previous answer."}.
+Quiz: {type,id,title?,allow_retry:true,questions:[
+{id,question,options:[{id,label,explanation?}],correct_answer_id,hint?,explanation?}
+]}. Every question and option needs a stable unique id. correct_answer_id must
+exactly match one option id. Do not use per-option correct flags. Never reveal
+the answer before a correct attempt. Unless the user explicitly requests a
+single attempt, allow_retry is true: a wrong choice stays marked, other choices
+remain available, and the correct answer is not exposed. Put every requested
+question in one quiz block. Previous, Next, completion, and Restart are handled
+inside the component; never create submit_message actions for quiz navigation.
+For factual trivia, independently verify any uncertain fact with reliable web
+sources when web access is available, include a sources block, and ensure the
+explanation agrees with correct_answer_id. If verification is unavailable, use
+only established unambiguous facts or state the limitation instead of guessing.
 
 Checklist: {type,id,title,subtitle?,persisted,items:[{id,label,completed,
 task_id?,action?}]}. For real Apollo tasks, use task_id from live context and
@@ -1452,24 +1466,272 @@ temporary items are saved. A task item may use
 {"type":"task_toggle","task_id":123}. Routine actions are supplied only by
 trusted server-generated UI; never guess routine or step ids.
 
-Chart: {type,id,title,kind:"line"|"bar",unit?,items:[{label,value}]}. Chart only
-authoritative numeric data supplied in context. Table uses columns:[{key,label}]
-and rows:[{...}]. Timeline uses items:[{time,title,text?}]. Carousel uses compact
-items:[{title,text,url?,alt?,action?}]. Omit image URLs unless an authoritative
-URL is present in context. Do not use placeholder image services.
+Chart: {type,id,title,subtitle?,kind:"line"|"bar"|"donut",x_label,y_label,
+unit?,data_kind:"measured"|"reported"|"estimated"|"illustrative",note?,
+items:[{label,value}]} or use series:[{name,values:[{label,value}]}] for a real
+multi-series comparison. Label axes and units. State where the data came from
+and distinguish measured/reported values from estimates or illustrations. Do
+not imply unsupported precision or chart claims without enough data. Table uses
+columns:[{key,label}] and rows:[{...}]. Timeline uses
+items:[{time,title,text?}]. Carousel uses compact
+items:[{title,text,url?,alt?,action?}].
+
+Calculator: {type,id,title?,operation:"sum"|"multiply"|"divide"|"percentage",
+fields:[{id,label,value,min?,max?,step?,unit?}],operands:["field-id",...],
+output:{label?,unit?,decimals?}}. Only use supported deterministic arithmetic.
+
+Sources: {type,id,title?,items:[{url,title,publisher?,note?}]}. Cite sources in
+nearby prose as [1], [2], matching this deduplicated list. Use the real page
+title and publisher when known; never fabricate either.
+
+Use natural, editorial typography through Markdown headings, lists, emphasis,
+quotes, code, equations, and tables when useful. Keep hierarchy restrained.
+Omit image URLs unless an authoritative URL is present in tool/context output.
+Use real descriptive alt text and captions. Do not use placeholder services.
 
 Allowed actions are submit_message, task_toggle, routine_action, open_url, copy,
 and spotify_open. Use only real parameters or URLs from context. Rendering a
 button never means its action succeeded. Destructive or consequential actions
 must still follow Apollo's existing confirmation and backend authorization.
 
-For study requests, prefer one focused question at a time with progress and a
-Next Question action. For schedule requests with real events, prefer timeline
-or table. For real tasks/routines, prefer a checklist. For trends with enough
-real points, prefer a chart. For music recommendations without reliable artwork
-or Spotify entity URLs, use text or text-only cards and submit_message actions.
+For a masterclass, build a readable lesson—not a wall of widgets—with sections,
+occasional images only when verified, comparisons/tables, a useful calculator
+when appropriate, and one continuous knowledge check. For schedules with real
+events, prefer timeline or table. For real tasks/routines, prefer a checklist.
+For trends with enough real points, prefer a chart. For music recommendations,
+use verified artwork and Spotify entity URLs when available; otherwise use
+text-only cards. Never expose a control unless its action is genuinely supported.
 Do not mention this format, its JSON, or the renderer to the user.
 """.strip()
+
+
+_APOLLO_UI_TYPES = {
+    "text", "image", "image_gallery", "card", "carousel", "quiz",
+    "checklist", "chart", "table", "progress", "form", "button_group",
+    "date_picker", "slider", "media", "location", "code", "expandable",
+    "status", "timeline", "calculator", "sources",
+}
+_APOLLO_UI_ACTIONS = {
+    "submit_message", "task_toggle", "routine_action", "open_url", "copy",
+    "spotify_open",
+}
+
+
+def _apollo_safe_ui_url(value):
+    try:
+        parsed = urllib.parse.urlparse(str(value or "").strip())
+        return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+    except (TypeError, ValueError):
+        return False
+
+
+def _apollo_ui_number(value):
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and value == value
+        and abs(value) <= 1e308
+    )
+
+
+def _apollo_clean_ui_actions(value):
+    if not isinstance(value, list):
+        return []
+    cleaned = []
+    for action in value:
+        if not isinstance(action, dict) or action.get("type") not in _APOLLO_UI_ACTIONS:
+            continue
+        item = dict(action)
+        if item["type"] in ("open_url", "spotify_open"):
+            url = item.get("url") or item.get("value")
+            if not _apollo_safe_ui_url(url):
+                continue
+        cleaned.append(item)
+    return cleaned
+
+
+def _apollo_normalize_quiz(block):
+    raw_questions = block.get("questions")
+    if not isinstance(raw_questions, list):
+        raw_questions = [{
+            key: block.get(key)
+            for key in ("id", "question", "options", "correct_answer_id",
+                        "hint", "explanation")
+        }]
+
+    questions = []
+    question_ids = set()
+    for position, raw in enumerate(raw_questions):
+        if not isinstance(raw, dict):
+            return None
+        question_id = str(raw.get("id") or f"question-{position + 1}").strip()
+        question = str(raw.get("question") or "").strip()
+        options = raw.get("options")
+        if not question_id or question_id in question_ids or not question:
+            return None
+        if not isinstance(options, list) or len(options) < 2:
+            return None
+
+        option_ids = set()
+        normalized_options = []
+        legacy_correct = []
+        for option_position, option in enumerate(options):
+            if not isinstance(option, dict):
+                return None
+            option_id = str(option.get("id") or f"option-{option_position + 1}").strip()
+            label = str(option.get("label") or "").strip()
+            if not option_id or option_id in option_ids or not label:
+                return None
+            option_ids.add(option_id)
+            normalized = {"id": option_id, "label": label}
+            if option.get("explanation"):
+                normalized["explanation"] = str(option["explanation"])[:1000]
+            normalized_options.append(normalized)
+            if option.get("correct") is True:
+                legacy_correct.append(option_id)
+
+        correct_id = str(raw.get("correct_answer_id") or "").strip()
+        if not correct_id and len(legacy_correct) == 1:
+            correct_id = legacy_correct[0]
+        if correct_id not in option_ids:
+            return None
+
+        normalized_question = {
+            "id": question_id,
+            "question": question,
+            "options": normalized_options,
+            "correct_answer_id": correct_id,
+        }
+        for key in ("hint", "explanation"):
+            if raw.get(key):
+                normalized_question[key] = str(raw[key])[:2000]
+        questions.append(normalized_question)
+        question_ids.add(question_id)
+
+    normalized_block = {
+        "type": "quiz",
+        "id": str(block.get("id") or "quiz").strip(),
+        "allow_retry": block.get("allow_retry") is not False,
+        "questions": questions,
+    }
+    for key in ("title", "subtitle"):
+        if block.get(key):
+            normalized_block[key] = str(block[key])[:500]
+    return normalized_block
+
+
+def _apollo_normalize_ui_block(block):
+    if not isinstance(block, dict) or block.get("type") not in _APOLLO_UI_TYPES:
+        return None
+    kind = block["type"]
+    if kind == "quiz":
+        return _apollo_normalize_quiz(block)
+
+    normalized = dict(block)
+    normalized["id"] = str(block.get("id") or kind).strip()
+    if not normalized["id"]:
+        return None
+
+    if kind == "chart":
+        if block.get("kind") not in ("line", "bar", "donut"):
+            return None
+        value_groups = [block.get("items")]
+        if isinstance(block.get("series"), list):
+            value_groups.extend(
+                series.get("values")
+                if isinstance(series.get("values"), list)
+                else series.get("items")
+                for series in block["series"]
+                if isinstance(series, dict)
+            )
+        points = [point for group in value_groups if isinstance(group, list)
+                  for point in group]
+        if not points or any(not isinstance(point, dict)
+                             or not _apollo_ui_number(point.get("value"))
+                             for point in points):
+            return None
+        normalized.setdefault("x_label", "Category")
+        normalized.setdefault("y_label", "Value")
+        normalized.setdefault("data_kind", "reported")
+        if isinstance(block.get("series"), list):
+            normalized_series = []
+            for index, series in enumerate(block["series"]):
+                if not isinstance(series, dict):
+                    continue
+                values = series.get("values")
+                if not isinstance(values, list):
+                    values = series.get("items")
+                normalized_series.append({
+                    "id": str(series.get("id") or f"series-{index + 1}"),
+                    "label": str(series.get("label") or series.get("name")
+                                 or f"Series {index + 1}"),
+                    "items": values,
+                })
+            normalized["series"] = normalized_series
+
+    if kind == "sources":
+        seen = set()
+        items = []
+        for source in block.get("items") or []:
+            if not isinstance(source, dict) or not _apollo_safe_ui_url(source.get("url")):
+                continue
+            url = str(source["url"]).strip()
+            if url in seen:
+                continue
+            item = {"url": url, "title": str(source.get("title") or url)[:500]}
+            for key in ("publisher", "note"):
+                if source.get(key):
+                    item[key] = str(source[key])[:1000]
+            items.append(item)
+            seen.add(url)
+        if not items:
+            return None
+        normalized["items"] = items
+
+    if kind == "calculator":
+        if block.get("operation") not in ("sum", "multiply", "divide", "percentage"):
+            return None
+        fields = block.get("fields")
+        operands = block.get("operands")
+        field_ids = {str(field.get("id")) for field in fields or []
+                     if isinstance(field, dict) and field.get("id")}
+        if not field_ids or not isinstance(operands, list) or any(
+                str(operand) not in field_ids for operand in operands):
+            return None
+
+    if "actions" in normalized:
+        normalized["actions"] = _apollo_clean_ui_actions(normalized["actions"])
+    if isinstance(normalized.get("action"), dict):
+        actions = _apollo_clean_ui_actions([normalized["action"]])
+        normalized["action"] = actions[0] if actions else None
+    return normalized
+
+
+def apollo_sanitize_genui_content(content):
+    """Validate model-authored UI before it is persisted or rendered."""
+    value = str(content or "")
+
+    def replace(match):
+        try:
+            payload = json.loads(match.group(1))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return ""
+        if not isinstance(payload, dict) or not isinstance(payload.get("blocks"), list):
+            return ""
+        cleaned = []
+        ids = set()
+        for raw_block in payload["blocks"]:
+            block = _apollo_normalize_ui_block(raw_block)
+            if not block or block["id"] in ids:
+                continue
+            cleaned.append(block)
+            ids.add(block["id"])
+        if not cleaned:
+            return ""
+        encoded = json.dumps({"blocks": cleaned}, ensure_ascii=False, separators=(",", ":"))
+        return f"```apollo-ui\n{encoded}\n```"
+
+    return re.sub(r"```apollo-ui\s*\n([\s\S]*?)\n```", replace, value).strip()
 
 
 def apollo_routine_genui(context):
@@ -1704,6 +1966,13 @@ def _apollo_choose_model(messages):
         "studio",
         "whoop",
         "remind me",
+        "quiz",
+        "trivia",
+        "masterclass",
+        "teach me",
+        "course",
+        "visualize",
+        "chart",
     )
 
     if (
@@ -1812,6 +2081,14 @@ def _apollo_choose_hermes_toolsets(messages):
         "current weather",
         "weather today",
         "weather tomorrow",
+        "quiz me on",
+        "trivia about",
+        "fact-check",
+        "verify the facts",
+        "cite sources",
+        "with sources",
+        "masterclass on",
+        "teach me everything about",
     )
 
     if any(x in lower for x in web_signals):
@@ -23028,6 +23305,12 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 assistant_message = "".join(
                     assistant_parts
                 ).strip()
+
+                assistant_message = (
+                    apollo_sanitize_genui_content(
+                        assistant_message
+                    )
+                )
 
             except urllib.error.HTTPError as error:
 

@@ -387,3 +387,43 @@
         padding: var(--apollo-space-8) !important;
     }
 }
+
+/* Chat response actions belong below the full response, including GenUI. */
+#apolloView .apollo-message.assistant > .apollo-message-actions {
+    position: static !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    width: max-content !important;
+    height: auto !important;
+    margin: 8px 0 0 43px !important;
+    opacity: .72 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    transform: none !important;
+}
+
+#apolloView .apollo-message.assistant > .apollo-message-actions:hover,
+#apolloView .apollo-message.assistant > .apollo-message-actions:focus-within {
+    opacity: 1 !important;
+}
+
+#apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action {
+    width: 30px !important;
+    height: 30px !important;
+    min-width: 30px !important;
+    min-height: 30px !important;
+}
+
+@media (max-width: 640px) {
+    #apolloView .apollo-message.assistant > .apollo-message-actions {
+        margin-left: 39px !important;
+    }
+
+    #apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action {
+        width: 38px !important;
+        height: 38px !important;
+        min-width: 38px !important;
+        min-height: 38px !important;
+    }
+}

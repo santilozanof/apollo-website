@@ -14,8 +14,22 @@
 .apollo-rich-text p { margin: 0 0 var(--apollo-space-2, 8px); }
 .apollo-rich-text p:last-child { margin-bottom: 0; }
 .apollo-rich-text a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.apollo-rich-text h1,
+.apollo-rich-text h2,
+.apollo-rich-text h3 { margin: 0; color: inherit; text-wrap: balance; }
+.apollo-rich-text h1 { margin-top: 8px; font-size: clamp(22px, 4vw, 30px); font-weight: 680; line-height: 1.16; letter-spacing: -.035em; }
+.apollo-rich-text h2 { margin-top: 14px; font-size: clamp(17px, 3vw, 20px); font-weight: 650; line-height: 1.25; letter-spacing: -.02em; }
+.apollo-rich-text h3 { margin-top: 10px; font-size: 14px; font-weight: 650; line-height: 1.35; letter-spacing: -.01em; }
+.apollo-rich-text ul,
+.apollo-rich-text ol { display: grid; gap: 5px; margin: 6px 0 12px; padding-inline-start: 22px; white-space: normal; }
+.apollo-rich-text li { padding-inline-start: 2px; }
+.apollo-rich-text blockquote { margin: 10px 0; padding: 2px 0 2px 14px; border-left: 2px solid currentColor; opacity: .72; white-space: normal; }
+.apollo-rich-text hr { height: 1px; margin: 18px 0; border: 0; background: currentColor; opacity: .1; }
+.apollo-rich-text .apollo-ui-code { margin: 10px 0; border: 1px solid rgba(127,127,127,.14); border-radius: 12px; white-space: pre; }
 .apollo-rich-text code,
 .apollo-ui-code code { font-family: "SFMono-Regular", Consolas, monospace; font-size: .88em; }
+.apollo-math { display: inline-block; padding: 1px 5px; border-radius: 5px; background: rgba(127,127,127,.1); font-family: "New York", Georgia, serif; font-style: italic; }
+.apollo-citation-ref { display: inline-flex; margin-inline: 1px; font-size: .78em; font-weight: 650; line-height: 1; text-decoration: none !important; vertical-align: super; opacity: .68; }
 
 .apollo-ui-block {
     --ui-border: rgba(255,255,255,.10);
@@ -131,7 +145,15 @@ html[data-theme="light"] .apollo-ui-button.primary { background: #171717; color:
 .apollo-ui-quiz-option { min-height: 42px; border-radius: var(--apollo-radius-md, 12px); text-align: left; }
 .apollo-ui-quiz-option.correct { border-color: rgba(70,190,115,.65); background: rgba(70,190,115,.12); }
 .apollo-ui-quiz-option.incorrect { border-color: rgba(235,85,85,.55); background: rgba(235,85,85,.1); }
+.apollo-ui-quiz-option.incorrect:disabled { opacity: .58; }
+.apollo-ui-quiz-question { margin-top: 14px; font-size: 15px; font-weight: 620; line-height: 1.42; }
+.apollo-ui-quiz-progress { margin-top: 12px; }
 .apollo-ui-feedback { margin-top: var(--apollo-space-2, 8px); font-size: 12px; line-height: 1.5; opacity: .72; }
+.apollo-ui-feedback:empty { display: none; }
+.apollo-ui-feedback.correct { color: rgb(75,174,110); opacity: .95; }
+.apollo-ui-feedback.incorrect { color: rgb(210,105,105); opacity: .9; }
+.apollo-ui-quiz-nav { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.apollo-ui-quiz-nav:empty { display: none; }
 
 .apollo-ui-cards,
 .apollo-ui-carousel {
@@ -147,22 +169,52 @@ html[data-theme="light"] .apollo-ui-button.primary { background: #171717; color:
 .apollo-ui-cards::-webkit-scrollbar,
 .apollo-ui-carousel::-webkit-scrollbar { display: none; }
 .apollo-ui-card { flex: 0 0 min(248px,82vw); overflow: hidden; scroll-snap-align: start; }
-.apollo-ui-card-media { display: block; width: 100%; aspect-ratio: 16/10; object-fit: cover; background: rgba(127,127,127,.12); }
+.apollo-ui-card .apollo-ui-figure { width: 100%; }
+.apollo-ui-card .apollo-ui-image { border-radius: 0; aspect-ratio: 16/10; }
 .apollo-ui-card-copy { padding: 12px 14px 14px; }
 .apollo-ui-card-copy p { margin: var(--apollo-space-1, 4px) 0 0; font-size: 12px; line-height: 1.45; opacity: .64; }
 
 .apollo-ui-gallery { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--apollo-space-2, 8px); padding: var(--apollo-space-2, 8px); }
 .apollo-ui-gallery.one { grid-template-columns: 1fr; }
+.apollo-ui-figure { min-width: 0; margin: 0; }
 .apollo-ui-image { display: block; width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 12px; background: rgba(127,127,127,.12); cursor: zoom-in; }
+.apollo-ui-figure figcaption { padding: 7px 2px 1px; font-size: 11px; line-height: 1.4; opacity: .54; }
 .apollo-ui-gallery .apollo-ui-image:first-child:nth-last-child(3) { grid-row: span 2; height: 100%; }
 
 .apollo-ui-chart { padding: var(--apollo-space-4, 16px); }
-.apollo-ui-chart svg { display: block; width: 100%; height: auto; margin-top: var(--apollo-space-2, 8px); overflow: visible; }
-.apollo-ui-chart-label { fill: currentColor; font-size: 10px; opacity: .5; }
-.apollo-ui-chart-grid { stroke: currentColor; opacity: .09; }
-.apollo-ui-chart-series { fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+.apollo-ui-chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.apollo-ui-chart svg { display: block; width: 100%; height: auto; margin-top: var(--apollo-space-3, 12px); overflow: visible; }
+.apollo-ui-data-kind { flex: 0 0 auto; padding: 4px 7px; border: 1px solid var(--ui-border); border-radius: 999px; font-size: 9px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; opacity: .62; }
+.apollo-ui-chart-grid { stroke: currentColor; stroke-width: 1; opacity: .08; }
+.apollo-ui-chart-series { fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.apollo-ui-chart-marker { fill: var(--ui-fill); stroke: currentColor; stroke-width: 2; }
 .apollo-ui-chart-bar { fill: currentColor; opacity: .76; }
-.apollo-ui-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: var(--apollo-space-2, 8px); font-size: 11px; opacity: .55; }
+.apollo-ui-chart-series.series-1 { opacity: .64; stroke-dasharray: 6 4; }
+.apollo-ui-chart-series.series-2 { opacity: .48; stroke-dasharray: 2 4; }
+.apollo-ui-chart-series.series-3 { opacity: .34; stroke-dasharray: 9 5 2 5; }
+.apollo-ui-chart-marker.series-1,
+.apollo-ui-chart-bar.series-1 { opacity: .64; }
+.apollo-ui-chart-marker.series-2,
+.apollo-ui-chart-bar.series-2 { opacity: .48; }
+.apollo-ui-chart-marker.series-3,
+.apollo-ui-chart-bar.series-3 { opacity: .34; }
+.apollo-ui-chart-tick { fill: currentColor; font-size: 9px; opacity: .5; font-variant-numeric: tabular-nums; }
+.apollo-ui-chart-tick.x { text-anchor: middle; }
+.apollo-ui-chart-tick.y { text-anchor: end; }
+.apollo-ui-chart-axis-label { fill: currentColor; font-size: 9px; font-weight: 620; letter-spacing: .04em; text-anchor: middle; text-transform: uppercase; opacity: .48; }
+.apollo-ui-chart-donut { stroke: currentColor; opacity: .82; }
+.apollo-ui-chart-donut.series-1 { opacity: .62; }
+.apollo-ui-chart-donut.series-2 { opacity: .44; }
+.apollo-ui-chart-donut.series-3 { opacity: .28; }
+.apollo-ui-chart-total { fill: currentColor; font-size: 18px; font-weight: 670; text-anchor: middle; }
+.apollo-ui-chart-total-label { fill: currentColor; font-size: 9px; text-anchor: middle; text-transform: uppercase; opacity: .48; }
+.apollo-ui-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: var(--apollo-space-2, 8px); font-size: 11px; opacity: .62; }
+.apollo-ui-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.apollo-ui-legend i { width: 12px; height: 2px; border-radius: 99px; background: currentColor; }
+.apollo-ui-legend .series-1 i { opacity: .64; }
+.apollo-ui-legend .series-2 i { opacity: .48; }
+.apollo-ui-legend .series-3 i { opacity: .34; }
+.apollo-ui-chart-note { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--ui-border); font-size: 10px; line-height: 1.45; opacity: .5; }
 
 .apollo-ui-table-wrap { max-width: 100%; overflow: auto; }
 .apollo-ui-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -180,6 +232,25 @@ html[data-theme="light"] .apollo-ui-button.primary { background: #171717; color:
 .apollo-ui-button:focus-visible,
 .apollo-ui-check input:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .apollo-ui-slider { width: 100%; accent-color: currentColor; }
+.apollo-ui-slider-value { font-size: 12px; font-variant-numeric: tabular-nums; opacity: .62; }
+
+.apollo-ui-calculator-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); gap: 10px; margin-top: 14px; }
+.apollo-ui-calculator-field { display: grid; gap: 6px; font-size: 11px; opacity: .7; }
+.apollo-ui-calculator-input-row { display: flex; align-items: center; gap: 7px; }
+.apollo-ui-calculator-input-row .apollo-ui-input { min-width: 0; font-variant-numeric: tabular-nums; opacity: 1; }
+.apollo-ui-calculator-output { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--ui-border); font-size: 12px; opacity: .68; }
+.apollo-ui-calculator-output strong { font-size: 20px; font-variant-numeric: tabular-nums; opacity: 1; }
+
+.apollo-ui-sources { margin-top: 2px; padding-top: 10px; border-top: 1px solid rgba(127,127,127,.14); }
+.apollo-ui-sources-title { margin-bottom: 6px; font-size: 10px; font-weight: 680; letter-spacing: .08em; text-transform: uppercase; opacity: .48; }
+.apollo-ui-sources ol { display: grid; gap: 5px; margin: 0; padding-inline-start: 22px; }
+.apollo-ui-sources li { padding-inline-start: 2px; font-size: 11px; line-height: 1.35; opacity: .68; scroll-margin-top: 20px; }
+.apollo-ui-sources a { color: inherit; text-decoration: none; }
+.apollo-ui-sources a:hover .apollo-ui-source-title { text-decoration: underline; text-underline-offset: 3px; }
+.apollo-ui-source-title { font-weight: 580; }
+.apollo-ui-source-publisher::before { content: " · "; }
+.apollo-ui-source-publisher { opacity: .62; }
+.apollo-ui-source-note { margin-top: 2px; opacity: .66; }
 
 .apollo-ui-code { margin: 0; overflow: auto; padding: 14px; background: rgba(0,0,0,.16); font-size: 12px; line-height: 1.55; }
 .apollo-ui-code-head { padding: 9px 12px; border-bottom: 1px solid var(--ui-border); font-size: 11px; opacity: .55; }
@@ -216,6 +287,10 @@ html[data-theme="light"] .apollo-ui-button.primary { background: #171717; color:
     .apollo-ui-table th,
     .apollo-ui-table td { padding: 9px 10px; }
     .apollo-ui-chart { padding: 14px; }
+    .apollo-ui-chart-head { gap: 10px; }
+    .apollo-ui-data-kind { padding: 3px 6px; }
+    .apollo-ui-calculator-fields { grid-template-columns: 1fr 1fr; }
+    .apollo-ui-quiz-nav .apollo-ui-button { min-height: 42px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
