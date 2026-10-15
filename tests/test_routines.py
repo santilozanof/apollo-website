@@ -251,6 +251,115 @@ Make each step individually checkable and verify that all four steps were saved 
         )["routines"][0]["steps"]]
         self.assertEqual(titles, ["Brush my teeth", "flossing", "Prepare for bed"])
 
+    def test_contextual_add_uses_resolved_entity_and_verified_position(self):
+        routine = routines.create_routine(self.conn, {
+            "title": "Morning",
+            "steps": [
+                {"title": "Cleanser"},
+                {"title": "Niacinamide serum"},
+                {"title": "Hydrating cream"},
+                {"title": "SPF sunscreen"},
+            ],
+        }, today="2026-10-12")
+        reply = routines.chat_action(
+            self.conn,
+            "Ok add it to my morning routine.",
+            "Europe/Zurich",
+            reference_resolution={
+                "status": "resolved",
+                "operation": "add_step",
+                "entity_type": "ingredient",
+                "names": ["Azelaic acid 10%"],
+                "target_name": "Morning",
+                "relation": "after",
+                "anchor_name": "Niacinamide serum",
+            },
+        )
+        saved = routines._snapshot(self.conn, routine["id"])
+        self.assertEqual(
+            [step["title"] for step in saved["steps"]],
+            [
+                "Cleanser", "Niacinamide serum", "Azelaic acid 10%",
+                "Hydrating cream", "SPF sunscreen",
+            ],
+        )
+        self.assertNotIn("it", [step["title"].lower() for step in saved["steps"]])
+        self.assertEqual(
+            reply,
+            "Added Azelaic acid 10% to Morning, after Niacinamide serum.",
+        )
+
+    def test_unresolved_or_ambiguous_reference_never_writes_placeholder(self):
+        self.routine(steps=[{"title": "Cleanser"}])
+        before = self.conn.execute("SELECT count(*) FROM routine_steps").fetchone()[0]
+        unresolved = routines.chat_action(
+            self.conn, "Add it to my morning routine", "UTC"
+        )
+        ambiguous = routines.chat_action(
+            self.conn,
+            "Add that to my morning routine",
+            "UTC",
+            reference_resolution={
+                "status": "ambiguous",
+                "clarification": "Which item do you want me to add?",
+            },
+        )
+        after = self.conn.execute("SELECT count(*) FROM routine_steps").fetchone()[0]
+        self.assertEqual(before, after)
+        self.assertEqual(unresolved, "Which item do you want me to add?")
+        self.assertEqual(ambiguous, "Which item do you want me to add?")
+
+    def test_quoted_placeholder_is_a_legitimate_literal_name(self):
+        self.routine(steps=[{"title": "Cleanser"}])
+        reply = routines.chat_action(
+            self.conn, 'Add "it" to my morning routine', "UTC"
+        )
+        self.assertIn("Added it", reply)
+        saved = self.conn.execute(
+            "SELECT title FROM routine_steps WHERE lower(title)='it'"
+        ).fetchone()
+        self.assertIsNotNone(saved)
+
+    def test_contextual_follow_up_moves_recent_step_without_recreating_it(self):
+        routine = routines.create_routine(self.conn, {
+            "title": "Morning",
+            "steps": [
+                {"title": "Cleanser"},
+                {"title": "Moisturizer"},
+                {"title": "SPF"},
+                {"title": "Azelaic acid 10%"},
+            ],
+        }, today="2026-10-12")
+        ids_before = {
+            step["title"]: step["id"] for step in routine["steps"]
+        }
+        reply = routines.chat_action(
+            self.conn,
+            "Move the one we just added before the last step.",
+            "UTC",
+            reference_resolution={
+                "status": "resolved",
+                "operation": "move_step",
+                "entity_type": "routine_step",
+                "names": ["Azelaic acid 10%"],
+                "target_name": "Morning",
+                "relation": "before",
+                "anchor_name": "SPF",
+            },
+        )
+        saved = routines._snapshot(self.conn, routine["id"])
+        self.assertEqual(
+            [step["title"] for step in saved["steps"]],
+            ["Cleanser", "Moisturizer", "Azelaic acid 10%", "SPF"],
+        )
+        self.assertEqual(
+            {step["title"]: step["id"] for step in saved["steps"]}, ids_before
+        )
+        self.assertEqual(
+            reply,
+            "Moved Azelaic acid 10% before SPF in Morning.",
+        )
+
     def test_chat_edits_steps_and_routine_without_name_confusion(self):
         routines.create_routine(self.conn, {
             "title": "Morning Skincare", "steps": [{"title": "Cleanser"}],

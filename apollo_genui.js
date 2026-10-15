@@ -23,7 +23,8 @@
     add: [2, 8], subtract: [2, 2], multiply: [2, 8], divide: [2, 2],
     power: [2, 2], min: [2, 8], max: [2, 8], negate: [1, 1],
     abs: [1, 1], sqrt: [1, 1], exp: [1, 1], ln: [1, 1],
-    log10: [1, 1], round: [1, 1], floor: [1, 1], ceil: [1, 1]
+    log10: [1, 1], round: [1, 1], floor: [1, 1], ceil: [1, 1],
+    future_value: [4, 4]
   };
   const MAX_BLOCKS = 30;
   const MAX_ITEMS = 60;
@@ -81,6 +82,19 @@
       case "round": result = Math.round(args[0]); break;
       case "floor": result = Math.floor(args[0]); break;
       case "ceil": result = Math.ceil(args[0]); break;
+      case "future_value": {
+        const [principal, contribution, annualPercent, years] = args;
+        if (years < 0) return null;
+        const months = years * 12;
+        const monthlyRate = annualPercent / 100 / 12;
+        if (monthlyRate === 0) {
+          result = principal + contribution * months;
+        } else {
+          const factor = Math.pow(1 + monthlyRate, months);
+          result = principal * factor + contribution * (factor - 1) / monthlyRate;
+        }
+        break;
+      }
       default: return null;
     }
     return Number.isFinite(result) && Math.abs(result) <= 1e308 ? result : null;

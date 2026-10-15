@@ -882,10 +882,181 @@ def _reorder_step(conn, group, step_id, anchor_id, place, time_zone):
     return _save_version(conn, group["id"], effective_day=local_day(time_zone))
 
 
-def chat_action(conn, text, time_zone="UTC"):
+_CHAT_REFERENCE_PHRASES = {
+    "it", "that", "this", "those", "these", "one", "the one",
+    "the one we just added", "the one just added", "the last one",
+    "the second one", "the task", "the item", "the step",
+}
+
+
+def _chat_reference_placeholder(value):
+    normalized = re.sub(r"\s+", " ", str(value or "").strip(" .!?\"'").lower())
+    return normalized in _CHAT_REFERENCE_PHRASES or bool(re.fullmatch(
+        r"(?:the\s+)?(?:one|item|step)\s+(?:we\s+)?(?:just\s+)?(?:added|created|discussed)",
+        normalized,
+    ))
+
+
+def _chat_explicit_literal(raw, value):
+    """Allow a placeholder-looking name only when the user explicitly quotes it."""
+    wanted = re.escape(str(value or "").strip(" \"'"))
+    return bool(wanted and re.search(rf"[\"']{wanted}[\"']", str(raw or ""), re.I))
+
+
+def _chat_clarification(resolution, default="Which item do you mean?"):
+    if isinstance(resolution, dict):
+        value = str(resolution.get("clarification") or "").strip()
+        if value:
+            return value[:240]
+    return default
+
+
+def _chat_contextual_action(conn, raw, time_zone, resolution):
+    """Execute a validated reference-aware routine action.
+
+    Reference semantics are produced by the existing turn planner from recent
+    user/assistant history. This adapter resolves those semantics exclusively
+    against persisted routine IDs and names, then reads the result back before
+    returning a success confirmation.
+    """
+    if not isinstance(resolution, dict):
+        return None
+    status = str(resolution.get("status") or "none").lower()
+    if status == "ambiguous":
+        return _chat_clarification(resolution, "Which item do you want me to change?")
+    if status != "resolved":
+        return None
+
+    operation = str(resolution.get("operation") or "").lower()
+    if operation not in {
+        "add_step", "move_step", "delete_step", "rename_step", "rename_routine",
+    }:
+        return None
+    names = resolution.get("names")
+    if not isinstance(names, list):
+        names = [resolution.get("name")]
+    names = [str(name or "").strip()[:160] for name in names if str(name or "").strip()]
+    if not names or len(names) > 10 or any(_chat_reference_placeholder(name) for name in names):
+        return _chat_clarification(resolution, "Which item do you want me to change?")
+
+    target_name = str(resolution.get("target_name") or "").strip()
+    group = _chat_routine(conn, target_name) if target_name else None
+    if group is None:
+        return _chat_clarification(resolution, "Which routine do you mean?")
+
+    before = _snapshot(conn, group["id"])
+    before_ids = {step["id"] for step in before["steps"]}
+
+    if operation == "add_step":
+        if any(_chat_step(before, name) for name in names):
+            duplicate = next(name for name in names if _chat_step(before, name))
+            return f"{_chat_step(before, duplicate)['title']} is already in {before['title']}."
+        relation = str(resolution.get("relation") or "").lower()
+        anchor_name = str(resolution.get("anchor_name") or "").strip()
+        anchor = _chat_step(before, anchor_name) if anchor_name else None
+        if relation in {"before", "after"} and anchor is None:
+            return _chat_clarification(
+                resolution, f"Which step should {names[0]} go {relation}?"
+            )
+        item = before
+        added_ids = []
+        current_anchor = anchor
+        for name in names:
+            item = add_step(conn, group["id"], {"title": name}, time_zone)
+            added = next(
+                (step for step in item["steps"] if step["title"].casefold() == name.casefold()),
+                None,
+            )
+            if added is None:
+                raise RuntimeError("Routine step addition was not saved")
+            added_ids.append(added["id"])
+            if current_anchor is not None:
+                item = _reorder_step(
+                    conn, item, added["id"], current_anchor["id"], relation, time_zone
+                )
+                if relation == "after":
+                    current_anchor = added
+
+        saved = _snapshot(conn, group["id"])
+        saved_ids = {step["id"] for step in saved["steps"]}
+        if not before_ids.issubset(saved_ids):
+            raise RuntimeError("Routine step addition changed existing steps")
+        for name, step_id in zip(names, added_ids):
+            matches = [
+                step for step in saved["steps"]
+                if step["title"].casefold() == name.casefold()
+            ]
+            if len(matches) != 1 or matches[0]["id"] != step_id:
+                raise RuntimeError("Routine step addition failed semantic verification")
+        if anchor is not None:
+            ordered = [step["id"] for step in saved["steps"]]
+            first_added = ordered.index(added_ids[0])
+            last_added = ordered.index(added_ids[-1])
+            anchor_index = ordered.index(anchor["id"])
+            valid = first_added > anchor_index if relation == "after" else last_added < anchor_index
+            if not valid:
+                raise RuntimeError("Routine step position failed semantic verification")
+        joined = ", ".join(names)
+        position = f", {relation} {anchor['title']}" if anchor is not None else ""
+        return f"Added {joined} to {saved['title']}{position}."
+
+    if operation == "rename_routine":
+        new_name = str(resolution.get("new_name") or "").strip()[:160]
+        if not new_name or _chat_reference_placeholder(new_name):
+            return _chat_clarification(resolution, "What should I rename it to?")
+        saved = update_routine(conn, group["id"], {"title": new_name}, time_zone)
+        if saved["title"] != new_name:
+            raise RuntimeError("Routine rename failed semantic verification")
+        return f"Renamed {before['title']} to {saved['title']}."
+
+    step = _chat_step(before, names[0])
+    if step is None:
+        return _chat_clarification(resolution, f"I couldn't find {names[0]} in {before['title']}.")
+
+    if operation == "move_step":
+        relation = str(resolution.get("relation") or "").lower()
+        anchor_name = str(resolution.get("anchor_name") or "").strip()
+        anchor = _chat_step(before, anchor_name)
+        if relation not in {"before", "after"} or anchor is None or anchor["id"] == step["id"]:
+            return _chat_clarification(resolution, "Where should I move it?")
+        saved = _reorder_step(conn, before, step["id"], anchor["id"], relation, time_zone)
+        ordered = [item["id"] for item in saved["steps"]]
+        expected_delta = 1 if relation == "after" else -1
+        if ordered.index(step["id"]) - ordered.index(anchor["id"]) != expected_delta:
+            raise RuntimeError("Routine step order failed semantic verification")
+        if {item["id"] for item in saved["steps"]} != before_ids:
+            raise RuntimeError("Routine reorder changed the routine's steps")
+        return f"Moved {step['title']} {relation} {anchor['title']} in {saved['title']}."
+
+    if operation == "delete_step":
+        saved = delete_step(conn, step["id"], time_zone)
+        if any(item["id"] == step["id"] for item in saved["steps"]):
+            raise RuntimeError("Routine step deletion failed semantic verification")
+        if {item["id"] for item in saved["steps"]} != before_ids - {step["id"]}:
+            raise RuntimeError("Routine step deletion changed unrelated steps")
+        return f"Removed {step['title']} from {saved['title']}."
+
+    new_name = str(resolution.get("new_name") or "").strip()[:160]
+    if not new_name or _chat_reference_placeholder(new_name):
+        return _chat_clarification(resolution, "What should I rename it to?")
+    if operation == "rename_step":
+        saved = update_step(conn, step["id"], {"title": new_name}, time_zone)
+        renamed = next((item for item in saved["steps"] if item["id"] == step["id"]), None)
+        if renamed is None or renamed["title"] != new_name:
+            raise RuntimeError("Routine step rename failed semantic verification")
+        return f"Renamed {step['title']} to {new_name} in {saved['title']}."
+    raise RuntimeError("Unsupported contextual routine operation")
+
+
+def chat_action(conn, text, time_zone="UTC", conversation=None, reference_resolution=None):
     """Deterministic high-confidence actions; ambiguous requests fall through."""
     raw = re.sub(r"[*_`]", "", str(text or "").strip())
     lower = raw.lower()
+    contextual_reply = _chat_contextual_action(
+        conn, raw, time_zone, reference_resolution
+    )
+    if contextual_reply is not None:
+        return contextual_reply
     water = re.search(r"(?:drank|drink|log(?:ged)?|add)\s+(\d+(?:\.\d+)?)\s*(ml|millilit(?:er|re)s?|l|lit(?:er|re)s?)\b", lower)
     if water and ("water" in lower or "drank" in lower):
         amount = float(water.group(1)) * (1000 if water.group(2) in {"l", "liter", "litre", "liters", "litres"} else 1)
@@ -1012,6 +1183,8 @@ def chat_action(conn, text, time_zone="UTC"):
     remove = re.search(r"\b(?:remove|delete)\s+(?:the\s+)?(.+?)\s+from\s+(?:my\s+)?(.+?)\s+routine\b", raw, re.I)
     if remove:
         step_hint, routine_hint = (part.strip() for part in remove.groups())
+        if _chat_reference_placeholder(step_hint) and not _chat_explicit_literal(raw, step_hint):
+            return "Which item do you want me to remove?"
         group = _chat_routine(conn, routine_hint)
         step = _chat_step(group, step_hint) if group else None
         if group and step:
@@ -1025,6 +1198,8 @@ def chat_action(conn, text, time_zone="UTC"):
     )
     if rename_step:
         step_hint, new_title, routine_hint = (part.strip(" \"'") for part in rename_step.groups())
+        if _chat_reference_placeholder(step_hint) and not _chat_explicit_literal(raw, step_hint):
+            return "Which item do you want me to rename?"
         group = _chat_routine(conn, routine_hint)
         step = _chat_step(group, step_hint) if group else None
         if group and step:
@@ -1039,6 +1214,11 @@ def chat_action(conn, text, time_zone="UTC"):
     )
     if reorder:
         step_hint, place, anchor_hint, routine_hint = (part.strip() for part in reorder.groups())
+        if (
+            _chat_reference_placeholder(step_hint)
+            or _chat_reference_placeholder(anchor_hint)
+        ) and not _chat_explicit_literal(raw, step_hint):
+            return "Which item do you want me to move, and where should it go?"
         group = _chat_routine(conn, routine_hint)
         step = _chat_step(group, step_hint) if group else None
         anchor = _chat_step(group, anchor_hint) if group else None
@@ -1056,6 +1236,9 @@ def chat_action(conn, text, time_zone="UTC"):
     if add:
         new_title, place, anchor_hint, routine_hint = add.groups()
         new_title, routine_hint = new_title.strip(), routine_hint.strip()
+        if _chat_reference_placeholder(new_title) and not _chat_explicit_literal(raw, new_title):
+            return "Which item do you want me to add?"
+        new_title = new_title.strip(" \"'")
         group = _chat_routine(conn, routine_hint)
         if group:
             existing = _chat_step(group, new_title)

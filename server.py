@@ -1493,7 +1493,10 @@ expression:<safe expression>,output:{label?,unit?,decimals?,format?:"number"|
 "currency"|"percent",currency?:"USD"},note?}. A safe expression is a JSON AST:
 a number, {"field":"field-id"}, or {"op":"...","args":[...]}. Supported ops
 are add, subtract, multiply, divide, power, negate, abs, sqrt, exp, ln, log10,
-round, floor, ceil, min, and max. The AST, field references, arity, size, depth,
+round, floor, ceil, min, max, and future_value. future_value takes exactly
+[starting balance, periodic contribution, annual percentage rate, years], uses
+monthly compounding plus end-of-month contributions, and handles a zero rate.
+The AST, field references, arity, size, depth,
 and finite result are validated; never send JavaScript or a string expression.
 For multiple results, use outputs:[{label,unit?,decimals?,format?,currency?,
 expression},...]. Parentheses and precedence are expressed by AST nesting.
@@ -1670,7 +1673,7 @@ def _apollo_normalize_expression(node, field_ids, depth=0, budget=None):
         "max": (2, 8), "negate": (1, 1), "abs": (1, 1),
         "sqrt": (1, 1), "exp": (1, 1), "ln": (1, 1),
         "log10": (1, 1), "round": (1, 1), "floor": (1, 1),
-        "ceil": (1, 1),
+        "ceil": (1, 1), "future_value": (4, 4),
     }
     if operation not in arities or not isinstance(arguments, list):
         return None
@@ -1693,7 +1696,10 @@ def _apollo_extract_ui_requirements(message):
     text = str(message or "")
     lower = re.sub(r"\s+", " ", text.lower().replace("‑", "-").replace("–", "-"))
     quiz = bool(re.search(r"\b(quiz|knowledge check|practice questions?)\b", lower))
-    calculator = bool(re.search(r"\bcalculator\b", lower))
+    calculator = bool(
+        re.search(r"\bcalculator\b", lower)
+        or re.search(r"\binteractive\s+savings\s+planner\b", lower)
+    )
     selector = bool(re.search(
         r"\b(selector|selectable|dropdown|switch(?:es|ing)? between|"
         r"choose between|changes? (?:the )?(?:recipe )?details)\b",
@@ -1721,6 +1727,28 @@ def _apollo_extract_ui_requirements(message):
         r"(slider|selector|dropdown|numeric input|number input|control)\b"
     )
     calculator_controls = control_pattern.findall(lower) if calculator else []
+    if calculator:
+        shared_match = re.search(
+            r"\bwith\s+(.{3,220}?)\s+(sliders?|selectors?|dropdowns?|"
+            r"numeric inputs?|number inputs?|controls?)\b",
+            lower,
+        )
+        if shared_match:
+            labels = [
+                re.sub(r"^(?:(?:and|an?|the)\s+)+", "", value.strip(" ,"))
+                for value in re.split(r"\s*,\s*|\s+and\s+", shared_match.group(1))
+                if value.strip(" ,")
+            ]
+            word = shared_match.group(2)
+            shared_type = (
+                "selector" if word.startswith(("selector", "dropdown"))
+                else "number" if "input" in word
+                else "slider" if word.startswith("slider")
+                else "control"
+            )
+            shared_controls = [(label, shared_type) for label in labels]
+            if 1 < len(shared_controls) <= 8 and len(shared_controls) > len(calculator_controls):
+                calculator_controls = shared_controls
     calculator_control_terms = [
         re.sub(r"[-\s]+", " ", label).strip()
         for label, _control_type in calculator_controls
@@ -1748,6 +1776,44 @@ def _apollo_extract_ui_requirements(message):
         and re.search(r"\b(contribution|deposit|payment)\b", lower)
     ):
         calculator_formula_kind = "recurring_savings"
+    elif (
+        calculator
+        and re.search(r"\bbpm\b", lower)
+        and re.search(r"\bdelay\b", lower)
+        and re.search(r"\b(?:reverb\s+)?pre[- ]?delay\b", lower)
+    ):
+        calculator_formula_kind = "tempo_timing"
+
+    if calculator_formula_kind == "recurring_savings":
+        required_operations = ["future_value"]
+
+    calculator_defaults = {}
+    savings_defaults = re.search(
+        r"\buse\s+\$?([\d,]+(?:\.\d+)?)\s*,\s*"
+        r"\$?([\d,]+(?:\.\d+)?)\s*/?\s*(?:per\s+)?month\s*,\s*"
+        r"([\d.]+)\s*%\s*,?\s*(?:and\s+)?([\d.]+)\s+years?",
+        lower,
+    )
+    if savings_defaults:
+        parsed_defaults = [
+            float(value.replace(",", "")) for value in savings_defaults.groups()
+        ]
+        calculator_defaults = dict(zip(
+            ("starting_balance", "monthly_contribution", "annual_rate", "years"),
+            parsed_defaults,
+        ))
+
+    calculator_output_terms = []
+    if calculator:
+        output_match = re.search(r"\bshow\s+(.{3,180}?)(?:\.|$)", lower)
+        if output_match:
+            output_candidates = [
+                re.sub(r"^and\s+", "", value.strip(" ,"))
+                for value in re.split(r"\s*,\s*|\s+and\s+", output_match.group(1))
+                if value.strip(" ,")
+            ][:4]
+            if len(output_candidates) > 1:
+                calculator_output_terms = output_candidates
 
     adjusted_control_count = 0
     adjusted_match = re.search(
@@ -1810,9 +1876,9 @@ def _apollo_extract_ui_requirements(message):
         "selector": selector,
         "comparison": comparison,
         "interactive_demo": interactive_demo,
-        "calculator_field_count": min(
-            max(numeric_control_count, 1 if calculator else 0), 8
-        ),
+        "calculator_field_count": min(max(
+            numeric_control_count, len(calculator_controls), 1 if calculator else 0
+        ), 8),
         "calculator_control_terms": calculator_control_terms[:8],
         "calculator_control_types": calculator_control_types[:8],
         "required_operations": required_operations,
@@ -1823,6 +1889,8 @@ def _apollo_extract_ui_requirements(message):
         "calculator_nonzero_defaults": bool(
             calculator_formula_kind in ("compound_interest", "recurring_savings")
         ),
+        "calculator_defaults": calculator_defaults,
+        "calculator_output_terms": calculator_output_terms,
         "interactive_control_count": min(
             max(numeric_control_count, adjusted_control_count), 8
         ) if interactive_demo else 0,
@@ -1945,6 +2013,17 @@ def _apollo_evaluate_expression(node, values, depth=0):
             result = math.floor(arguments[0])
         elif operation == "ceil":
             result = math.ceil(arguments[0])
+        elif operation == "future_value":
+            principal, contribution, annual_percent, years = arguments
+            if years < 0:
+                return None
+            months = 12 * years
+            monthly_rate = annual_percent / 100 / 12
+            if monthly_rate == 0:
+                result = principal + contribution * months
+            else:
+                factor = math.pow(1 + monthly_rate, months)
+                result = principal * factor + contribution * (factor - 1) / monthly_rate
         else:
             return None
     except (ArithmeticError, OverflowError, ValueError):
@@ -1990,6 +2069,24 @@ def _apollo_calculator_formula_matches(block, formula_kind):
     if not formula_kind:
         return True
     fields = block.get("fields") or []
+    if formula_kind == "tempo_timing":
+        bpm = _apollo_calculator_find_field(fields, {"bpm", "tempo"})
+        delay = _apollo_calculator_find_field(fields, {"delay"})
+        predelay = next((field for field in fields if re.search(
+            r"pre[- ]?delay|predelay", (str(field.get("id") or "") + " " + str(field.get("label") or "")).lower()
+        )), None)
+        outputs = block.get("outputs") or []
+        if not all((bpm, delay, predelay)) or len(outputs) < 2 or delay["id"] == predelay["id"]:
+            return False
+        values = {str(field.get("id") or ""): field.get("value") for field in fields}
+        actual = [_apollo_evaluate_expression(output.get("expression"), values) for output in outputs[:2]]
+        if any(value is None for value in actual) or float(bpm["value"]) <= 0:
+            return False
+        expected = [
+            60000 / float(bpm["value"]) * float(delay["value"]),
+            60000 / float(bpm["value"]) * float(predelay["value"]),
+        ]
+        return all(abs(a - e) <= max(.001, abs(e) * 1e-7) for a, e in zip(actual, expected))
     balance = _apollo_calculator_find_field(
         fields, {"principal", "starting", "balance", "amount"}
     )
@@ -2047,14 +2144,55 @@ def _apollo_calculator_formula_matches(block, formula_kind):
     except (ArithmeticError, OverflowError, ValueError):
         return False
     tolerance = max(0.01, abs(expected) * 1e-7)
-    return math.isfinite(expected) and abs(actual - expected) <= tolerance
+    if not math.isfinite(expected) or abs(actual - expected) > tolerance:
+        return False
+    if formula_kind == "recurring_savings":
+        zero_values = dict(values)
+        zero_values[str(rate["id"])] = 0
+        zero_actual = _apollo_evaluate_expression(expression, zero_values)
+        zero_expected = principal + float(contribution["value"]) * total_periods
+        if zero_actual is None or abs(zero_actual - zero_expected) > max(.01, abs(zero_expected) * 1e-7):
+            return False
+    return True
 
 
 def _apollo_financial_calculator_fallback(requirements):
     """Build a trusted formula-registry fallback after bounded model recovery."""
     formula_kind = str(requirements.get("calculator_formula_kind") or "")
-    if formula_kind not in ("compound_interest", "recurring_savings"):
+    if formula_kind not in ("compound_interest", "recurring_savings", "tempo_timing"):
         return ""
+
+    if formula_kind == "tempo_timing":
+        fields = [
+            {"id": "bpm", "label": "BPM", "type": "slider", "value": 120,
+             "min": 40, "max": 240, "step": 1, "unit": "BPM"},
+            {"id": "delay-division", "label": "Delay note division", "type": "segmented",
+             "value": .5, "min": .25, "max": 1, "step": .25,
+             "options": [{"label": "1/4", "value": 1}, {"label": "1/8", "value": .5},
+                         {"label": "1/8 dotted", "value": .75}, {"label": "1/16", "value": .25}]},
+            {"id": "predelay-division", "label": "Reverb pre-delay division", "type": "segmented",
+             "value": .25, "min": .125, "max": .5, "step": .125,
+             "options": [{"label": "1/8", "value": .5}, {"label": "1/16", "value": .25},
+                         {"label": "1/32", "value": .125}]},
+        ]
+        beat_ms = {"op": "divide", "args": [60000, {"field": "bpm"}]}
+        block = {
+            "type": "calculator", "id": "tempo-timing-fallback",
+            "title": "Tempo Timing Calculator",
+            "subtitle": "Independent delay and reverb pre-delay subdivisions",
+            "fields": fields,
+            "expression": {"op": "multiply", "args": [beat_ms, {"field": "delay-division"}]},
+            "outputs": [
+                {"label": "Delay time", "unit": "ms", "decimals": 1,
+                 "expression": {"op": "multiply", "args": [beat_ms, {"field": "delay-division"}]}},
+                {"label": "Reverb pre-delay", "unit": "ms", "decimals": 1,
+                 "expression": {"op": "multiply", "args": [beat_ms, {"field": "predelay-division"}]}},
+            ],
+            "note": "Delay and reverb pre-delay use independent note divisions; link them only when you intentionally want the same tempo subdivision.",
+        }
+        return apollo_sanitize_genui_content(
+            "```apollo-ui\n" + json.dumps({"blocks": [block]}, ensure_ascii=False) + "\n```"
+        )
 
     rate_expression = {
         "op": "divide",
@@ -2096,41 +2234,47 @@ def _apollo_financial_calculator_fallback(requirements):
             "note": "Formula: principal × (1 + annual interest rate)ᵗ",
         }
     else:
+        defaults = requirements.get("calculator_defaults") or {}
+        starting = float(defaults.get("starting_balance", 1000))
+        monthly = float(defaults.get("monthly_contribution", 300))
+        annual = float(defaults.get("annual_rate", 7))
+        years_value = float(defaults.get("years", 10))
+        years_type = "slider"
+        for term, control_type in zip(
+            requirements.get("calculator_control_terms") or [],
+            requirements.get("calculator_control_types") or [],
+        ):
+            if _apollo_calculator_field_matches(term, {"id": "years", "label": "Years"}):
+                years_type = "select" if control_type == "selector" else control_type
+        years_field = {
+            "id": "years", "label": "Years", "type": years_type,
+            "value": years_value, "min": 1, "max": max(50, years_value * 2), "step": 1,
+        }
+        if years_type == "select":
+            options = sorted({1, 5, 10, 20, 30, 40, 50, int(years_value)})
+            years_field["options"] = [
+                {"label": f"{value} year" if value == 1 else f"{value} years", "value": value}
+                for value in options if value <= years_field["max"]
+            ]
         fields = [
             {"id": "starting-balance", "label": "Starting balance",
-             "type": "slider", "value": 1000, "min": 0, "max": 100000,
+             "type": "slider", "value": starting, "min": 0, "max": max(100000, starting * 2),
              "step": 100, "unit": "$"},
             {"id": "monthly-contribution", "label": "Monthly contribution",
-             "type": "slider", "value": 300, "min": 25, "max": 5000,
+             "type": "slider", "value": monthly, "min": 0, "max": max(5000, monthly * 2),
              "step": 25, "unit": "$/month"},
             {"id": "annual-rate", "label": "Annual return", "type": "slider",
-             "value": 7, "min": 0.1, "max": 20, "step": 0.1, "unit": "%"},
-            {"id": "years", "label": "Years", "type": "select",
-             "value": 10, "min": 1, "max": 50, "step": 1,
-             "options": [
-                 {"label": "1 year", "value": 1},
-                 {"label": "5 years", "value": 5},
-                 {"label": "10 years", "value": 10},
-                 {"label": "20 years", "value": 20},
-                 {"label": "30 years", "value": 30},
-                 {"label": "40 years", "value": 40},
-                 {"label": "50 years", "value": 50},
-             ]},
+             "value": annual, "min": 0, "max": max(20, annual * 2), "step": 0.1, "unit": "%"},
+            years_field,
         ]
-        periodic_rate = {"op": "divide", "args": [rate_expression, 12]}
-        total_periods = {"op": "multiply", "args": [12, {"field": "years"}]}
-        growth = {"op": "power", "args": [
-            {"op": "add", "args": [1, periodic_rate]}, total_periods,
+        expression = {"op": "future_value", "args": [
+            {"field": "starting-balance"}, {"field": "monthly-contribution"},
+            {"field": "annual-rate"}, {"field": "years"},
         ]}
-        expression = {"op": "add", "args": [
+        contributions = {"op": "add", "args": [
+            {"field": "starting-balance"},
             {"op": "multiply", "args": [
-                {"field": "starting-balance"}, growth,
-            ]},
-            {"op": "multiply", "args": [
-                {"field": "monthly-contribution"},
-                {"op": "divide", "args": [
-                    {"op": "subtract", "args": [growth, 1]}, periodic_rate,
-                ]},
+                {"field": "monthly-contribution"}, 12, {"field": "years"},
             ]},
         ]}
         block = {
@@ -2138,8 +2282,14 @@ def _apollo_financial_calculator_fallback(requirements):
             "title": "Savings Growth Calculator",
             "subtitle": "Monthly contributions compounded monthly",
             "fields": fields, "expression": expression,
-            "output": {"label": "Projected balance", "format": "currency",
-                       "currency": "USD", "decimals": 2},
+            "outputs": [
+                {"label": "Final balance", "format": "currency", "currency": "USD",
+                 "decimals": 2, "expression": expression},
+                {"label": "Total contributions", "format": "currency", "currency": "USD",
+                 "decimals": 2, "expression": contributions},
+                {"label": "Investment growth", "format": "currency", "currency": "USD",
+                 "decimals": 2, "expression": {"op": "subtract", "args": [expression, contributions]}},
+            ],
             "note": "Assumes contributions are made at the end of each month.",
         }
 
@@ -2198,6 +2348,19 @@ def _apollo_calculator_meets_requirements(block, requirements):
 
     required_format = str(requirements.get("calculator_output_format") or "")
     outputs = block.get("outputs") or [block.get("output") or {}]
+    requested_outputs = requirements.get("calculator_output_terms") or []
+    output_labels = [
+        str(output.get("label") or "")
+        for output in outputs if isinstance(output, dict)
+    ]
+    if any(
+        not any(
+            _apollo_calculator_field_matches(term, {"id": label, "label": label})
+            for label in output_labels
+        )
+        for term in requested_outputs
+    ):
+        return False
     if required_format and not any(
         isinstance(output, dict) and output.get("format") == required_format
         for output in outputs
@@ -2336,6 +2499,71 @@ def _apollo_prune_misaligned_ui(content, requirements):
         r"```apollo-ui\s*\n([\s\S]*?)\n```",
         replace,
         str(content or ""),
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\n{3,}", "\n\n", result).strip()
+
+
+def _apollo_prune_redundant_ui_blocks(content):
+    """Drop disconnected controls that duplicate a richer component's UI."""
+    def replace(match):
+        try:
+            payload = json.loads(match.group(1))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return ""
+        if not isinstance(payload, dict) or not isinstance(payload.get("blocks"), list):
+            return ""
+        blocks = [block for block in payload["blocks"] if isinstance(block, dict)]
+        trends = [block for block in blocks if block.get("type") == "metric_trend"]
+        has_rich_data = bool(trends or any(
+            block.get("type") in {"chart", "table"} for block in blocks
+        ))
+        kept = []
+        for block in blocks:
+            if block.get("type") != "selector" or not has_rich_data:
+                kept.append(block)
+                continue
+            options = block.get("options") or []
+            labels = {
+                str(option.get("label") or "").strip().lower()
+                for option in options if isinstance(option, dict)
+            }
+            detail_text = " ".join(
+                str(value)
+                for option in options if isinstance(option, dict)
+                for value in (
+                    option.get("description") or "",
+                    *[
+                        detail.get("value") or ""
+                        for detail in (option.get("details") or [])
+                        if isinstance(detail, dict)
+                    ],
+                )
+            ).strip()
+            generic_navigation = bool(labels) and labels <= {
+                "summary", "details", "detail", "overview", "more",
+            } and len(detail_text) < 160
+            trend_ranges = {
+                int(value) for trend in trends for value in (trend.get("ranges") or [])
+                if isinstance(value, (int, float))
+            }
+            selector_ranges = set()
+            for label in labels:
+                found = re.fullmatch(r"(\d+)\s*(?:d|day|days)", label)
+                if found:
+                    selector_ranges.add(int(found.group(1)))
+            duplicates_trend_range = bool(selector_ranges) and selector_ranges <= trend_ranges
+            if generic_navigation or duplicates_trend_range:
+                continue
+            kept.append(block)
+        if not kept:
+            return ""
+        return "```apollo-ui\n" + json.dumps(
+            {"blocks": kept}, ensure_ascii=False, separators=(",", ":")
+        ) + "\n```"
+
+    result = re.sub(
+        r"```apollo-ui\s*\n([\s\S]*?)\n```", replace, str(content or ""),
         flags=re.IGNORECASE,
     )
     return re.sub(r"\n{3,}", "\n\n", result).strip()
@@ -3554,7 +3782,17 @@ def apollo_context_planner(
                 "follow-ups from recent conversation, "
                 "but let a clear topic switch override older context. The UI "
                 "surface is weak context only and must never override the "
-                "message's meaning.\n\n"
+                "message's meaning. For any edit containing a contextual "
+                "reference such as it, that, those, the one we added, the "
+                "second one, or the last step, resolve the referent from the "
+                "recent user and assistant turns. Use grammatical number, "
+                "entity type, active intent, recency, and successful action "
+                "confirmations; never treat a pronoun as a literal object "
+                "name. If two candidates are equally plausible, mark the "
+                "reference ambiguous and ask one concise question. Quoted "
+                "names such as add \"it\" are literal. For an ordered-list "
+                "edit, include an anchor and before/after relation only when "
+                "the conversation establishes them.\n\n"
                 "Examples:\n"
                 "- 'How much water is in ramen?' is general_knowledge/general; "
                 "select no source.\n"
@@ -3598,6 +3836,13 @@ def apollo_context_planner(
                 "\"whoop\": false, "
                 "\"spotify\": false, "
                 "\"calendar_days\": 7, "
+                "\"reference_resolution\": {"
+                "\"status\": \"none|resolved|ambiguous\", "
+                "\"operation\": \"add_step|move_step|delete_step|rename_step|rename_routine|none\", "
+                "\"entity_type\": \"ingredient|product|routine_step|routine|task|calendar_event|schedule|group|none\", "
+                "\"names\": [], \"target_name\": \"\", "
+                "\"relation\": \"before|after|\", \"anchor_name\": \"\", "
+                "\"new_name\": \"\", \"clarification\": \"\"}, "
                 "\"reason\": \"short internal reason\""
                 "}"
             )
@@ -3728,6 +3973,39 @@ def apollo_context_planner(
                 or ""
             )[:240]
     }
+
+    raw_resolution = plan.get("reference_resolution")
+    if not isinstance(raw_resolution, dict):
+        raw_resolution = {}
+    resolution_status = str(raw_resolution.get("status") or "none").lower()
+    if resolution_status not in {"none", "resolved", "ambiguous"}:
+        resolution_status = "none"
+    names = raw_resolution.get("names")
+    if not isinstance(names, list):
+        names = []
+    normalized["reference_resolution"] = {
+        "status": resolution_status,
+        "operation": str(raw_resolution.get("operation") or "none")[:40],
+        "entity_type": str(raw_resolution.get("entity_type") or "none")[:40],
+        "names": [str(name).strip()[:160] for name in names[:10] if str(name).strip()],
+        "target_name": str(raw_resolution.get("target_name") or "").strip()[:160],
+        "relation": str(raw_resolution.get("relation") or "").strip().lower()[:12],
+        "anchor_name": str(raw_resolution.get("anchor_name") or "").strip()[:160],
+        "new_name": str(raw_resolution.get("new_name") or "").strip()[:160],
+        "clarification": str(raw_resolution.get("clarification") or "").strip()[:240],
+    }
+
+    if (
+        normalized["intent"] == "explicit_action"
+        and resolution_status == "ambiguous"
+    ):
+        normalized["intent"] = "ambiguous_action"
+        normalized["action_authorized"] = False
+        normalized["clarification"] = (
+            normalized["reference_resolution"]["clarification"]
+            or normalized["clarification"]
+            or "Which item do you mean?"
+        )
 
     if (
         normalized["intent"] == "explicit_action"
@@ -19329,6 +19607,12 @@ def apollo_task_chat(
                 "What should I call the task?"
             )
 
+        if (
+            re.fullmatch(r"(?i)(it|that|this|those|these|the one|the task)", title)
+            and not re.search(r"[\"'](?:it|that|this|those|these|the one|the task)[\"']", user_message, re.I)
+        ):
+            return "What should I call the task?"
+
 
         task = create_task({
             "title":
@@ -19472,6 +19756,12 @@ def apollo_task_chat(
             ).strip()
 
             if new_title:
+
+                if (
+                    re.fullmatch(r"(?i)(it|that|this|those|these|the one|the task)", new_title)
+                    and not re.search(r"[\"'](?:it|that|this|those|these|the one|the task)[\"']", user_message, re.I)
+                ):
+                    return "What should I rename the task to?"
 
                 payload[
                     "title"
@@ -23555,7 +23845,11 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 try:
                     conn.execute("BEGIN IMMEDIATE")
                     routine_reply = routines.chat_action(
-                        conn, user_message, routine_time_zone
+                        conn,
+                        user_message,
+                        routine_time_zone,
+                        conversation=messages,
+                        reference_resolution=turn_plan.get("reference_resolution"),
                     )
                     conn.commit()
                     routine_context = routines.chat_context(
@@ -24568,6 +24862,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     assistant_message,
                     ui_requirements,
                 )
+                assistant_message = _apollo_prune_redundant_ui_blocks(
+                    assistant_message
+                )
 
                 missing_ui = _apollo_validate_ui_requirements(
                     assistant_message,
@@ -24613,6 +24910,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     recovery_content = _apollo_prune_misaligned_ui(
                         recovery_content,
                         ui_requirements,
+                    )
+                    recovery_content = _apollo_prune_redundant_ui_blocks(
+                        recovery_content
                     )
                     candidate = (
                         assistant_message

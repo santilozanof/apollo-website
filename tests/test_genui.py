@@ -48,7 +48,8 @@ class GenerativeUITests(unittest.TestCase):
             "_apollo_calculator_formula_matches",
             "_apollo_financial_calculator_fallback",
             "_apollo_calculator_meets_requirements",
-            "_apollo_validate_ui_requirements", "apollo_sanitize_genui_content",
+            "_apollo_validate_ui_requirements", "_apollo_prune_redundant_ui_blocks",
+            "apollo_sanitize_genui_content",
         )
 
     def test_routine_ui_uses_authoritative_ids_and_state(self):
@@ -103,6 +104,11 @@ class GenerativeUITests(unittest.TestCase):
         self.assertIn("container.remove()", source)
         self.assertIn("dataset.quizTransition", source)
         self.assertIn("prefers-reduced-motion: reduce", source)
+        styles = (ROOT / "apollo_genui.css").read_text()
+        self.assertIn(
+            ".apollo-ui-calculator-field.segmented { grid-column: 1 / -1; }",
+            styles,
+        )
 
     def test_index_masks_partial_structured_streams(self):
         source = (ROOT / "index.html").read_text()
@@ -440,21 +446,9 @@ class GenerativeUITests(unittest.TestCase):
         )
         self.assertEqual(validate(wrong_content, requirements), ["calculator"])
 
-        periodic_rate = {"op": "divide", "args": [
-            {"op": "divide", "args": [{"field": "return"}, 100]}, 12,
-        ]}
-        total_periods = {"op": "multiply", "args": [12, {"field": "years"}]}
-        growth = {"op": "power", "args": [
-            {"op": "add", "args": [1, periodic_rate]}, total_periods,
-        ]}
-        correct_expression = {"op": "add", "args": [
-            {"op": "multiply", "args": [{"field": "starting"}, growth]},
-            {"op": "multiply", "args": [
-                {"field": "monthly"},
-                {"op": "divide", "args": [
-                    {"op": "subtract", "args": [growth, 1]}, periodic_rate,
-                ]},
-            ]},
+        correct_expression = {"op": "future_value", "args": [
+            {"field": "starting"}, {"field": "monthly"},
+            {"field": "return"}, {"field": "years"},
         ]}
         correct = {"blocks": [{
             "type": "calculator", "id": "correct-savings", "fields": fields,
@@ -486,6 +480,95 @@ class GenerativeUITests(unittest.TestCase):
             content = fallback(requirements)
             self.assertTrue(content)
             self.assertEqual(validate(content, requirements), [])
+
+    def test_exact_savings_planner_contract_defaults_outputs_and_zero_rate(self):
+        extract = self.items["_apollo_extract_ui_requirements"]
+        validate = self.items["_apollo_validate_ui_requirements"]
+        fallback = self.items["_apollo_financial_calculator_fallback"]
+        evaluate = self.items["_apollo_evaluate_expression"]
+        prompt = (
+            "Create an interactive savings planner with starting balance, monthly "
+            "contribution, annual return, and years sliders. Show final balance, "
+            "total contributions, and investment growth. Assume end-of-month "
+            "contributions and monthly compounding. Use $5,000, $400/month, 6%, "
+            "and 20 years as the starting values."
+        )
+        requirements = extract(prompt)
+        self.assertEqual(requirements["calculator_field_count"], 4)
+        self.assertEqual(requirements["calculator_control_types"], [
+            "slider", "slider", "slider", "slider",
+        ])
+        self.assertEqual(requirements["calculator_defaults"], {
+            "starting_balance": 5000.0,
+            "monthly_contribution": 400.0,
+            "annual_rate": 6.0,
+            "years": 20.0,
+        })
+        content = fallback(requirements)
+        self.assertEqual(validate(content, requirements), [])
+        calculator = blocks(content)[0]
+        self.assertEqual(
+            {field["id"]: field["value"] for field in calculator["fields"]},
+            {
+                "starting-balance": 5000.0,
+                "monthly-contribution": 400.0,
+                "annual-rate": 6.0,
+                "years": 20.0,
+            },
+        )
+        self.assertTrue(all(field["type"] == "slider" for field in calculator["fields"]))
+        self.assertEqual([output["label"] for output in calculator["outputs"]], [
+            "Final balance", "Total contributions", "Investment growth",
+        ])
+        values = {field["id"]: field["value"] for field in calculator["fields"]}
+        final = evaluate(calculator["outputs"][0]["expression"], values)
+        principal = evaluate(calculator["outputs"][1]["expression"], values)
+        growth = evaluate(calculator["outputs"][2]["expression"], values)
+        self.assertAlmostEqual(final, 201367.38, places=2)
+        self.assertAlmostEqual(principal, 101000.0, places=2)
+        self.assertAlmostEqual(growth, final - principal, places=6)
+        values["annual-rate"] = 0
+        self.assertEqual(
+            evaluate(calculator["outputs"][0]["expression"], values),
+            101000.0,
+        )
+
+    def test_music_timing_fallback_has_independent_delay_and_predelay(self):
+        extract = self.items["_apollo_extract_ui_requirements"]
+        validate = self.items["_apollo_validate_ui_requirements"]
+        fallback = self.items["_apollo_financial_calculator_fallback"]
+        prompt = "Create an interactive BPM delay and reverb pre-delay calculator."
+        requirements = extract(prompt)
+        self.assertEqual(requirements["calculator_formula_kind"], "tempo_timing")
+        content = fallback(requirements)
+        self.assertEqual(validate(content, requirements), [])
+        calculator = blocks(content)[0]
+        self.assertEqual([field["id"] for field in calculator["fields"]], [
+            "bpm", "delay-division", "predelay-division",
+        ])
+        self.assertEqual([output["label"] for output in calculator["outputs"]], [
+            "Delay time", "Reverb pre-delay",
+        ])
+        self.assertNotEqual(
+            calculator["fields"][1]["value"], calculator["fields"][2]["value"]
+        )
+
+    def test_redundant_low_value_selector_is_pruned_beside_trend(self):
+        prune = self.items["_apollo_prune_redundant_ui_blocks"]
+        payload = {"blocks": [
+            {"type": "metric_trend", "id": "recovery", "title": "Recovery",
+             "unit": "%", "data_kind": "measured", "ranges": [2],
+             "items": [{"label": "Mon", "value": 61},
+                       {"label": "Tue", "value": 73}]},
+            {"type": "selector", "id": "summary-details", "title": "View",
+             "options": [
+                 {"id": "summary", "label": "Summary", "description": "Overview"},
+                 {"id": "details", "label": "Details", "description": "More detail"},
+             ]},
+        ]}
+        content = "```apollo-ui\n" + json.dumps(payload) + "\n```"
+        cleaned = prune(content)
+        self.assertEqual([item["type"] for item in blocks(cleaned)], ["metric_trend"])
 
 
 if __name__ == "__main__":

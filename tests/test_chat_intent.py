@@ -71,6 +71,61 @@ class ChatIntentPlannerTests(unittest.TestCase):
         self.assertEqual(unsafe["intent"], "ambiguous_action")
         self.assertTrue(unsafe["clarification"])
 
+    def test_planner_preserves_structured_reference_resolution(self):
+        planner = load_function("apollo_context_planner", {
+            "ask_hermes": lambda _messages: json.dumps({
+                "intent": "explicit_action",
+                "primary_domain": "routines",
+                "action_authorized": True,
+                "clarification": "",
+                "calendar": False,
+                "tasks": False,
+                "whoop": False,
+                "spotify": False,
+                "calendar_days": 7,
+                "reason": "resolved from the prior skincare discussion",
+                "reference_resolution": {
+                    "status": "resolved",
+                    "operation": "add_step",
+                    "entity_type": "ingredient",
+                    "names": ["Azelaic acid 10%"],
+                    "target_name": "Morning",
+                    "relation": "after",
+                    "anchor_name": "Niacinamide serum",
+                },
+            }),
+            "json": json,
+        })
+        plan = planner([
+            {"role": "user", "content": "Can I pair azelaic acid 10% with niacinamide?"},
+            {"role": "assistant", "content": "Yes. Use niacinamide, then azelaic acid 10%."},
+            {"role": "user", "content": "Ok add it to my morning routine."},
+        ], "Ok add it to my morning routine.", {})
+        self.assertEqual(plan["reference_resolution"]["names"], ["Azelaic acid 10%"])
+        self.assertEqual(plan["reference_resolution"]["anchor_name"], "Niacinamide serum")
+
+    def test_planner_fails_closed_when_reference_is_ambiguous(self):
+        planner = load_function("apollo_context_planner", {
+            "ask_hermes": lambda _messages: json.dumps({
+                "intent": "explicit_action",
+                "primary_domain": "routines",
+                "action_authorized": True,
+                "clarification": "",
+                "reference_resolution": {
+                    "status": "ambiguous",
+                    "clarification": "Do you mean niacinamide or azelaic acid 10%?",
+                },
+            }),
+            "json": json,
+        })
+        plan = planner([], "Add that.", {})
+        self.assertEqual(plan["intent"], "ambiguous_action")
+        self.assertFalse(plan["action_authorized"])
+        self.assertEqual(
+            plan["clarification"],
+            "Do you mean niacinamide or azelaic acid 10%?",
+        )
+
     def test_conservative_fallback_does_not_route_generic_water_topic(self):
         fallback = load_function("apollo_conservative_intent_fallback", {"re": re})
         general = fallback("How much water does a large ramen bowl have?")

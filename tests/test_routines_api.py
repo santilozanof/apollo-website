@@ -132,6 +132,17 @@ class RoutinesApiRegressionTests(unittest.TestCase):
             self.assertEqual(state["routines"][0]["steps"][0]["title"], "Round trip")
 
     def test_create_retrieve_edit_schedule_toggle_and_delete_via_api_contract(self):
+        today = datetime.fromisoformat(routines.local_day("Europe/Zurich")).date()
+        scheduled_day = next(
+            today + timedelta(days=offset)
+            for offset in range(7)
+            if (today + timedelta(days=offset)).weekday() in {0, 2, 4}
+        ).isoformat()
+        unscheduled_day = next(
+            today + timedelta(days=offset)
+            for offset in range(7)
+            if (today + timedelta(days=offset)).weekday() not in {0, 2, 4}
+        ).isoformat()
         created = routines.api_action(self.conn, {
             "action": "create_routine",
             "title": "API verification",
@@ -142,7 +153,7 @@ class RoutinesApiRegressionTests(unittest.TestCase):
         step_id = created["steps"][0]["id"]
 
         retrieved = routines.get_state(
-            self.conn, "2026-10-13", "Europe/Zurich"
+            self.conn, today.isoformat(), "Europe/Zurich"
         )["routines"][0]
         self.assertEqual(retrieved["title"], "API verification")
 
@@ -156,7 +167,7 @@ class RoutinesApiRegressionTests(unittest.TestCase):
 
         # Tuesday is no longer scheduled, while Wednesday remains writable.
         tuesday = routines.get_state(
-            self.conn, "2026-10-13", "Europe/Zurich"
+            self.conn, unscheduled_day, "Europe/Zurich"
         )["routines"][0]
         self.assertEqual(tuesday["status"], "not_scheduled")
 
@@ -164,7 +175,7 @@ class RoutinesApiRegressionTests(unittest.TestCase):
             "action": "set_step",
             "routine_id": routine_id,
             "step_id": step_id,
-            "date": "2026-10-14",
+            "date": scheduled_day,
             "completed": True,
             "idempotency_key": "check-once",
         }, "Europe/Zurich")
@@ -173,7 +184,7 @@ class RoutinesApiRegressionTests(unittest.TestCase):
             "action": "set_step",
             "routine_id": routine_id,
             "step_id": step_id,
-            "date": "2026-10-14",
+            "date": scheduled_day,
             "completed": False,
             "idempotency_key": "uncheck-once",
         }, "Europe/Zurich")
@@ -187,7 +198,7 @@ class RoutinesApiRegressionTests(unittest.TestCase):
         self.assertEqual(row["value"], 0)
         self.assertIsNone(row["completed_at"])
         refreshed = routines.get_state(
-            self.conn, "2026-10-14", "Europe/Zurich"
+            self.conn, scheduled_day, "Europe/Zurich"
         )["routines"][0]
         self.assertFalse(refreshed["steps"][0]["complete"])
 
@@ -198,7 +209,7 @@ class RoutinesApiRegressionTests(unittest.TestCase):
         }, "Europe/Zurich")
         self.assertTrue(deleted["archived"])
         self.assertEqual(
-            routines.get_state(self.conn, "2026-10-14", "Europe/Zurich")["routines"],
+            routines.get_state(self.conn, scheduled_day, "Europe/Zurich")["routines"],
             [],
         )
 
