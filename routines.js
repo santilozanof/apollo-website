@@ -64,6 +64,7 @@
     document.querySelector(".main")?.appendChild(view);
     window.ApolloDateNav?.mountRoutines();
     document.getElementById("routineDateLabel").textContent = dateLabel(state.date);
+    window.ApolloDateNav?.setToday("routines", true);
 
     const canonicalViews = () => [document.querySelector(".home"), ...[
         "apolloView", "musicView", "calendarView", "tasksView", "studioView", "settingsView"
@@ -200,7 +201,7 @@
     function render() {
         if (!state.data) return;
         document.getElementById("routineDateLabel").textContent = dateLabel(state.date);
-        document.getElementById("routineToday").hidden = state.date === today();
+        window.ApolloDateNav?.setToday("routines", state.date === today());
         const routines = state.data.routines || [];
         document.getElementById("routineList").innerHTML = routines.length
             ? routines.map(renderRoutine).join("")
@@ -532,11 +533,13 @@
     document.querySelectorAll("[data-date-move]").forEach(element => element.addEventListener("click", () => {
         state.date = shiftDate(state.date, Number(element.dataset.dateMove));
         document.getElementById("routineDateLabel").textContent = dateLabel(state.date);
+        window.ApolloDateNav?.setToday("routines", state.date === today());
         load();
     }));
     document.getElementById("routineToday").addEventListener("click", () => {
         state.date = today();
         document.getElementById("routineDateLabel").textContent = dateLabel(state.date);
+        window.ApolloDateNav?.setToday("routines", true);
         load();
     });
 

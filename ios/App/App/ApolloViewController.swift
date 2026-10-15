@@ -193,6 +193,7 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
     private var currentRoute = "home"
     private var bridgeIsReady = false
     private var pendingNavigation: (route: String, reselected: Bool)?
+    private var keyboardObservers: [NSObjectProtocol] = []
 
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
@@ -212,7 +213,7 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         }
 
         let source = """
-        window.__apolloNativeBundledVersion = "1.6";
+        window.__apolloNativeBundledVersion = "1.7";
         (() => {
             if (!document.getElementById("apollo-capacitor-native-css")) {
                 const style = document.createElement("style");
@@ -229,12 +230,11 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         let handler = ApolloWeakScriptMessageHandler(delegate: self)
         messageHandler = handler
         userContentController?.add(handler, name: "apolloNative")
-        // The deployed 1.5 page may load its own bridge before our bundled
-        // 1.6 script. Mark that older bridge as already installed so only the
-        // signed bridge owns native listeners and dialogs.
+        // Prevent a deployed 1.6 page from installing its older bridge before
+        // the signed 1.7 bundle takes ownership of native listeners/dialogs.
         userContentController?.addUserScript(
             WKUserScript(
-                source: "window.__apolloCapacitorVersion = '1.5';",
+                source: "window.__apolloCapacitorVersion = '1.6';",
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             )
@@ -257,6 +257,7 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
     }
 
     deinit {
+        keyboardObservers.forEach(NotificationCenter.default.removeObserver)
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "apolloNative")
     }
 
@@ -280,7 +281,26 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
             browser.bottomAnchor.constraint(lessThanOrEqualTo: container.keyboardLayoutGuide.topAnchor),
             pullToBottom
         ])
+        // Keep the composer anchored through a Send tap. Focus can leave the
+        // textarea before UIKit finishes hiding the keyboard; focus-within is
+        // therefore not a reliable keyboard-layout signal.
+        keyboardObservers = [
+            NotificationCenter.default.addObserver(
+                forName: UIResponder.keyboardWillShowNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in self?.setKeyboardVisible(true) },
+            NotificationCenter.default.addObserver(
+                forName: UIResponder.keyboardDidHideNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in self?.setKeyboardVisible(false) }
+        ]
         configureSettingsButton()
+    }
+
+    private func setKeyboardVisible(_ visible: Bool) {
+        evaluateJavaScript("window.apolloNativeKeyboardChanged?.(\(visible ? "true" : "false"))")
     }
 
     override func viewDidAppear(_ animated: Bool) {

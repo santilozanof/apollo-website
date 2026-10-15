@@ -73,10 +73,9 @@ html.apollo-capacitor-ios .main {
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
-    padding-bottom: calc(
-        var(--apollo-native-tabbar-height)
-        + env(safe-area-inset-bottom, 0px)
-    ) !important;
+    /* Full-height route viewports own their scroll insets individually.
+       Padding this parent shortened Routines and exposed a black strip. */
+    padding-bottom: 0 !important;
 }
 
 @media (max-width: 760px) {
@@ -425,6 +424,19 @@ html.apollo-capacitor-ios .main {
         min-height: 44px !important;
     }
 
+    html.apollo-capacitor-ios #apolloView .apollo-send {
+        display: grid !important;
+        place-items: center !important;
+        padding: 0 !important;
+        line-height: 0 !important;
+    }
+
+    html.apollo-capacitor-ios #apolloView .apollo-send svg {
+        display: block !important;
+        width: 20px !important;
+        height: 20px !important;
+    }
+
     html.apollo-capacitor-ios #homeView .ask-box,
     html.apollo-capacitor-ios #musicView .apollo-music-ask-box {
         min-height: 52px !important;
@@ -526,8 +538,8 @@ html.apollo-capacitor-ios.apollo-reduce-motion *::after {
     transition-duration: 1ms !important;
 }
 
-/* The WKWebView extends beneath the real glass dock. Keep the composer above
-   it until focus, when UIKit shrinks the WebView to the keyboard guide. */
+/* UIKit owns the keyboard layout. Preserve the keyboard position through a
+   Send tap even after the textarea blurs; reset only after keyboardDidHide. */
 html.apollo-capacitor-ios body #apolloView.active .apollo-composer-wrap,
 html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloView.active .apollo-composer-wrap,
 html.apollo-capacitor-ios body.apollo-mobile-keyboard-open #apolloView.active .apollo-composer-wrap,
@@ -536,12 +548,22 @@ html.apollo-capacitor-ios body.apollo-mobile-typing #apolloView.active .apollo-c
     bottom: var(--apollo-native-dock-reserve) !important;
     transition-property: none !important;
 }
-html.apollo-capacitor-ios body #apolloView.active:focus-within .apollo-composer-wrap {
+html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloView.active .apollo-composer-wrap {
+    bottom: 8px !important;
+}
+
+/* The contextual Ask Apollo composer is fixed to the viewport on Music,
+   Tasks and Calendar. Their generic mobile inset is zeroed when UIKit owns
+   navigation, so explicitly give this actionable surface the native inset. */
+html.apollo-capacitor-ios body #apolloPresence.visible {
+    bottom: calc(var(--apollo-native-dock-reserve) + 10px) !important;
+}
+html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloPresence.visible {
     bottom: 8px !important;
 }
 
 html.apollo-capacitor-ios body .main {
-    padding-bottom: var(--apollo-native-dock-reserve) !important;
+    padding-bottom: 0 !important;
 }
 
 @media (max-width: 760px) {
@@ -576,6 +598,13 @@ html.apollo-capacitor-ios body .main {
         right: 14px !important;
         z-index: 5 !important;
         margin: 0 !important;
+    }
+
+    /* This fixed sheet must end above the native bar. The generic mobile
+       rule uses --apollo-mobile-nav-h, which is zeroed in Capacitor. */
+    html.apollo-capacitor-ios #musicView .apollo-play-queue {
+        bottom: var(--apollo-native-dock-reserve) !important;
+        max-height: calc(100dvh - var(--apollo-native-dock-reserve) - env(safe-area-inset-top, 0px) - 12px) !important;
     }
 
     html.apollo-capacitor-ios #musicView .apollo-native-queue-action .apollo-queue-trigger {

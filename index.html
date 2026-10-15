@@ -188,7 +188,7 @@ html[data-theme="light"] {
 <link rel="stylesheet" href="/vendor/katex/katex.min.css?v=0.19.0">
 <link rel="stylesheet" href="/apollo_genui.css?v=20261015-2">
 <link rel="stylesheet" href="/apollo_capacitor.css?v=20261015-2">
-<script src="/apollo_date_nav.js?v=20261015-1"></script>
+<script src="/apollo_date_nav.js?v=20261015-2"></script>
 <script src="/vendor/katex/katex.min.js?v=0.19.0"></script>
 <script src="/apollo_genui.js?v=20261015-2"></script>
 
@@ -23358,9 +23358,10 @@ function apolloAddMessage(
         mark.className = "apollo-message-mark";
 
         mark.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round">
-                <circle cx="12" cy="12" r="4.2"/>
-                <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>
+            <svg viewBox="0 0 32 32" aria-label="Apollo" role="img">
+                <rect x="1" y="1" width="30" height="30" rx="8" fill="#0d0d0d"/>
+                <path d="M5 25 L14.5 6 L27 25" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M6.5 20 C11 15.5 18 14.5 27 19" fill="none" stroke="#fff" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
         `;
 
@@ -24306,9 +24307,10 @@ function apolloShowTyping(
 
     typing.innerHTML = `
         <div class="apollo-message-mark">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round">
-                <circle cx="12" cy="12" r="4.2"/>
-                <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>
+            <svg viewBox="0 0 32 32" aria-label="Apollo" role="img">
+                <rect x="1" y="1" width="30" height="30" rx="8" fill="#0d0d0d"/>
+                <path d="M5 25 L14.5 6 L27 25" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M6.5 20 C11 15.5 18 14.5 27 19" fill="none" stroke="#fff" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
         </div>
 
@@ -24401,9 +24403,10 @@ function apolloShowImageGenerating() {
 
     loading.innerHTML = `
         <div class="apollo-message-mark">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round">
-                <circle cx="12" cy="12" r="4.2"/>
-                <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>
+            <svg viewBox="0 0 32 32" aria-label="Apollo" role="img">
+                <rect x="1" y="1" width="30" height="30" rx="8" fill="#0d0d0d"/>
+                <path d="M5 25 L14.5 6 L27 25" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M6.5 20 C11 15.5 18 14.5 27 19" fill="none" stroke="#fff" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
         </div>
 
@@ -28424,6 +28427,11 @@ requestAnimationFrame(() => {
                     <div
                         class="apollo-week-month"
                         id="apolloWeekMonth"
+                        role="button"
+                        tabindex="0"
+                        aria-label="Jump to date"
+                        aria-haspopup="dialog"
+                        aria-expanded="false"
                     ></div>
                 </div>
 
@@ -28670,6 +28678,13 @@ requestAnimationFrame(() => {
         const weekEnd = addDays(
             weekStart,
             6
+        );
+
+        window.ApolloDateNav?.setToday(
+            "calendar",
+            mobileDate ? sameDay(mobileDate, today) :
+                localDateKey(today) >= localDateKey(weekStart) &&
+                localDateKey(today) <= localDateKey(weekEnd)
         );
 
         const monthLabel =
@@ -30645,6 +30660,9 @@ requestAnimationFrame(() => {
 
             return true;
         };
+
+    window.apolloCalendarSelectedDate = () =>
+        mobileCalendarEnabled() ? mobileCalendarDate() : weekStart;
 
 
     window.apolloLoadCalendar =
@@ -34992,7 +35010,7 @@ requestAnimationFrame(() => {
 
 .apollo-calendar-jump-row {
     display: grid;
-    grid-template-columns: 1.4fr .8fr;
+    grid-template-columns: 1.2fr .6fr .9fr;
     gap: 8px;
 }
 
@@ -35070,6 +35088,8 @@ requestAnimationFrame(() => {
 
     jump.className =
         "apollo-calendar-jump";
+    jump.setAttribute("role", "dialog");
+    jump.setAttribute("aria-label", "Jump to date");
 
     jump.innerHTML = `
         <div class="apollo-calendar-jump-title">
@@ -35078,7 +35098,7 @@ requestAnimationFrame(() => {
 
         <div class="apollo-calendar-jump-row">
 
-            <select id="apolloJumpMonth">
+            <select id="apolloJumpMonth" aria-label="Month">
                 <option value="0">January</option>
                 <option value="1">February</option>
                 <option value="2">March</option>
@@ -35094,11 +35114,21 @@ requestAnimationFrame(() => {
             </select>
 
             <input
+                id="apolloJumpDay"
+                type="number"
+                min="1"
+                max="31"
+                step="1"
+                aria-label="Day"
+            >
+
+            <input
                 id="apolloJumpYear"
                 type="number"
                 min="1970"
                 max="2200"
                 step="1"
+                aria-label="Year"
             >
 
         </div>
@@ -35139,11 +35169,17 @@ requestAnimationFrame(() => {
             "apolloJumpYear"
         );
 
+    const dayInput =
+        document.getElementById(
+            "apolloJumpDay"
+        );
+
 
     function closeJump() {
         jump.classList.remove(
             "active"
         );
+        monthLabel.setAttribute("aria-expanded", "false");
     }
 
 
@@ -35173,8 +35209,10 @@ requestAnimationFrame(() => {
         jump.style.left =
             `${Math.max(12, left)}px`;
 
+        const popupHeight = jump.getBoundingClientRect().height || 228;
+        const availableTop = Math.max(12, window.innerHeight - popupHeight - 12);
         jump.style.top =
-            `${Math.max(12, top)}px`;
+            `${Math.min(Math.max(12, top), availableTop)}px`;
     }
 
 
@@ -35200,36 +35238,35 @@ requestAnimationFrame(() => {
 
 
             const current =
-                typeof weekStart !== "undefined"
-                ? weekStart
-                : new Date();
+                window.apolloCalendarSelectedDate?.() || new Date();
 
             monthSelect.value =
                 String(
                     current.getMonth()
                 );
 
+            dayInput.value = current.getDate();
+
             yearInput.value =
                 current.getFullYear();
-
-            positionJump();
 
             jump.classList.toggle(
                 "active"
             );
+            monthLabel.setAttribute("aria-expanded", String(jump.classList.contains("active")));
+            if (jump.classList.contains("active")) positionJump();
 
-            if (
-                jump.classList.contains(
-                    "active"
-                )
-            ) {
-                setTimeout(
-                    () => yearInput.select(),
-                    30
-                );
-            }
+            // Do not focus a field on open: the iPhone keyboard resizes the
+            // viewport before the user can interact with this fixed picker.
         }
     );
+
+    monthLabel.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            monthLabel.click();
+        }
+    });
 
 
     document
@@ -35260,14 +35297,25 @@ requestAnimationFrame(() => {
                         monthSelect.value
                     );
 
+                const day = Number(dayInput.value);
+                const selectedDate = new Date(year, month, day);
+
                 if (
                     !Number.isFinite(year)
                     ||
                     year < 1970
                     ||
                     year > 2200
+                    ||
+                    !Number.isInteger(day)
+                    ||
+                    selectedDate.getFullYear() !== year
+                    ||
+                    selectedDate.getMonth() !== month
+                    ||
+                    selectedDate.getDate() !== day
                 ) {
-                    yearInput.focus();
+                    (year < 1970 || year > 2200 ? yearInput : dayInput).focus();
                     return;
                 }
 
@@ -35291,7 +35339,7 @@ requestAnimationFrame(() => {
                         .apolloCalendarJumpToDate(
                             year,
                             month,
-                            1
+                            day
                         );
 
                 } catch (error) {
@@ -35349,7 +35397,9 @@ requestAnimationFrame(() => {
 
     window.addEventListener(
         "resize",
-        closeJump
+        () => {
+            if (jump.classList.contains("active")) positionJump();
+        }
     );
 
 })();
@@ -78483,7 +78533,7 @@ html.apollo-jarvis-mode
 
 
 <link id="apollo-routines-css" rel="stylesheet" href="/routines.css?v=20261014-2">
-<script id="apollo-routines-js" src="/routines.js?v=20261012-7"></script>
+<script id="apollo-routines-js" src="/routines.js?v=20261015-1"></script>
 
 <!-- APOLLO ROUTE STATE V2 -->
 <script id="apollo-route-state-v2">
@@ -78636,7 +78686,7 @@ html.apollo-jarvis-mode
 <link
     id="apollo-polish-v1-css"
     rel="stylesheet"
-    href="/apollo_polish_v1.css?v=20261014-6"
+    href="/apollo_polish_v1.css?v=20261015-7"
 >
 
 <!-- Loaded last so the shared mobile layout contract wins over legacy inline page rules. -->
@@ -78649,4 +78699,4 @@ html.apollo-jarvis-mode
 <link rel="stylesheet" href="/apollo_oled.css?v=20261015-1">
 
 <script src="/apollo_notifications.js?v=20260904-3"></script>
-<script src="/apollo_capacitor.js?v=20261015-2"></script>
+<script src="/apollo_capacitor.js?v=20261015-3"></script>

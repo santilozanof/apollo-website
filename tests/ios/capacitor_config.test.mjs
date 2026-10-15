@@ -27,7 +27,7 @@ test("keeps native integration optional for the production website", () => {
   assert.match(index, /apollo_capacitor\.js/);
   assert.match(bridge, /if \(!capacitor\?\.isNativePlatform\?\.\(\)\) return/);
   assert.match(bridge, /__apolloCapacitorReady/);
-  assert.match(bridge, /__apolloCapacitorVersion = "1\.6"/);
+  assert.match(bridge, /__apolloCapacitorVersion = "1\.7"/);
   assert.match(bridge, /isLight \? "LIGHT" : "DARK"/);
 });
 
@@ -96,10 +96,16 @@ test("handles keyboard, reduced motion, lifecycle, and route badges", () => {
   assert.match(nativeController, /keyboardLayoutGuide\.topAnchor/);
   assert.match(nativeController, /keyboardLayoutGuide\.usesBottomSafeArea = false/);
   assert.doesNotMatch(nativeController, /setChatDockAnchor/);
-  assert.match(nativeCSS, /active:focus-within \.apollo-composer-wrap/);
+  assert.match(nativeCSS, /body\.apollo-native-keyboard-open #apolloView\.active \.apollo-composer-wrap/);
+  assert.match(nativeCSS, /#apolloPresence\.visible \{/);
+  assert.match(nativeCSS, /bottom: calc\(var\(--apollo-native-dock-reserve\) \+ 10px\)/);
+  assert.match(nativeCSS, /#musicView \.apollo-play-queue \{/);
   assert.match(config, /resize: "none"/);
   assert.match(bridge, /setResizeMode", \{ mode: "none" \}/);
-  assert.doesNotMatch(nativeController, /apolloNativeKeyboard/);
+  assert.match(nativeController, /keyboardWillShowNotification/);
+  assert.match(nativeController, /keyboardDidHideNotification/);
+  assert.match(nativeController, /apolloNativeKeyboardChanged/);
+  assert.match(bridge, /window\.apolloNativeKeyboardChanged/);
   assert.doesNotMatch(nativeCSS, /transition: bottom var\(--apollo-keyboard-duration/);
   assert.doesNotMatch(bridge, /Keyboard\?\.addListener\?\.\("keyboardWillShow"/);
   assert.match(nativeController, /UIAccessibility\.isReduceMotionEnabled/);
