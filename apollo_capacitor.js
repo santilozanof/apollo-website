@@ -2,8 +2,8 @@
 (() => {
     const capacitor = window.Capacitor;
     if (!capacitor?.isNativePlatform?.()) return;
-    if (window.__apolloCapacitorVersion === "1.3") return;
-    window.__apolloCapacitorVersion = "1.3";
+    if (window.__apolloCapacitorVersion === "1.4") return;
+    window.__apolloCapacitorVersion = "1.4";
     window.__apolloCapacitorReady = true;
 
     const platform = capacitor.getPlatform?.() || "native";
@@ -23,9 +23,21 @@
     document.documentElement.classList.toggle("apollo-reduce-motion", reduceMotion.matches);
 
     const sunMark = '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>';
+    const aMark = '<rect x="1" y="1" width="30" height="30" rx="8" fill="#0d0d0d"/><path d="M5 25 L14.5 6 L27 25" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.5 20 C11 15.5 18 14.5 27 19" fill="none" stroke="currentColor" stroke-width="1.35"/>';
     function applyApolloMark() {
         document.querySelectorAll(
-            ".apollo-boot-logo svg, .brand-mark svg, .apollo-welcome-mark svg, .apollo-mobile-chat-mark svg, .apollo-message-mark svg, .apollo-image-generating-mark svg, .os-wordmark-mark svg, .os-command-mark svg"
+            ".apollo-boot-logo svg, .brand-mark svg, .os-wordmark-mark svg, .os-command-mark svg"
+        ).forEach(svg => {
+            if (svg.dataset.apolloA === "true") return;
+            svg.setAttribute("viewBox", "0 0 32 32");
+            svg.setAttribute("fill", "none");
+            svg.setAttribute("stroke-linecap", "round");
+            svg.setAttribute("stroke-linejoin", "round");
+            svg.innerHTML = aMark;
+            svg.dataset.apolloA = "true";
+        });
+        document.querySelectorAll(
+            ".apollo-welcome-mark svg, .apollo-mobile-chat-mark svg, .apollo-message-mark svg, .apollo-image-generating-mark svg"
         ).forEach(svg => {
             if (svg.dataset.apolloSun === "true") return;
             svg.setAttribute("viewBox", "0 0 24 24");
@@ -127,16 +139,8 @@
         return true;
     };
 
-    // UIKit keyboardWillChangeFrame is the single transition clock. Legacy
-    // mobile focus/visualViewport listeners may still update their own classes,
-    // but native-only CSS ignores them for dock and composer positioning.
-    window.apolloNativeKeyboard = (visible, duration, curve) => {
-        const seconds = Math.min(0.6, Math.max(0, Number(duration) || 0));
-        document.documentElement.style.setProperty("--apollo-keyboard-duration", `${seconds}s`);
-        const easing = { 0: "ease-in-out", 1: "ease-in", 2: "ease-out", 3: "linear", 7: "ease-in-out" };
-        document.documentElement.style.setProperty("--apollo-keyboard-ease", easing[Number(curve)] || "ease-in-out");
-        document.body.classList.toggle("apollo-native-keyboard-open", Boolean(visible));
-    };
+    // UIKit owns the visible viewport through UIKeyboardLayoutGuide. No JS
+    // keyboard geometry, class toggle, or second composer animation is needed.
 
     function upgradeNativeUI() {
         const routineToolbar = document.querySelector("#routinesView .routine-toolbar");
@@ -165,14 +169,16 @@
             }
         }
 
-        const nowContent = document.getElementById("apolloNowContent");
+        const nowPlaying = document.getElementById("apolloNowPlaying");
         const queue = document.getElementById("apolloQueue");
-        const label = nowContent?.querySelector(".apollo-now-label");
-        if (nowContent && queue && label && !nowContent.querySelector(".apollo-native-now-head")) {
-            const head = document.createElement("div");
-            head.className = "apollo-native-now-head";
-            nowContent.insertBefore(head, label);
-            head.append(label, queue);
+        if (nowPlaying && queue && !queue.classList.contains("apollo-native-queue-action")) {
+            queue.classList.add("apollo-native-queue-action");
+            nowPlaying.append(queue);
+            // Keep the fixed sheet outside the card's isolated stacking context,
+            // above its existing scrim. The desktop queue handler retains the
+            // same elements and listeners; only their native presentation moves.
+            const panel = document.getElementById("apolloQueuePanel");
+            if (panel) document.getElementById("musicView")?.append(panel);
         }
 
         const history = document.querySelector("#settingsView .apollo-notification-history-section");
@@ -447,7 +453,7 @@
         return originalOpen(url, target, features);
     };
 
-    pluginCall(Keyboard, "setResizeMode", { mode: "native" });
+    pluginCall(Keyboard, "setResizeMode", { mode: "none" });
 
     App?.addListener?.("appStateChange", ({ isActive }) => {
         document.body.classList.toggle("apollo-native-backgrounded", !isActive);

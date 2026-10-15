@@ -15,11 +15,6 @@ html.apollo-capacitor-ios .apollo-message {
     user-select: text;
 }
 
-html.apollo-capacitor-ios body.apollo-native-keyboard-open .sidebar {
-    transform: translateY(110%) !important;
-    pointer-events: none !important;
-}
-
 .apollo-native-network-banner {
     position: fixed;
     z-index: 1000000;
@@ -54,7 +49,7 @@ html[data-theme="light"] .apollo-native-network-banner {
     box-shadow: 0 8px 30px rgba(0,0,0,.1);
 }
 
-/* Apollo iOS 1.3 owns top-level navigation with a floating UIKit glass dock. */
+/* UIKit owns the tab bar and the WebView's unobscured viewport. */
 html.apollo-capacitor-ios {
     --apollo-native-tabbar-height: 66px;
     --mobile-tabbar-height: 66px;
@@ -81,18 +76,6 @@ html.apollo-capacitor-ios .main {
         var(--apollo-native-tabbar-height)
         + env(safe-area-inset-bottom, 0px)
     ) !important;
-}
-
-html.apollo-capacitor-ios body:not(.apollo-native-keyboard-open) #apolloView.active .apollo-composer-wrap {
-    bottom: calc(
-        var(--apollo-native-tabbar-height)
-        + env(safe-area-inset-bottom, 0px)
-        + 10px
-    ) !important;
-}
-
-html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloView.active .apollo-composer-wrap {
-    bottom: 8px !important;
 }
 
 @media (max-width: 760px) {
@@ -447,22 +430,6 @@ html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloView.active .a
         padding-bottom: 12px !important;
     }
 
-    html.apollo-capacitor-ios #musicView .apollo-native-now-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        min-height: 42px;
-        margin-bottom: 6px;
-    }
-
-    html.apollo-capacitor-ios #musicView .apollo-native-now-head .apollo-now-label {
-        margin-bottom: 0 !important;
-    }
-
-    html.apollo-capacitor-ios #musicView .apollo-native-now-head .apollo-queue {
-        margin-left: auto;
-    }
-
     html.apollo-capacitor-ios #musicView .apollo-now-controls {
         justify-content: center !important;
         gap: 22px !important;
@@ -583,15 +550,6 @@ html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloView.active .a
     }
 }
 
-/* Supersede legacy mobile focus and viewport classes only inside the native shell. */
-html.apollo-capacitor-ios #apolloView.active .apollo-composer-wrap {
-    transition: bottom var(--apollo-keyboard-duration, 0.25s) var(--apollo-keyboard-ease, ease-in-out) !important;
-}
-
-html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloView.active .apollo-composer-wrap {
-    bottom: 8px !important;
-}
-
 html.apollo-capacitor-ios #apolloView .apollo-messages {
     scroll-padding-bottom: 28px;
     overscroll-behavior-y: contain;
@@ -616,6 +574,59 @@ html.apollo-capacitor-ios.apollo-reduce-motion *::after {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
+}
+
+/* iOS 1.4: the WKWebView itself ends at the native bar or keyboard guide.
+   Legacy mobile focus/visualViewport classes cannot move the composer. */
+html.apollo-capacitor-ios body #apolloView.active .apollo-composer-wrap,
+html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloView.active .apollo-composer-wrap,
+html.apollo-capacitor-ios body.apollo-mobile-keyboard-open #apolloView.active .apollo-composer-wrap,
+html.apollo-capacitor-ios body.apollo-mobile-keyboard-visible #apolloView.active .apollo-composer-wrap,
+html.apollo-capacitor-ios body.apollo-mobile-typing #apolloView.active .apollo-composer-wrap {
+    bottom: 8px !important;
+    transition-property: none !important;
+}
+
+html.apollo-capacitor-ios body .main {
+    padding-bottom: 0 !important;
+}
+
+@media (max-width: 760px) {
+    html.apollo-capacitor-ios #musicView.active,
+    html.apollo-capacitor-ios #tasksView.active,
+    html.apollo-capacitor-ios #studioView.active,
+    html.apollo-capacitor-ios #settingsView.active,
+    html.apollo-capacitor-ios #calendarView.active {
+        bottom: 0 !important;
+    }
+
+    html.apollo-capacitor-ios #homeView,
+    html.apollo-capacitor-ios #routinesView {
+        padding-bottom: 24px !important;
+    }
+
+    html.apollo-capacitor-ios #apolloView .apollo-messages {
+        padding-bottom: 112px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView #apolloNowPlaying > .apollo-native-queue-action {
+        position: absolute !important;
+        top: 14px !important;
+        right: 14px !important;
+        z-index: 5 !important;
+        margin: 0 !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-native-queue-action .apollo-queue-trigger {
+        width: 44px !important;
+        height: 44px !important;
+        color: var(--muted) !important;
+        background: transparent !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-native-queue-action .apollo-queue-trigger span {
+        display: none !important;
+    }
 }
 
 @media (orientation: landscape) and (max-height: 520px) {

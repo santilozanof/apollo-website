@@ -1,4 +1,4 @@
-# Apollo iOS 1.3
+# Apollo iOS 1.4
 
 Apollo iOS is a private, iPhone-only Capacitor 8 application with a native iOS navigation and presentation layer. It is not configured for App Store distribution and does not contain credentials or integration tokens.
 
@@ -10,7 +10,7 @@ Authentication is currently the private Tailscale network boundary. There is no 
 
 A locally bundled copy of the current frontend would change its origin to `capacitor://localhost`. That would require a new CORS policy, a real application authentication scheme, cross-origin streaming validation, asset URL rewriting, OAuth callback changes, and special handling for attachments and media. Capacitor's native HTTP bridge is also not a drop-in replacement for the current streamed `ReadableStream` chat path.
 
-For Apollo 1.3, the least disruptive architecture is therefore a native Capacitor container that loads the existing private HTTPS Tailscale origin:
+For Apollo 1.4, the least disruptive architecture remains a native Capacitor container that loads the existing private HTTPS Tailscale origin:
 
 `https://ubuntu-2gb-hel1-1.tailc5eaaa.ts.net`
 
@@ -18,7 +18,32 @@ This preserves same-origin APIs, SSE-style streaming over `fetch()`, OAuth callb
 
 The app never falls back to a public endpoint or cleartext HTTP. When the private origin cannot load, a bundled error page asks the user to connect Tailscale and retry.
 
-## Native architecture audit
+## Current iOS 1.4 implementation
+
+- `ApolloTabBarController` owns a stock `UITabBar` and its selection. Built with the iOS 26 SDK, this is UIKit's system-managed Liquid Glass tab bar, not a custom blur capsule. Four destinations are direct tabs; the system More interface contains Tasks, Studio, and Routines. Settings is a separate native `UIButton.Configuration.glass()` action in the top-right on iOS 26 (native gray configuration on older iOS).
+- One `ApolloViewController`, one Capacitor bridge, and one `WKWebView` remain alive above the tab controller's empty route controllers. Selecting a route calls the existing web navigation function and does not load another page. A selection made before the bridge is ready is replayed once it loads. The shared WebView is hidden only while UIKit's More list is visible, then restored when an overflow destination appears. Web-to-native route synchronization does not cancel an open More list.
+- The app icon and launch artwork are generated from Apollo's verified original stylized-A favicon, now checked in under `ios/Artwork`. The sun remains the Apollo Chat glyph. The seven tab images are rasterized as native template assets from the exact inline desktop navigation SVGs in `index.html` and `routines.js`; no unrelated SF Symbols replace them.
+- The keyboard layout has one geometry owner: UIKit's `UIKeyboardLayoutGuide`. The WebView is a subview of a native container, constrained below the safe top and above the keyboard guide. Capacitor Keyboard resize mode is `none`. The chat composer has a constant 8px viewport-bottom anchor; the old native notification-to-JS timing callback and CSS bottom animation are gone. The system tab bar remains at the device bottom and is covered by the software keyboard, as in other native tab-bar apps. Tap outside to dismiss before switching tabs. The draft stays in the same live DOM node.
+- Music Queue moves out of the now-playing content/transport row to a secondary top-right card action with a 44pt touch target and icon-only visual treatment; Previous / Play-Pause / Next remain independently centered. The existing Spotify queue handler remains unchanged. Its fixed sheet is moved outside the card's isolated stacking context so it can appear above the existing scrim.
+- Native shell interactions include tab selection, Settings, alerts, prompts, action sheets, the system keyboard, WebKit date/time/select pickers, status bar, and haptics. Chat streaming, Generative UI, KaTeX, Spotify content, Calendar, Tasks, Routines, Studio, and charts remain web-powered. No production backend or desktop UI was changed or deployed.
+
+### iOS 1.4 verification
+
+- Xcode iOS 26.2 SDK simulator build succeeded without signing. The final iPhone 16 (iOS 26.3.1) XCUITest suite passed 3/3: three focus/dismiss/reopen cycles with a three-line unsent chat draft, draft retained across Apollo → Music → Calendar → Apollo, Studio through native More, Settings, and the Queue sheet opening above its scrim. Early tests exposed a More-list reset, a pre-bridge tab-selection race, and Queue sheet stacking; each was fixed and retested.
+- Simulator hardware-keyboard connection was temporarily disabled for the strict keyboard pass, which asserts that the software keyboard is actually hittable on each reopen. It passed and the capture shows the composer directly above the keyboard. The setting is restored after QA.
+- A separate iPhone 16 simulator screen recording of the keyboard test was captured and inspected at 30-fps frame spacing around presentation. The composer stayed directly above the moving keyboard and the unsent draft survived; no second CSS-driven jump or blank bottom gap was observed in that recording. This is simulator evidence, not a physical-device guarantee.
+- iPhone 13 mini dark-mode and iPhone 17 Pro Max light-mode simulator captures showed the native bar, original icons, Settings placement, and safe areas without clipping. The iPhone 13 mini More/Studio UI test passed. The installed A icon was visible on the simulator home screen.
+- With the iPhone 16 simulator's Reduce Motion preference enabled, both navigation/keyboard UI tests passed; the preference was restored afterward. This checks operation under that setting, not physical-device animation or haptic quality.
+- `npm run test:ios-config`: 10 passed; `python3 -m unittest discover -s tests -q`: 227 passed; `node --check apollo_capacitor.js` and `git diff --check` passed.
+- No chat message was sent, Spotify playback was commanded, calendar/task/routine data was changed, or production deployment was performed. Active streaming, a long conversation, live Spotify Queue behavior, OAuth, haptics, and the exact keyboard transition on the owner's physical iPhone remain acceptance checks.
+
+### Physical iPhone acceptance checks
+
+After signing and installing with Tailscale connected, use an iPhone 16 to open Apollo Chat, type a multiline draft, tap outside, reopen immediately, repeat rapidly, then switch away and back. Verify no composer jump, flash, safe-area gap, or lost draft. Repeat in a long existing conversation and during a safely initiated streaming reply. Check Queue while Spotify is playing, Studio through More, dark/light/Reduce Motion, haptics, native dialogs, background/resume, and private-network reconnect. Do not treat simulator-only results as proof of physical keyboard or haptic behavior.
+
+## Historical iOS 1.3 architecture audit
+
+The following 1.3 notes are retained as implementation history; the current 1.4 tab bar and keyboard layout above supersede the dock and timing model described below.
 
 Apollo keeps one persistent `WKWebView` and does not create a second copy of route, conversation, form, streaming, OAuth, or backend state. A floating UIKit icon dock is layered over the Capacitor view controller and exchanges only validated route, theme, badge, and presentation messages with JavaScript. Switching destinations calls Apollo's existing route functions; it does not reload the WebView. Seven primary destinations fit the dock; Settings has its own persistent top-right control. All eight destinations remain one tap away with full VoiceOver labels and restrained selected states.
 
@@ -26,7 +51,7 @@ UIKit is used because `CAPBridgeViewController`, `WKWebView`, the custom dock, a
 
 The bridge accepts only known route names, bounded dialog text, validated request identifiers, and at most eight action-sheet choices. Native results are JSON-encoded before returning to JavaScript. No backend endpoints or credentials were added.
 
-## Native behavior included
+## Native behavior included in iOS 1.3 (historical)
 
 - iPhone-only Xcode target with automatic signing and bundle ID `com.santilozano.apollo`.
 - Capacitor 8 with Swift Package Manager; CocoaPods is not required.
@@ -46,7 +71,7 @@ The bridge accepts only known route names, bounded dialog text, validated reques
 - Compact Apollo composer with New Chat and History moved beside the title to make room for Settings. The Music transport group is centered independently of the queue control; Routines and Calendar share the same Add / centered Today / previous / next date-control geometry.
 - Recent Notifications is collapsed by default inside the iOS shell. The count, disclosure state, existing notification rows, Clear action, and deep links remain intact; this changes presentation only and does not delete notifications.
 
-## iOS 1.3 keyboard fix
+## iOS 1.3 keyboard fix (superseded by 1.4)
 
 The previous implementation had several clocks acting on the same layout: Capacitor resized `WKWebView`, the older mobile page reacted separately to focus and `visualViewport`, the bridge toggled another keyboard class, and UIKit animated the dock from its own show/hide notifications. The chat composer also switched its fixed `bottom` value without a transition. That combination could move the composer before the WebView resized and create a visible jump on dismissal.
 

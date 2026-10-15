@@ -7,7 +7,7 @@ const config: CapacitorConfig = {
   appName: "Apollo",
   webDir: "www",
   backgroundColor: "#090909",
-  appendUserAgent: " Apollo-iOS/1.3",
+  appendUserAgent: " Apollo-iOS/1.4",
   loggingBehavior: "debug",
   ios: {
     backgroundColor: "#090909",
@@ -23,7 +23,7 @@ const config: CapacitorConfig = {
   },
   plugins: {
     Keyboard: {
-      resize: "native",
+      resize: "none",
       style: "DEFAULT",
       autoBackdropColor: "dom"
     },

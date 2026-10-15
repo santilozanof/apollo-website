@@ -9,6 +9,9 @@ const offline = await readFile(new URL("../../www/offline.html", import.meta.url
 const info = await readFile(new URL("../../ios/App/App/Info.plist", import.meta.url), "utf8");
 const nativeController = await readFile(new URL("../../ios/App/App/ApolloViewController.swift", import.meta.url), "utf8");
 const nativeCSS = await readFile(new URL("../../apollo_capacitor.css", import.meta.url), "utf8");
+const originalA = await readFile(new URL("../../ios/Artwork/apollo-original-a.svg", import.meta.url), "utf8");
+const artworkGenerator = await readFile(new URL("../../scripts/generate-ios-artwork.swift", import.meta.url), "utf8");
+const sceneDelegate = await readFile(new URL("../../ios/App/App/SceneDelegate.swift", import.meta.url), "utf8");
 
 test("uses the private HTTPS Tailscale origin without cleartext fallback", () => {
   assert.match(config, /https:\/\/ubuntu-2gb-hel1-1\.tailc5eaaa\.ts\.net/);
@@ -21,7 +24,7 @@ test("keeps native integration optional for the production website", () => {
   assert.match(index, /apollo_capacitor\.js/);
   assert.match(bridge, /if \(!capacitor\?\.isNativePlatform\?\.\(\)\) return/);
   assert.match(bridge, /__apolloCapacitorReady/);
-  assert.match(bridge, /__apolloCapacitorVersion = "1\.3"/);
+  assert.match(bridge, /__apolloCapacitorVersion = "1\.4"/);
   assert.match(bridge, /isLight \? "LIGHT" : "DARK"/);
 });
 
@@ -38,24 +41,31 @@ test("declares only the native permission Apollo currently requests", () => {
   assert.doesNotMatch(info, /NSMicrophoneUsageDescription/);
 });
 
-test("uses seven glass dock destinations plus a persistent Settings button", () => {
+test("uses a system UITabBarController with seven routes and one persistent WebView", () => {
   for (const route of ["home", "apollo", "music", "calendar", "tasks", "studio", "routines"]) {
     assert.match(nativeController, new RegExp(`Destination\\(route: "${route}"`));
     assert.match(bridge, new RegExp(`"${route}"`));
   }
   assert.doesNotMatch(nativeController, /Destination\(route: "settings"/);
   assert.match(nativeController, /settingsButton\.accessibilityLabel = "Settings"/);
-  assert.match(nativeController, /UIGlassEffect\(style: \.regular\)/);
-  assert.match(nativeController, /systemChromeMaterial/);
-  assert.match(nativeController, /route: "apollo", title: "Apollo", symbol: "sun\.max"/);
-  assert.doesNotMatch(nativeController, /symbol: "sparkles"/);
-  assert.match(bridge, /\.apollo-message-mark svg/);
-  assert.doesNotMatch(index, /M5 25 L14\.5 6 L27 25/);
-  assert.match(nativeController, /private let dock = UIView/);
-  assert.match(nativeController, /accessibilityLabel = destination\.title/);
+  assert.match(sceneDelegate, /ApolloTabBarController\(\)/);
+  assert.match(nativeController, /ApolloTabBarController: UITabBarController/);
+  assert.match(nativeController, /private let apollo = ApolloViewController\(\)/);
+  assert.match(nativeController, /setViewControllers\(controllers, animated: false\)/);
+  assert.match(nativeController, /controller\.tabBarItem\.accessibilityIdentifier = "apollo\.tab\./);
+  assert.match(nativeController, /UIImage\(named: "Nav-/);
+  assert.doesNotMatch(nativeController, /private let dock = UIView/);
   assert.match(nativeCSS, /html\.apollo-capacitor-ios \.sidebar/);
   assert.match(nativeCSS, /display: none !important/);
-  assert.match(nativeCSS, /--apollo-native-tabbar-height: 66px/);
+});
+
+test("restores the original A icon and renders exact desktop glyphs as native templates", () => {
+  assert.match(originalA, /M5 25 L14\.5 6 L27 25/);
+  assert.match(originalA, /M6\.5 20 C11 15\.5 18 14\.5 27 19/);
+  assert.match(artworkGenerator, /index\.html/);
+  assert.match(artworkGenerator, /routines\.js/);
+  assert.match(artworkGenerator, /Nav-\\\(route\)/);
+  assert.doesNotMatch(artworkGenerator, /drawSun/);
 });
 
 test("synchronizes routes without replacing or reloading the WebView", () => {
@@ -78,8 +88,11 @@ test("provides validated native dialog bridge operations", () => {
 });
 
 test("handles keyboard, reduced motion, lifecycle, and route badges", () => {
-  assert.match(nativeController, /keyboardWillChangeFrameNotification/);
-  assert.match(nativeController, /apolloNativeKeyboard/);
+  assert.match(nativeController, /keyboardLayoutGuide\.topAnchor/);
+  assert.match(config, /resize: "none"/);
+  assert.match(bridge, /setResizeMode", \{ mode: "none" \}/);
+  assert.doesNotMatch(nativeController, /apolloNativeKeyboard/);
+  assert.doesNotMatch(nativeCSS, /transition: bottom var\(--apollo-keyboard-duration/);
   assert.doesNotMatch(bridge, /Keyboard\?\.addListener\?\.\("keyboardWillShow"/);
   assert.match(nativeController, /UIAccessibility\.isReduceMotionEnabled/);
   assert.match(bridge, /appStateChange/);
@@ -89,7 +102,7 @@ test("handles keyboard, reduced motion, lifecycle, and route badges", () => {
 });
 
 test("retains native-only chat, music, routines, and notification refinements", () => {
-  assert.match(bridge, /apollo-native-now-head/);
+  assert.match(bridge, /apollo-native-queue-action/);
   assert.match(bridge, /routine-toolbar/);
   assert.match(bridge, /apollo-native-notification-disclosure/);
   assert.match(nativeCSS, /apollo-native-notification-disclosure/);
