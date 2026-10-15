@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import routines
 import debrief_personalization
 import music_curator
+from apollo_media import visual_request, visual_response
 from automation_engine import (
     AutomationEngine,
     init_automation_schema,
@@ -1565,6 +1566,12 @@ For a masterclass, build a readable lesson—not a wall of widgets—with sectio
 occasional images only when verified, comparisons/tables, a useful calculator
 when appropriate, and one continuous knowledge check. For schedules with real
 events, prefer timeline or table. For real tasks/routines, prefer a checklist.
+For a beginner FL Studio masterclass, start with one practical beat-making
+lesson: orient the learner to Channel Rack, Playlist, Piano Roll, Mixer, and
+Browser; explain what each does in the workflow; then give a small exercise
+with a concrete result and a self-check. Distinguish verified interface facts
+from version-dependent shortcuts. Link official manual pages as sources when
+available, but never turn an HTML manual URL into an image block.
 For trends with enough real points, prefer a chart. For music recommendations,
 use verified artwork and Spotify entity URLs when available; otherwise use
 text-only cards. Never expose a control unless its action is genuinely supported.
@@ -1637,6 +1644,22 @@ def _apollo_safe_ui_url(value):
         return parsed.scheme in ("http", "https") and bool(parsed.netloc)
     except (TypeError, ValueError):
         return False
+
+
+def _apollo_safe_media_url(value):
+    """Reject page and credential URLs masquerading as direct images."""
+    if not _apollo_safe_ui_url(value):
+        return False
+    parsed = urllib.parse.urlparse(str(value).strip())
+    if parsed.scheme != "https" or parsed.username or parsed.password:
+        return False
+    if re.search(r"\.(?:html?|php|aspx?)$", parsed.path, re.IGNORECASE):
+        return False
+    query_keys = {key.lower() for key in urllib.parse.parse_qs(parsed.query)}
+    return not any(
+        key in query_keys
+        for key in ("token", "apikey", "api_key", "signature", "access_token")
+    )
 
 
 def _apollo_ui_number(value):
@@ -2667,6 +2690,24 @@ def _apollo_normalize_ui_block(block):
     if not normalized["id"]:
         return None
 
+    if kind == "image":
+        if not _apollo_safe_media_url(block.get("url")):
+            return None
+        normalized["url"] = str(block["url"]).strip()
+    if kind == "image_gallery":
+        images = [
+            {
+                "url": str(item["url"]).strip(),
+                "alt": str(item.get("alt") or "")[:240],
+                "caption": str(item.get("caption") or "")[:500],
+            }
+            for item in (block.get("items") or [])[:12]
+            if isinstance(item, dict) and _apollo_safe_media_url(item.get("url"))
+        ]
+        if not images:
+            return None
+        normalized["items"] = images
+
     if kind == "chart":
         if block.get("kind") not in ("line", "bar", "donut"):
             return None
@@ -3378,6 +3419,9 @@ def _apollo_choose_hermes_toolsets(messages):
         "beginner to expert",
         "evolution of",
         "with images",
+        "show me images",
+        "show me photos",
+        "pictures of",
         "album artwork",
     )
 
@@ -24828,7 +24872,12 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 model_started = time.perf_counter()
                 first_model_chunk_at = None
 
-                for content in stream_hermes(messages):
+                visual_subject = visual_request(user_message, messages)
+                response_chunks = (
+                    [visual_response(visual_subject)]
+                    if visual_subject else stream_hermes(messages)
+                )
+                for content in response_chunks:
 
                     if first_model_chunk_at is None:
                         first_model_chunk_at = time.perf_counter()

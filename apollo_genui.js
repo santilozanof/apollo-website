@@ -115,6 +115,7 @@
   const safeUrl = (value, image = false) => {
     try {
       const url = new URL(String(value || ""), location.href);
+      if (image && /\.(?:html?|php|aspx?)$/i.test(url.pathname)) return "";
       if (
         ["https:", "http:"].includes(url.protocol)
         || (image && ["data:", "blob:"].includes(url.protocol))
@@ -780,7 +781,7 @@
       } else if (container?.classList.contains("apollo-ui-gallery")) {
         const remaining = container.querySelectorAll(".apollo-ui-figure").length;
         container.classList.toggle("one", remaining === 1);
-        if (!remaining) container.remove();
+        if (!remaining) container.appendChild(el("p", "apollo-ui-media-unavailable", "These images could not be loaded. Use the source links below to view them directly."));
       }
     });
     image.addEventListener("click", () => openImage(image.src, image.alt));
