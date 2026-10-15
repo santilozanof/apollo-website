@@ -39,6 +39,7 @@ class GenerativeUITests(unittest.TestCase):
         self.items = load_server_items(
             "APOLLO_GENERATIVE_UI_PROMPT", "apollo_routine_genui",
             "_APOLLO_UI_TYPES", "_APOLLO_UI_ACTIONS", "_apollo_safe_ui_url",
+            "_apollo_safe_media_url",
             "_apollo_ui_number", "_apollo_clean_ui_actions",
             "_apollo_normalize_quiz", "_apollo_normalize_ui_block",
             "_apollo_normalize_expression", "_apollo_extract_ui_requirements",
@@ -51,6 +52,20 @@ class GenerativeUITests(unittest.TestCase):
             "_apollo_validate_ui_requirements", "_apollo_prune_redundant_ui_blocks",
             "apollo_sanitize_genui_content",
         )
+
+    def test_media_rejects_web_pages_and_empty_galleries(self):
+        sanitize = self.items["apollo_sanitize_genui_content"]
+        payload = {"blocks": [
+            {"type": "image", "id": "page", "url": "https://example.org/manual.html"},
+            {"type": "image_gallery", "id": "empty", "items": [{"url": "https://example.org/site.php"}]},
+            {"type": "image_gallery", "id": "valid", "items": [
+                {"url": "https://example.org/photo.png", "alt": "Photograph"},
+                {"url": "https://example.org/a.jpg?token=private"},
+            ]},
+        ]}
+        result = blocks(sanitize("```apollo-ui\n" + json.dumps(payload) + "\n```"))
+        self.assertEqual([block["id"] for block in result], ["valid"])
+        self.assertEqual(len(result[0]["items"]), 1)
 
     def test_routine_ui_uses_authoritative_ids_and_state(self):
         value = self.items["apollo_routine_genui"]({
@@ -101,7 +116,7 @@ class GenerativeUITests(unittest.TestCase):
         self.assertIn("function renderMetricTrend", source)
         self.assertNotIn('"Image unavailable"', source)
         self.assertIn("apollo-ui-card-text-only", source)
-        self.assertIn("container.remove()", source)
+        self.assertIn("apollo-ui-media-unavailable", source)
         self.assertIn("dataset.quizTransition", source)
         self.assertIn("prefers-reduced-motion: reduce", source)
         styles = (ROOT / "apollo_genui.css").read_text()

@@ -354,6 +354,7 @@ html[data-theme="light"] .apollo-ui-segment.active { background: rgba(0,0,0,.08)
 .apollo-ui-timeline-item:last-child::after { display: none; }
 .apollo-ui-time { margin-bottom: 2px; font-size: 11px; opacity: .5; }
 .apollo-ui-media { display: block; width: 100%; max-height: 360px; background: #000; }
+.apollo-ui-media-unavailable { margin: 0; padding: 16px; font-size: 12px; line-height: 1.5; opacity: .7; }
 .apollo-ui-location { display: flex; align-items: center; gap: 12px; padding: 14px; }
 .apollo-ui-location-pin { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(127,127,127,.12); }
 .apollo-ui-error { padding: 11px 13px; font-size: 12px; opacity: .6; }

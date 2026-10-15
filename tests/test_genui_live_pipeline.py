@@ -139,6 +139,42 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         self.assertEqual(status, 201)
         return json.loads(raw)["id"]
 
+    def test_visual_request_streams_and_persists_verified_gallery_without_model_guessing(self):
+        chat_id = self.create_chat()
+        response = (
+            "I found direct image assets.\n\n```apollo-ui\n"
+            + json.dumps({"blocks": [
+                {"type": "image_gallery", "id": "images", "items": [
+                    {"url": "https://www.image-line.com/example.png", "alt": "FL Studio"}
+                ]},
+                {"type": "sources", "id": "sources", "items": [
+                    {"url": "https://www.image-line.com/manual", "title": "Manual"}
+                ]},
+            ]}) + "\n```"
+        )
+        patches = {
+            "apollo_music_action_requested": lambda *_a, **_k: False,
+            "apollo_automation_chat_reply": lambda *_a, **_k: None,
+            "apollo_task_chat": lambda *_a, **_k: None,
+            "apollo_calendar_chat": lambda *_a, **_k: None,
+            "apollo_context_planner": lambda *_a, **_k: {},
+            "apollo_fetch_planned_context": lambda *_a, **_k: {},
+            "apollo_should_reply_semantically": lambda *_a, **_k: True,
+            "visual_response": lambda _subject: response,
+            "stream_hermes": lambda _messages: self.fail("model must not invent image URLs"),
+            "generate_chat_title": lambda _history: "FL Studio images",
+        }
+        with mock.patch.multiple(server, **patches):
+            status, raw = request("POST", f"/api/chats/{chat_id}/messages", {
+                "content": "Show me images of FL Studio.",
+            })
+        self.assertEqual(status, 200)
+        events = sse_events(raw)
+        self.assertIn("image_gallery", events[-1]["message"]["content"])
+        status, raw = request("GET", f"/api/chats/{chat_id}")
+        self.assertEqual(status, 200)
+        self.assertIn("image_gallery", json.loads(raw)["messages"][-1]["content"])
+
     def planned_turn(self, chat_id, content, plan, response="Normal answer."):
         patches = {
             "apollo_context_planner": lambda *_a, **_k: plan,
