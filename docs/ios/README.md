@@ -1,4 +1,4 @@
-# Apollo iOS 1.2
+# Apollo iOS 1.3
 
 Apollo iOS is a private, iPhone-only Capacitor 8 application with a native iOS navigation and presentation layer. It is not configured for App Store distribution and does not contain credentials or integration tokens.
 
@@ -10,7 +10,7 @@ Authentication is currently the private Tailscale network boundary. There is no 
 
 A locally bundled copy of the current frontend would change its origin to `capacitor://localhost`. That would require a new CORS policy, a real application authentication scheme, cross-origin streaming validation, asset URL rewriting, OAuth callback changes, and special handling for attachments and media. Capacitor's native HTTP bridge is also not a drop-in replacement for the current streamed `ReadableStream` chat path.
 
-For Apollo 1.2, the least disruptive architecture is therefore a native Capacitor container that loads the existing private HTTPS Tailscale origin:
+For Apollo 1.3, the least disruptive architecture is therefore a native Capacitor container that loads the existing private HTTPS Tailscale origin:
 
 `https://ubuntu-2gb-hel1-1.tailc5eaaa.ts.net`
 
@@ -20,7 +20,7 @@ The app never falls back to a public endpoint or cleartext HTTP. When the privat
 
 ## Native architecture audit
 
-Apollo keeps one persistent `WKWebView` and does not create a second copy of route, conversation, form, streaming, OAuth, or backend state. A compact UIKit icon dock is layered over the Capacitor view controller and exchanges only validated route, theme, badge, and presentation messages with JavaScript. Switching destinations calls Apollo's existing route functions; it does not reload the WebView. All eight destinations have one-tap access, equal-width touch targets of at least 44 points on iPhone 13 mini and newer, full VoiceOver labels, and a restrained selected state.
+Apollo keeps one persistent `WKWebView` and does not create a second copy of route, conversation, form, streaming, OAuth, or backend state. A floating UIKit icon dock is layered over the Capacitor view controller and exchanges only validated route, theme, badge, and presentation messages with JavaScript. Switching destinations calls Apollo's existing route functions; it does not reload the WebView. Seven primary destinations fit the dock; Settings has its own persistent top-right control. All eight destinations remain one tap away with full VoiceOver labels and restrained selected states.
 
 UIKit is used because `CAPBridgeViewController`, `WKWebView`, the custom dock, alerts, and action sheets are already UIKit components. This keeps ownership and lifecycle direct and avoids wrapping the existing controller in a second navigation hierarchy. SwiftUI becomes worthwhile if a future version introduces a native screen with native-owned state.
 
@@ -32,17 +32,25 @@ The bridge accepts only known route names, bounded dialog text, validated reques
 - Capacitor 8 with Swift Package Manager; CocoaPods is not required.
 - App lifecycle, Browser, Haptics, Keyboard, and Status Bar plugins only.
 - Native bridge code injected into the remote document from the signed app bundle, so native behavior does not depend on a web deployment.
-- Compact, material-backed UIKit icon dock with SF Symbols for Home, Apollo, Music, Calendar, Tasks, Studio, Routines, and Settings. Its Apollo icon is a sun, and the duplicate web tab bar is hidden only inside the iOS app.
+- Floating capsule dock with `UIGlassEffect` on iOS 26 and system material fallback on older iOS versions. It holds Home, Apollo, Music, Calendar, Tasks, Studio, and Routines; a separate glass Settings button occupies the consistent top-right slot. Its Apollo icon is a sun, and the duplicate web tab bar is hidden only inside the iOS app.
 - Bidirectional native/web route synchronization, route reselection scroll-to-top, and Apollo response-ready badge support without WebView reloads.
 - System confirmation alerts, text-entry prompts, and native action sheets for routine and chat-history overflow menus. Existing JavaScript handlers still perform validation and backend actions.
 - Native WebKit date, time, and selection pickers remain attached to the original HTML controls, preserving form state and validation.
-- Theme-aware status bar and dock, safe-area-aware mobile content, native keyboard resizing, interactive keyboard dismissal, and keyboard-aware dock motion.
+- Theme-aware status bar and dock, safe-area-aware mobile content, native keyboard resizing, interactive keyboard dismissal, and UIKit-timed dock/composer motion.
 - Restrained selection/impact haptics on navigation and meaningful controls, with a bridge preference to disable them.
 - Reduced-motion behavior in both UIKit presentation and the native-only CSS layer.
 - External HTTP(S) destinations opened outside the trusted Apollo WebView.
 - Foreground connectivity check, nonblocking Tailscale banner, lifecycle events, and settings refresh after returning from OAuth.
 - Apollo sun artwork in the app icon, launch screen, web branding, chat header, loading/empty states, and dynamic assistant message states. The signed native bridge updates branding even before a web deployment.
-- Native-only mobile layout refinements for Home, Music, Calendar, Tasks, Studio, Routines, Settings, and chat. A single 58-point dock inset replaces conflicting bottom reserves; Music, Calendar, and task entry have targeted layout corrections.
+- Native-only mobile layout refinements for Home, Music, Calendar, Tasks, Studio, Routines, Settings, and chat. The floating dock has a consistent 66-point content reserve; Music, Calendar, and task entry have targeted layout corrections.
+- Compact Apollo composer with New Chat and History moved beside the title to make room for Settings. The Music transport group is centered independently of the queue control; Routines and Calendar share the same Add / centered Today / previous / next date-control geometry.
+- Recent Notifications is collapsed by default inside the iOS shell. The count, disclosure state, existing notification rows, Clear action, and deep links remain intact; this changes presentation only and does not delete notifications.
+
+## iOS 1.3 keyboard fix
+
+The previous implementation had several clocks acting on the same layout: Capacitor resized `WKWebView`, the older mobile page reacted separately to focus and `visualViewport`, the bridge toggled another keyboard class, and UIKit animated the dock from its own show/hide notifications. The chat composer also switched its fixed `bottom` value without a transition. That combination could move the composer before the WebView resized and create a visible jump on dismissal.
+
+iOS 1.3 uses UIKit `keyboardWillChangeFrame` as the single native timing source. It sends visibility, duration, and curve to native-only CSS while animating the floating dock with the same notification. Capacitor remains the sole WebView resizer. Legacy mobile focus/viewport classes can still exist for browser behavior, but they no longer own native composer or dock positioning. Tab changes end editing without replacing the WebView or clearing the chat draft. Reduce Motion removes the transition.
 - A location usage description because the existing web app optionally reports device location for local weather/context. Apollo continues to work if permission is denied.
 
 ## Preserved features
@@ -98,7 +106,18 @@ These are the only remaining steps that require the owner's Apple Account and ph
 
 A free Personal Team is sufficient for private testing, but Apple requires its development provisioning to be refreshed periodically; current Personal Team profiles expire after seven days. A paid Apple Developer Program team has longer-lived development provisioning but is not required for this private installation.
 
-## Verification completed on 2026-10-15
+## iOS 1.3 simulator verification on 2026-10-15
+
+- Unsigned iOS Simulator build succeeded with Xcode's iOS 26.2 SDK; the simulator runtime was iOS 26.3.1. No signing or physical iPhone was needed.
+- The final bridge ran against Apollo's private Tailscale HTTPS origin without a production web deployment. All seven dock buttons and the top-right Settings button were exposed with accessibility names. An accessibility-driven simulator pass opened every dock destination, then Settings from each one; all 14 selections succeeded without a WebView reload.
+- iPhone 16 visual captures checked the floating glass capsule, sun icon, top-right Settings, compact chat composer, New Chat/History placement, Music empty-state queue access, Calendar date controls, and Routines date controls/cards. The Calendar and Routines rows were adjusted after comparing the captures so Today is truly centered. The Routines Today control stays visible but disabled for the current date.
+- On iPhone 16, a synthetic unsent draft was typed with the software keyboard. Captures before focus, with the keyboard open, and after tapping outside showed the composer above the keyboard, the dock hidden while typing and restored after dismissal, no persistent blank gap, and the draft retained. The bridge has no timeout-based keyboard choreography.
+- iPhone 13 mini and iPhone 17 Pro Max simulator captures checked the seven-icon dock, floating safe-area placement, and top-right Settings control. Light and dark appearance were checked on the larger simulator and dark mode restored afterward.
+- `npm run test:ios-config`: 9 tests passed. `python3 -m unittest discover -s tests -q`: 227 tests passed. `node --check apollo_capacitor.js` and `git diff --check` passed.
+- Native dynamic notification disclosure, active Spotify transport/queue, and rapid keyboard focus-distract cycles were not exercised end-to-end against live account data. The Simulator computer-control surface stopped accepting coordinate interactions after the initial keyboard cycle, so those interactions remain explicit manual QA items. Code paths and layout rules were inspected; do not interpret this as visual verification of those states.
+- No production deployment, chat send, Spotify playback command, notification Clear action, or destructive account mutation was performed.
+
+## Previous iOS 1.2 verification baseline
 
 - `python3 -m unittest discover -s tests -v`: 227 tests passed.
 - `npm run test:ios-config`: 8 tests passed.

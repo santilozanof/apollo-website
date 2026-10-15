@@ -38,12 +38,11 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         Destination(route: "calendar", title: "Calendar", symbol: "calendar"),
         Destination(route: "tasks", title: "Tasks", symbol: "checkmark.circle"),
         Destination(route: "studio", title: "Studio", symbol: "waveform"),
-        Destination(route: "routines", title: "Routines", symbol: "repeat"),
-        Destination(route: "settings", title: "Settings", symbol: "gearshape")
+        Destination(route: "routines", title: "Routines", symbol: "repeat")
     ]
 
     private let dock = UIView(frame: .zero)
-    private var dockHeightConstraint: NSLayoutConstraint?
+    private let settingsButton = UIButton(type: .custom)
     private var dockItems: [DockItem] = []
     private var messageHandler: ApolloWeakScriptMessageHandler?
     private var keyboardObservers: [NSObjectProtocol] = []
@@ -65,7 +64,7 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         }
 
         let source = """
-        window.__apolloNativeBundledVersion = "1.2";
+        window.__apolloNativeBundledVersion = "1.3";
         (() => {
             if (!document.getElementById("apollo-capacitor-native-css")) {
                 const style = document.createElement("style");
@@ -95,17 +94,13 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         webView?.allowsLinkPreview = false
 
         configureDock()
+        configureSettingsButton()
         observeKeyboard()
     }
 
     deinit {
         keyboardObservers.forEach(NotificationCenter.default.removeObserver)
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "apolloNative")
-    }
-
-    override func viewSafeAreaInsetsDidChange() {
-        super.viewSafeAreaInsetsDidChange()
-        dockHeightConstraint?.constant = 58 + view.safeAreaInsets.bottom
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -118,8 +113,11 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
 
         dock.translatesAutoresizingMaskIntoConstraints = false
         dock.accessibilityIdentifier = "apollo.nativeDock"
+        dock.layer.cornerRadius = 27
+        dock.layer.cornerCurve = .continuous
+        dock.clipsToBounds = true
 
-        let material = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+        let material = makeGlassSurface()
         material.translatesAutoresizingMaskIntoConstraints = false
         dock.addSubview(material)
         NSLayoutConstraint.activate([
@@ -127,17 +125,6 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
             material.trailingAnchor.constraint(equalTo: dock.trailingAnchor),
             material.topAnchor.constraint(equalTo: dock.topAnchor),
             material.bottomAnchor.constraint(equalTo: dock.bottomAnchor)
-        ])
-
-        let separator = UIView(frame: .zero)
-        separator.backgroundColor = UIColor.separator.withAlphaComponent(0.25)
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        dock.addSubview(separator)
-        NSLayoutConstraint.activate([
-            separator.leadingAnchor.constraint(equalTo: dock.leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: dock.trailingAnchor),
-            separator.topAnchor.constraint(equalTo: dock.topAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 0.5)
         ])
 
         let row = UIStackView(frame: .zero)
@@ -148,10 +135,10 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         row.translatesAutoresizingMaskIntoConstraints = false
         dock.addSubview(row)
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: dock.leadingAnchor, constant: 4),
-            row.trailingAnchor.constraint(equalTo: dock.trailingAnchor, constant: -4),
-            row.topAnchor.constraint(equalTo: dock.topAnchor, constant: 5),
-            row.heightAnchor.constraint(equalToConstant: 49)
+            row.leadingAnchor.constraint(equalTo: dock.leadingAnchor, constant: 5),
+            row.trailingAnchor.constraint(equalTo: dock.trailingAnchor, constant: -5),
+            row.centerYAnchor.constraint(equalTo: dock.centerYAnchor),
+            row.heightAnchor.constraint(equalToConstant: 48)
         ])
 
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular)
@@ -161,6 +148,8 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
             button.accessibilityLabel = destination.title
             button.accessibilityIdentifier = "apollo.tab.\(destination.route)"
             button.addTarget(self, action: #selector(dockTapped(_:)), for: .touchUpInside)
+            button.addTarget(self, action: #selector(controlPressed(_:)), for: .touchDown)
+            button.addTarget(self, action: #selector(controlReleased(_:)), for: [.touchUpInside, .touchUpOutside, .touchCancel])
             row.addArrangedSubview(button)
 
             let selection = UIView(frame: .zero)
@@ -169,7 +158,7 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
                     ? UIColor.white.withAlphaComponent(0.12)
                     : UIColor.black.withAlphaComponent(0.075)
             }
-            selection.layer.cornerRadius = 17
+            selection.layer.cornerRadius = 19
             selection.isUserInteractionEnabled = false
             selection.translatesAutoresizingMaskIntoConstraints = false
             button.addSubview(selection)
@@ -191,8 +180,8 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
             NSLayoutConstraint.activate([
                 selection.centerXAnchor.constraint(equalTo: button.centerXAnchor),
                 selection.centerYAnchor.constraint(equalTo: button.centerYAnchor),
-                selection.widthAnchor.constraint(equalToConstant: 34),
-                selection.heightAnchor.constraint(equalToConstant: 34),
+                selection.widthAnchor.constraint(equalToConstant: 38),
+                selection.heightAnchor.constraint(equalToConstant: 38),
                 icon.centerXAnchor.constraint(equalTo: button.centerXAnchor),
                 icon.centerYAnchor.constraint(equalTo: button.centerYAnchor),
                 icon.widthAnchor.constraint(equalToConstant: 26),
@@ -206,21 +195,86 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         }
 
         view.addSubview(dock)
-        let height = dock.heightAnchor.constraint(equalToConstant: 58 + view.safeAreaInsets.bottom)
-        dockHeightConstraint = height
         NSLayoutConstraint.activate([
-            dock.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            dock.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            dock.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            height
+            dock.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            dock.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            dock.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+            dock.heightAnchor.constraint(equalToConstant: 54)
         ])
 
         selectRoute(currentRoute, animated: false)
         view.bringSubviewToFront(dock)
     }
 
+    private func makeGlassSurface() -> UIVisualEffectView {
+        if #available(iOS 26.0, *) {
+            return UIVisualEffectView(effect: UIGlassEffect(style: .regular))
+        }
+        return UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    }
+
+    private func configureSettingsButton() {
+        settingsButton.translatesAutoresizingMaskIntoConstraints = false
+        settingsButton.accessibilityLabel = "Settings"
+        settingsButton.accessibilityIdentifier = "apollo.settings"
+        settingsButton.addTarget(self, action: #selector(settingsTapped), for: .touchUpInside)
+        settingsButton.addTarget(self, action: #selector(controlPressed(_:)), for: .touchDown)
+        settingsButton.addTarget(self, action: #selector(controlReleased(_:)), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        settingsButton.layer.cornerRadius = 22
+        settingsButton.layer.cornerCurve = .continuous
+        settingsButton.clipsToBounds = true
+
+        let material = makeGlassSurface()
+        material.isUserInteractionEnabled = false
+        material.translatesAutoresizingMaskIntoConstraints = false
+        settingsButton.addSubview(material)
+        let image = UIImageView(image: UIImage(systemName: "gearshape", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)))
+        image.tintColor = .secondaryLabel
+        image.isUserInteractionEnabled = false
+        image.translatesAutoresizingMaskIntoConstraints = false
+        settingsButton.addSubview(image)
+        NSLayoutConstraint.activate([
+            material.leadingAnchor.constraint(equalTo: settingsButton.leadingAnchor),
+            material.trailingAnchor.constraint(equalTo: settingsButton.trailingAnchor),
+            material.topAnchor.constraint(equalTo: settingsButton.topAnchor),
+            material.bottomAnchor.constraint(equalTo: settingsButton.bottomAnchor),
+            image.centerXAnchor.constraint(equalTo: settingsButton.centerXAnchor),
+            image.centerYAnchor.constraint(equalTo: settingsButton.centerYAnchor)
+        ])
+        view.addSubview(settingsButton)
+        NSLayoutConstraint.activate([
+            settingsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            settingsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 6),
+            settingsButton.widthAnchor.constraint(equalToConstant: 44),
+            settingsButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
+        view.bringSubviewToFront(settingsButton)
+    }
+
+    @objc private func settingsTapped() {
+        guard bridgeIsReady else { return }
+        webView?.endEditing(true)
+        UISelectionFeedbackGenerator().selectionChanged()
+        selectRoute("settings", animated: true)
+        evaluateJavaScript("window.apolloNativeNavigate?.(\"settings\")")
+    }
+
+    @objc private func controlPressed(_ sender: UIButton) {
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
+        UIView.animate(withDuration: 0.12, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            sender.transform = CGAffineTransform(scaleX: 0.94, y: 0.94)
+        }
+    }
+
+    @objc private func controlReleased(_ sender: UIButton) {
+        UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.18, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            sender.transform = .identity
+        }
+    }
+
     @objc private func dockTapped(_ button: UIButton) {
         guard destinations.indices.contains(button.tag) else { return }
+        webView?.endEditing(true)
         let destination = destinations[button.tag]
         let isReselection = destination.route == currentRoute
         selectRoute(destination.route, animated: true)
@@ -272,8 +326,10 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
     }
 
     private func selectRoute(_ route: String, animated: Bool = false) {
-        guard destinations.contains(where: { $0.route == route }) else { return }
+        guard route == "settings" || destinations.contains(where: { $0.route == route }) else { return }
         currentRoute = route
+        settingsButton.accessibilityTraits = route == "settings" ? [.button, .selected] : .button
+        settingsButton.alpha = route == "settings" ? 1 : 0.84
         for (index, item) in dockItems.enumerated() {
             let selected = destinations[index].route == route
             item.button.accessibilityTraits = selected ? [.button, .selected] : .button
@@ -427,22 +483,23 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
     private func observeKeyboard() {
         let center = NotificationCenter.default
         keyboardObservers.append(
-            center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] notification in
-                self?.setTabBarHiddenForKeyboard(true, notification: notification)
-            }
-        )
-        keyboardObservers.append(
-            center.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] notification in
-                self?.setTabBarHiddenForKeyboard(false, notification: notification)
+            center.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] notification in
+                self?.updateForKeyboard(notification)
             }
         )
     }
 
-    private func setTabBarHiddenForKeyboard(_ hidden: Bool, notification: Notification) {
+    private func updateForKeyboard(_ notification: Notification) {
+        guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let keyboardInView = view.convert(endFrame, from: nil)
+        let hidden = keyboardInView.intersects(view.bounds) && keyboardInView.minY < view.bounds.maxY - 80
         let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
         let curveRaw = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
         let options = UIView.AnimationOptions(rawValue: curveRaw << 16)
         let transform = hidden ? CGAffineTransform(translationX: 0, y: dock.bounds.height + 8) : .identity
+
+        // One keyboard timing source drives both UIKit chrome and the web inset.
+        evaluateJavaScript("window.apolloNativeKeyboard?.(\(hidden ? "true" : "false"), \(duration), \(curveRaw))")
 
         UIView.animate(
             withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : duration,

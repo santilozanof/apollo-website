@@ -2,8 +2,8 @@
 (() => {
     const capacitor = window.Capacitor;
     if (!capacitor?.isNativePlatform?.()) return;
-    if (window.__apolloCapacitorVersion === "1.2") return;
-    window.__apolloCapacitorVersion = "1.2";
+    if (window.__apolloCapacitorVersion === "1.3") return;
+    window.__apolloCapacitorVersion = "1.3";
     window.__apolloCapacitorReady = true;
 
     const platform = capacitor.getPlatform?.() || "native";
@@ -106,6 +106,7 @@
 
     function syncRoute() {
         applyApolloMark();
+        upgradeNativeUI();
         const route = document.body?.dataset?.apolloRoute;
         if (NATIVE_ROUTES.has(route)) postNative("routeChanged", { route });
     }
@@ -125,6 +126,107 @@
         syncRoute();
         return true;
     };
+
+    // UIKit keyboardWillChangeFrame is the single transition clock. Legacy
+    // mobile focus/visualViewport listeners may still update their own classes,
+    // but native-only CSS ignores them for dock and composer positioning.
+    window.apolloNativeKeyboard = (visible, duration, curve) => {
+        const seconds = Math.min(0.6, Math.max(0, Number(duration) || 0));
+        document.documentElement.style.setProperty("--apollo-keyboard-duration", `${seconds}s`);
+        const easing = { 0: "ease-in-out", 1: "ease-in", 2: "ease-out", 3: "linear", 7: "ease-in-out" };
+        document.documentElement.style.setProperty("--apollo-keyboard-ease", easing[Number(curve)] || "ease-in-out");
+        document.body.classList.toggle("apollo-native-keyboard-open", Boolean(visible));
+    };
+
+    function upgradeNativeUI() {
+        const routineToolbar = document.querySelector("#routinesView .routine-toolbar");
+        const routineAdd = document.getElementById("routineCreate");
+        if (routineToolbar && routineAdd && !routineToolbar.classList.contains("apollo-native-date-controls")) {
+            const dateLabel = document.getElementById("routineDateLabel");
+            const today = document.getElementById("routineToday");
+            routineToolbar.classList.add("apollo-native-date-controls");
+            if (dateLabel) routineToolbar.prepend(dateLabel);
+            routineToolbar.append(routineAdd, today);
+            routineToolbar.querySelectorAll("[data-date-move]").forEach(button => routineToolbar.append(button));
+            // Routines normally hides Today on the current day. The shared
+            // Calendar-style row keeps its center position, disabled instead.
+            if (dateLabel && today) {
+                const syncToday = () => {
+                    const isToday = dateLabel.textContent.trim() === "Today";
+                    today.hidden = false;
+                    today.disabled = isToday;
+                    today.setAttribute("aria-current", isToday ? "date" : "false");
+                };
+                new MutationObserver(syncToday).observe(dateLabel, { childList: true });
+                new MutationObserver(() => {
+                    if (today.hidden) syncToday();
+                }).observe(today, { attributes: true, attributeFilter: ["hidden"] });
+                syncToday();
+            }
+        }
+
+        const nowContent = document.getElementById("apolloNowContent");
+        const queue = document.getElementById("apolloQueue");
+        const label = nowContent?.querySelector(".apollo-now-label");
+        if (nowContent && queue && label && !nowContent.querySelector(".apollo-native-now-head")) {
+            const head = document.createElement("div");
+            head.className = "apollo-native-now-head";
+            nowContent.insertBefore(head, label);
+            head.append(label, queue);
+        }
+
+        const history = document.querySelector("#settingsView .apollo-notification-history-section");
+        if (history && !history.querySelector(".apollo-native-notification-disclosure")) {
+            const heading = document.createElement("button");
+            heading.type = "button";
+            heading.className = "apollo-native-notification-disclosure";
+            heading.setAttribute("aria-expanded", "false");
+            heading.setAttribute("aria-controls", "apolloNotificationHistoryPanel");
+            heading.innerHTML = '<span>Recent notifications <small class="apollo-native-notification-count"></small></span><span class="apollo-native-disclosure-chevron" aria-hidden="true"></span>';
+            const panel = history.querySelector(".apollo-settings-panel");
+            if (panel) {
+                panel.id = "apolloNotificationHistoryPanel";
+                panel.inert = true;
+                panel.setAttribute("aria-hidden", "true");
+                history.insertBefore(heading, panel);
+                heading.addEventListener("click", () => {
+                    const expanded = !history.classList.toggle("apollo-native-collapsed");
+                    history.classList.toggle("apollo-native-expanded", expanded);
+                    heading.setAttribute("aria-expanded", String(expanded));
+                    panel.inert = !expanded;
+                    panel.setAttribute("aria-hidden", String(!expanded));
+                    if (expanded) {
+                        panel.style.maxHeight = `${panel.scrollHeight}px`;
+                    } else {
+                        panel.style.maxHeight = `${panel.scrollHeight}px`;
+                        requestAnimationFrame(() => { panel.style.maxHeight = "0px"; });
+                    }
+                });
+                history.classList.add("apollo-native-collapsed");
+                const list = document.getElementById("apolloNotificationHistory");
+                const updateCount = () => {
+                    const count = list?.querySelectorAll(".apollo-notification-history-row").length || 0;
+                    heading.querySelector(".apollo-native-notification-count").textContent = String(count);
+                    if (history.classList.contains("apollo-native-expanded")) {
+                        panel.style.maxHeight = `${panel.scrollHeight}px`;
+                    }
+                };
+                updateCount();
+                if (list) new MutationObserver(updateCount).observe(list, { childList: true });
+            }
+        }
+    }
+
+    upgradeNativeUI();
+    document.addEventListener("DOMContentLoaded", upgradeNativeUI, { once: true });
+    const settingsInner = document.querySelector("#settingsView .apollo-settings-inner");
+    if (settingsInner && !settingsInner.querySelector(".apollo-notification-history-section")) {
+        const observer = new MutationObserver(() => {
+            upgradeNativeUI();
+            if (settingsInner.querySelector(".apollo-notification-history-section")) observer.disconnect();
+        });
+        observer.observe(settingsInner, { childList: true });
+    }
 
     function syncStatusBarAndTheme() {
         const theme = document.documentElement.dataset.theme;
@@ -346,14 +448,6 @@
     };
 
     pluginCall(Keyboard, "setResizeMode", { mode: "native" });
-    Keyboard?.addListener?.("keyboardWillShow", event => {
-        document.body.classList.add("apollo-native-keyboard-open", "apollo-mobile-keyboard-visible");
-        document.documentElement.style.setProperty("--apollo-native-keyboard-height", `${Number(event.keyboardHeight || 0)}px`);
-    });
-    Keyboard?.addListener?.("keyboardWillHide", () => {
-        document.body.classList.remove("apollo-native-keyboard-open", "apollo-mobile-keyboard-visible");
-        document.documentElement.style.setProperty("--apollo-native-keyboard-height", "0px");
-    });
 
     App?.addListener?.("appStateChange", ({ isActive }) => {
         document.body.classList.toggle("apollo-native-backgrounded", !isActive);
