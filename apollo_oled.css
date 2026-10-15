@@ -1,0 +1,38 @@
+/* Apollo dark mode: black canvas, restrained raised surfaces, unchanged light mode. */
+:root,
+html[data-theme="dark"] {
+    --bg: #000000;
+    --surface: #0b0b0d;
+    --surface-hover: #151518;
+    --input-bg: #0b0b0d;
+    --control-bg: #151518;
+    --sidebar-bg: rgba(0, 0, 0, .84);
+    --apollo-boot-bg: #000000;
+}
+html[data-theme="light"] { --apollo-boot-bg: #f7f7f5; }
+html[data-theme="dark"] {
+    --os-bg: #000000;
+    --os-canvas: #000000;
+    --os-paper: #0b0b0d;
+    --os-surface-solid: #111114;
+}
+html[data-theme="dark"] body,
+html[data-theme="dark"] .main,
+html[data-theme="dark"] .home,
+html[data-theme="dark"] #apolloView,
+html[data-theme="dark"] #musicView,
+html[data-theme="dark"] #calendarView,
+html[data-theme="dark"] #tasksView,
+html[data-theme="dark"] #studioView,
+html[data-theme="dark"] #routinesView,
+html[data-theme="dark"] #settingsView {
+    background-color: #000 !important;
+}
+html[data-theme="dark"] #apolloBootScreen { background-color: #000; }
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select { color-scheme: dark; }
+@media (prefers-reduced-motion: reduce) {
+    html[data-theme="dark"] body,
+    html[data-theme="dark"] .main { transition: none !important; }
+}

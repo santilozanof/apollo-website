@@ -2,8 +2,8 @@
 (() => {
     const capacitor = window.Capacitor;
     if (!capacitor?.isNativePlatform?.()) return;
-    if (window.__apolloCapacitorVersion === "1.5") return;
-    window.__apolloCapacitorVersion = "1.5";
+    if (window.__apolloCapacitorVersion === "1.6") return;
+    window.__apolloCapacitorVersion = "1.6";
     window.__apolloCapacitorReady = true;
 
     const platform = capacitor.getPlatform?.() || "native";
@@ -21,6 +21,7 @@
 
     document.documentElement.classList.add("apollo-capacitor", `apollo-capacitor-${platform}`);
     document.documentElement.classList.toggle("apollo-reduce-motion", reduceMotion.matches);
+    try { localStorage.removeItem("apollo.setting.accent"); } catch (_) {}
 
     const sunMark = '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>';
     const aMark = '<rect x="1" y="1" width="30" height="30" rx="8" fill="#0d0d0d"/><path d="M5 25 L14.5 6 L27 25" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.5 20 C11 15.5 18 14.5 27 19" fill="none" stroke="currentColor" stroke-width="1.35"/>';
@@ -143,76 +144,12 @@
     // keyboard geometry, class toggle, or second composer animation is needed.
 
     function upgradeNativeUI() {
-        const appearancePanel = document.querySelector("#settingsView .apollo-settings-panel");
-        const shippedAccent = document.querySelector("#settingsView .apollo-accent-choice:not(.apollo-native-accent-choice)");
-        const fallbackAccent = document.querySelector("#settingsView .apollo-native-accent-setting");
-        if (shippedAccent && fallbackAccent) fallbackAccent.remove();
-        if (appearancePanel && !shippedAccent && !fallbackAccent) {
-            // The signed shell can expose this preference against an older
-            // private web deployment. It uses the same web setting key; once
-            // the server ships the control, this fallback disappears.
-            const row = document.createElement("div");
-            row.className = "apollo-setting-row apollo-native-accent-setting";
-            row.innerHTML = '<div class="apollo-setting-copy"><div class="apollo-setting-name">Accent Color</div><div class="apollo-setting-description">Monochrome follows the current appearance.</div></div><div class="apollo-setting-control"><div class="apollo-native-accent-choices" role="radiogroup" aria-label="Accent Color"></div></div>';
-            const choices = [
-                ["system", "System", "linear-gradient(135deg,#222 50%,#eee 50%)"],
-                ["black", "Black", "#111"], ["white", "White", "#fff"],
-                ["graphite", "Graphite", "#888"], ["blue", "Blue", "#4799fa"],
-                ["sage", "Sage", "#6bb895"], ["amber", "Amber", "#ebaa55"]
-            ];
-            const group = row.querySelector(".apollo-native-accent-choices");
-            const selected = localStorage.getItem("apollo.setting.accent") || "system";
-            choices.forEach(([value, label, swatch]) => {
-                const button = document.createElement("button");
-                button.type = "button";
-                button.className = "apollo-native-accent-choice";
-                button.setAttribute("role", "radio");
-                button.setAttribute("aria-checked", String(selected === value));
-                button.dataset.apolloAccent = value;
-                const dot = document.createElement("span");
-                dot.className = "apollo-native-accent-swatch";
-                dot.style.background = swatch;
-                button.append(dot, document.createTextNode(label));
-                button.addEventListener("click", () => {
-                    localStorage.setItem("apollo.setting.accent", value);
-                    document.documentElement.dataset.apolloAccent = value;
-                    group.querySelectorAll("[role=radio]").forEach(item =>
-                        item.setAttribute("aria-checked", String(item === button)));
-                    document.dispatchEvent(new CustomEvent("apollo:accent-changed", { detail: { accent: value } }));
-                });
-                group.append(button);
-            });
-            appearancePanel.insertBefore(
-                row,
-                document.getElementById("apolloReduceMotion")?.closest(".apollo-setting-row") || null
-            );
-        }
-
-        const routineToolbar = document.querySelector("#routinesView .routine-toolbar");
-        const routineAdd = document.getElementById("routineCreate");
-        if (routineToolbar && routineAdd && !routineToolbar.classList.contains("apollo-native-date-controls")) {
-            const dateLabel = document.getElementById("routineDateLabel");
-            const today = document.getElementById("routineToday");
-            routineToolbar.classList.add("apollo-native-date-controls");
-            if (dateLabel) routineToolbar.prepend(dateLabel);
-            routineToolbar.append(routineAdd, today);
-            routineToolbar.querySelectorAll("[data-date-move]").forEach(button => routineToolbar.append(button));
-            // Routines normally hides Today on the current day. The shared
-            // Calendar-style row keeps its center position, disabled instead.
-            if (dateLabel && today) {
-                const syncToday = () => {
-                    const isToday = dateLabel.textContent.trim() === "Today";
-                    today.hidden = false;
-                    today.disabled = isToday;
-                    today.setAttribute("aria-current", isToday ? "date" : "false");
-                };
-                new MutationObserver(syncToday).observe(dateLabel, { childList: true });
-                new MutationObserver(() => {
-                    if (today.hidden) syncToday();
-                }).observe(today, { attributes: true, attributeFilter: ["hidden"] });
-                syncToday();
-            }
-        }
+        // The bundled layout also upgrades an older private web deployment.
+        window.ApolloDateNav?.mountCalendar();
+        window.ApolloDateNav?.mountRoutines();
+        document.querySelectorAll("#settingsView .apollo-accent-choice, #settingsView .apollo-native-accent-setting")
+            .forEach(element => element.closest(".apollo-setting-row")?.remove());
+        document.documentElement.removeAttribute("data-apollo-accent");
 
         const nowPlaying = document.getElementById("apolloNowPlaying");
         const queue = document.getElementById("apolloQueue");
@@ -293,13 +230,6 @@
             theme: isLight ? "light" : "dark",
             preference: ["light", "dark", "system"].includes(preference) ? preference : "system"
         });
-    }
-
-    function syncAccent() {
-        const accent = document.documentElement.dataset.apolloAccent
-            || localStorage.getItem("apollo.setting.accent")
-            || "system";
-        postNative("accentChanged", { accent });
     }
 
     function showNetworkState(message) {
@@ -520,7 +450,6 @@
         attributes: true,
         attributeFilter: ["data-theme"]
     });
-    document.addEventListener("apollo:accent-changed", syncAccent);
     new MutationObserver(syncRoute).observe(document.body, {
         attributes: true,
         attributeFilter: ["data-apollo-route"]
@@ -541,7 +470,6 @@
     reduceMotion.addEventListener?.("change", syncReducedMotion);
 
     syncStatusBarAndTheme();
-    syncAccent();
     syncBadge();
     checkApolloConnection();
     postNative("ready", { route: currentRoute() });

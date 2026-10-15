@@ -51,6 +51,9 @@ ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
 ios/App/App.xcodeproj/xcuserdata/
 www/apollo_capacitor.css
 www/apollo_capacitor.js
+www/apollo_date_nav.css
+www/apollo_date_nav.js
+www/apollo_oled.css
 
 # Apollo's old manual backup files
 *.backup

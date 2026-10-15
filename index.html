@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>Apollo</title>
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#0b0b0b">
+<meta name="theme-color" content="#000000">
 
 <script id="apollo-boot-theme-init">
 (() => {
@@ -62,7 +62,7 @@ html.apollo-booting
 /* DARK */
 
 html[data-theme="dark"] {
-    --apollo-boot-bg: #090909;
+    --apollo-boot-bg: #000000;
     --apollo-boot-fg: #f5f5f5;
     --apollo-boot-track: rgba(255,255,255,.08);
     --apollo-boot-bar: rgba(255,255,255,.85);
@@ -188,14 +188,15 @@ html[data-theme="light"] {
 <link rel="stylesheet" href="/vendor/katex/katex.min.css?v=0.19.0">
 <link rel="stylesheet" href="/apollo_genui.css?v=20261015-2">
 <link rel="stylesheet" href="/apollo_capacitor.css?v=20261015-2">
+<script src="/apollo_date_nav.js?v=20261015-1"></script>
 <script src="/vendor/katex/katex.min.js?v=0.19.0"></script>
 <script src="/apollo_genui.js?v=20261015-2"></script>
 
 <style>
 :root {
-    --bg: #090909;
-    --surface: #101010;
-    --surface-hover: #151515;
+    --bg: #000000;
+    --surface: #0b0b0d;
+    --surface-hover: #151518;
     --border: rgba(255,255,255,.07);
     --border-hover: rgba(255,255,255,.13);
 
@@ -2533,7 +2534,7 @@ a.apollo-debrief-source:hover {
 
 </style>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <meta name="theme-color" content="#0d0d0d">
+    <meta name="theme-color" content="#000000">
 
 
 <style>
@@ -28488,6 +28489,8 @@ requestAnimationFrame(() => {
             </div>
         `;
 
+        window.ApolloDateNav?.mountCalendar();
+
         document
             .getElementById("apolloWeekPrev")
             .addEventListener("click", async () => {
@@ -35995,9 +35998,9 @@ console.log("Apollo Jump-to-date V8 ready.");
 html[data-theme="dark"] {
     color-scheme: dark;
 
-    --bg: #090909;
-    --surface: #101010;
-    --surface-hover: #151515;
+    --bg: #000000;
+    --surface: #0b0b0d;
+    --surface-hover: #151518;
 
     --border: rgba(255,255,255,.07);
     --border-hover: rgba(255,255,255,.13);
@@ -36008,11 +36011,11 @@ html[data-theme="dark"] {
 
     --accent: #f2f2f2;
 
-    --sidebar-bg: rgba(9,9,9,.82);
-    --input-bg: #101010;
-    --control-bg: #151515;
+    --sidebar-bg: rgba(0,0,0,.82);
+    --input-bg: #0b0b0d;
+    --control-bg: #151518;
     --control-selected: #f2f2f2;
-    --control-selected-text: #090909;
+    --control-selected-text: #000000;
 }
 
 
@@ -36631,43 +36634,6 @@ html.apollo-reduce-motion *::after {
     }
 }
 
-/* Accent is intentionally limited to selection affordances, not semantic UI. */
-#settingsView .apollo-accent-choices {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-    width: min(100%, 390px);
-}
-#settingsView .apollo-accent-choice {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    min-height: 42px;
-    padding: 6px 8px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: transparent;
-    color: var(--text);
-    font: inherit;
-    font-size: 12px;
-    cursor: pointer;
-}
-#settingsView .apollo-accent-choice[aria-checked="true"] {
-    border-color: var(--text);
-    background: var(--surface-hover);
-}
-#settingsView .apollo-accent-swatch {
-    width: 13px;
-    height: 13px;
-    flex: 0 0 13px;
-    border: 1px solid var(--border);
-    border-radius: 50%;
-    background: var(--swatch);
-}
-@media (max-width: 380px) {
-    #settingsView .apollo-accent-choices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
 </style>
 
 
@@ -36680,7 +36646,6 @@ html.apollo-reduce-motion *::after {
 
     const STORAGE = {
         theme: "apollo.setting.theme",
-        accent: "apollo.setting.accent",
         reduceMotion: "apollo.setting.reduceMotion",
         responseLength: "apollo.setting.responseLength",
         calendarDuration: "apollo.setting.calendarDuration",
@@ -36691,7 +36656,6 @@ html.apollo-reduce-motion *::after {
 
     const defaults = {
         theme: "system",
-        accent: "system",
         reduceMotion: false,
         responseLength: "normal",
         calendarDuration: "60",
@@ -36803,18 +36767,8 @@ html.apollo-reduce-motion *::after {
         );
 
     applyTheme(initialTheme);
-
-    const accentOptions = ["system", "black", "white", "graphite", "blue", "sage", "amber"];
-    function applyAccent(preference) {
-        const value = accentOptions.includes(preference) ? preference : "system";
-        document.documentElement.dataset.apolloAccent = value;
-        document.querySelectorAll("[data-apollo-accent]").forEach(button => {
-            button.setAttribute("aria-checked", String(button.dataset.apolloAccent === value));
-        });
-        document.dispatchEvent(new CustomEvent("apollo:accent-changed", { detail: { accent: value } }));
-    }
-    applyAccent(getSetting(STORAGE.accent, defaults.accent));
-
+    // Accent customization was retired; remove its stale preference once.
+    try { localStorage.removeItem("apollo.setting.accent"); } catch (_) {}
 
     systemTheme.addEventListener(
         "change",
@@ -36921,25 +36875,6 @@ html.apollo-reduce-motion *::after {
 
                         </div>
 
-                    </div>
-
-
-                    <div class="apollo-setting-row">
-                        <div class="apollo-setting-copy">
-                            <div class="apollo-setting-name">Accent Color</div>
-                            <div class="apollo-setting-description">Monochrome follows the current appearance. Colors highlight navigation without recoloring content.</div>
-                        </div>
-                        <div class="apollo-setting-control">
-                            <div class="apollo-accent-choices" role="radiogroup" aria-label="Accent Color">
-                                <button type="button" class="apollo-accent-choice" role="radio" data-apollo-accent="system"><span class="apollo-accent-swatch" style="--swatch:linear-gradient(135deg,#222 50%,#eee 50%)"></span>System</button>
-                                <button type="button" class="apollo-accent-choice" role="radio" data-apollo-accent="black"><span class="apollo-accent-swatch" style="--swatch:#111"></span>Black</button>
-                                <button type="button" class="apollo-accent-choice" role="radio" data-apollo-accent="white"><span class="apollo-accent-swatch" style="--swatch:#fff"></span>White</button>
-                                <button type="button" class="apollo-accent-choice" role="radio" data-apollo-accent="graphite"><span class="apollo-accent-swatch" style="--swatch:#888"></span>Graphite</button>
-                                <button type="button" class="apollo-accent-choice" role="radio" data-apollo-accent="blue"><span class="apollo-accent-swatch" style="--swatch:#4799fa"></span>Blue</button>
-                                <button type="button" class="apollo-accent-choice" role="radio" data-apollo-accent="sage"><span class="apollo-accent-swatch" style="--swatch:#6bb895"></span>Sage</button>
-                                <button type="button" class="apollo-accent-choice" role="radio" data-apollo-accent="amber"><span class="apollo-accent-swatch" style="--swatch:#ebaa55"></span>Amber</button>
-                            </div>
-                        </div>
                     </div>
 
 
@@ -37333,17 +37268,6 @@ html.apollo-reduce-motion *::after {
             defaults.theme
         )
     );
-
-    document.querySelectorAll("[data-apollo-accent]").forEach(button => {
-        button.addEventListener("click", () => {
-            const value = button.dataset.apolloAccent;
-            if (!accentOptions.includes(value)) return;
-            setSetting(STORAGE.accent, value);
-            applyAccent(value);
-        });
-    });
-    applyAccent(getSetting(STORAGE.accent, defaults.accent));
-
 
     /* ================================================
        REDUCE MOTION
@@ -78721,6 +78645,8 @@ html.apollo-jarvis-mode
     rel="stylesheet"
     href="/apollo_mobile_v1.css?v=20261014-3"
 >
+<link rel="stylesheet" href="/apollo_date_nav.css?v=20261015-1">
+<link rel="stylesheet" href="/apollo_oled.css?v=20261015-1">
 
 <script src="/apollo_notifications.js?v=20260904-3"></script>
 <script src="/apollo_capacitor.js?v=20261015-2"></script>

@@ -9,6 +9,9 @@ const offline = await readFile(new URL("../../www/offline.html", import.meta.url
 const info = await readFile(new URL("../../ios/App/App/Info.plist", import.meta.url), "utf8");
 const nativeController = await readFile(new URL("../../ios/App/App/ApolloViewController.swift", import.meta.url), "utf8");
 const nativeCSS = await readFile(new URL("../../apollo_capacitor.css", import.meta.url), "utf8");
+const dateNavigation = await readFile(new URL("../../apollo_date_nav.js", import.meta.url), "utf8");
+const dateCSS = await readFile(new URL("../../apollo_date_nav.css", import.meta.url), "utf8");
+const oledCSS = await readFile(new URL("../../apollo_oled.css", import.meta.url), "utf8");
 const originalA = await readFile(new URL("../../ios/Artwork/apollo-original-a.svg", import.meta.url), "utf8");
 const artworkGenerator = await readFile(new URL("../../scripts/generate-ios-artwork.swift", import.meta.url), "utf8");
 const sceneDelegate = await readFile(new URL("../../ios/App/App/SceneDelegate.swift", import.meta.url), "utf8");
@@ -24,7 +27,7 @@ test("keeps native integration optional for the production website", () => {
   assert.match(index, /apollo_capacitor\.js/);
   assert.match(bridge, /if \(!capacitor\?\.isNativePlatform\?\.\(\)\) return/);
   assert.match(bridge, /__apolloCapacitorReady/);
-  assert.match(bridge, /__apolloCapacitorVersion = "1\.5"/);
+  assert.match(bridge, /__apolloCapacitorVersion = "1\.6"/);
   assert.match(bridge, /isLight \? "LIGHT" : "DARK"/);
 });
 
@@ -92,7 +95,8 @@ test("provides validated native dialog bridge operations", () => {
 test("handles keyboard, reduced motion, lifecycle, and route badges", () => {
   assert.match(nativeController, /keyboardLayoutGuide\.topAnchor/);
   assert.match(nativeController, /keyboardLayoutGuide\.usesBottomSafeArea = false/);
-  assert.match(nativeController, /setChatDockAnchor/);
+  assert.doesNotMatch(nativeController, /setChatDockAnchor/);
+  assert.match(nativeCSS, /active:focus-within \.apollo-composer-wrap/);
   assert.match(config, /resize: "none"/);
   assert.match(bridge, /setResizeMode", \{ mode: "none" \}/);
   assert.doesNotMatch(nativeController, /apolloNativeKeyboard/);
@@ -105,22 +109,37 @@ test("handles keyboard, reduced motion, lifecycle, and route badges", () => {
   assert.match(nativeCSS, /apollo-reduce-motion/);
 });
 
-test("persists one web-owned accent preference and synchronizes native chrome", () => {
-  assert.match(index, /apollo\.setting\.accent/);
-  assert.match(index, /data-apollo-accent="system"/);
-  assert.match(index, /data-apollo-accent="blue"/);
-  assert.match(bridge, /postNative\("accentChanged"/);
-  assert.match(bridge, /apollo-native-accent-setting/);
-  assert.match(bridge, /apollo\.setting\.accent/);
-  assert.match(nativeController, /case "accentChanged"/);
-  assert.match(nativeController, /selectedColor = \.label/);
+test("uses adaptive monochrome and removes obsolete accent settings", () => {
+  assert.doesNotMatch(index, /data-apollo-accent="blue"|Accent Color/);
+  assert.doesNotMatch(bridge, /postNative\("accentChanged"/);
+  assert.doesNotMatch(nativeController, /case "accentChanged"|setAccent\(/);
+  assert.match(nativeController, /let selectedColor: UIColor = \.label/);
+  assert.match(nativeController, /removeObject\(forKey: "apollo\.setting\.accent"\)/);
+  assert.match(index, /localStorage\.removeItem\("apollo\.setting\.accent"\)/);
+  assert.match(bridge, /localStorage\.removeItem\("apollo\.setting\.accent"\)/);
 });
 
 test("retains native-only chat, music, routines, and notification refinements", () => {
   assert.match(bridge, /apollo-native-queue-action/);
-  assert.match(bridge, /routine-toolbar/);
+  assert.match(bridge, /ApolloDateNav\?\.mountRoutines/);
   assert.match(bridge, /apollo-native-notification-disclosure/);
   assert.match(nativeCSS, /apollo-native-notification-disclosure/);
   assert.match(nativeCSS, /apollo-now-controls/);
   assert.match(nativeCSS, /apollo-input/);
+});
+
+test("shares one date navigation implementation and OLED palette across web and signed shell", () => {
+  assert.match(index, /ApolloDateNav\?\.mountCalendar\(\)/);
+  assert.match(dateNavigation, /mountCalendar:/);
+  assert.match(dateNavigation, /mountRoutines:/);
+  assert.match(dateNavigation, /controls\.replaceChildren\(dateLabel, actions\)/);
+  assert.match(dateCSS, /#calendarView \.apollo-date-nav-actions,/);
+  assert.match(dateCSS, /#routinesView \.apollo-date-nav-actions/);
+  assert.match(dateCSS, /scrollbar-gutter: auto/);
+  assert.match(nativeController, /apollo_date_nav\.css/);
+  assert.match(nativeController, /apollo_date_nav\.js/);
+  assert.match(nativeController, /apollo_oled\.css/);
+  assert.match(index, /apollo_oled\.css/);
+  assert.match(oledCSS, /--bg: #000000/);
+  assert.match(oledCSS, /html\[data-theme="light"\]/);
 });

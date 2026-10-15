@@ -42,15 +42,15 @@ final class ApolloDockController: UIViewController {
     private var leadingConstraint: NSLayoutConstraint?
     private var trailingConstraint: NSLayoutConstraint?
     private var selectedRoute = "home"
-    private var accent = UserDefaults.standard.string(forKey: "apollo.setting.accent") ?? "system"
 
     override var childForStatusBarStyle: UIViewController? { apollo }
     override var childForStatusBarHidden: UIViewController? { apollo }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        UserDefaults.standard.removeObject(forKey: "apollo.setting.accent")
         view.backgroundColor = UIColor { traits in
-            traits.userInterfaceStyle == .dark ? UIColor(white: 0.035, alpha: 1) : UIColor(white: 0.985, alpha: 1)
+            traits.userInterfaceStyle == .dark ? .black : UIColor(white: 0.985, alpha: 1)
         }
         // Custom containment is required because UITabBarController replaces
         // destinations five through seven with More on iPhone. The same
@@ -145,7 +145,6 @@ final class ApolloDockController: UIViewController {
             dock.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -6),
             dock.heightAnchor.constraint(equalToConstant: 58)
         ])
-        apollo.setChatDockAnchor(dock.topAnchor)
         updateAppearance()
     }
 
@@ -163,32 +162,14 @@ final class ApolloDockController: UIViewController {
         badge.isHidden = !visible
     }
 
-    func setAccent(_ value: String) {
-        let allowed = ["system", "black", "white", "graphite", "blue", "sage", "amber"]
-        guard allowed.contains(value) else { return }
-        accent = value
-        UserDefaults.standard.set(value, forKey: "apollo.setting.accent")
-        updateAppearance()
-    }
-
     private func updateAppearance() {
-        let selectedColor: UIColor
-        switch accent {
-        case "blue": selectedColor = UIColor(red: 0.28, green: 0.60, blue: 0.98, alpha: 1)
-        case "sage": selectedColor = UIColor(red: 0.42, green: 0.72, blue: 0.58, alpha: 1)
-        case "amber": selectedColor = UIColor(red: 0.92, green: 0.63, blue: 0.30, alpha: 1)
-        case "graphite": selectedColor = .secondaryLabel
-        case "black": selectedColor = traitCollection.userInterfaceStyle == .dark ? .white : .black
-        case "white": selectedColor = traitCollection.userInterfaceStyle == .dark ? .white : .black
-        default: selectedColor = .label
-        }
+        let selectedColor: UIColor = .label
         for (index, button) in buttons.enumerated() {
             let selected = destinations[index].route == selectedRoute
             button.tintColor = selected ? selectedColor : .secondaryLabel
-            button.backgroundColor = selected ? selectedColor.withAlphaComponent(0.12) : .clear
+            button.backgroundColor = selected ? .tertiarySystemFill : .clear
         }
         badge.backgroundColor = selectedColor
-        apollo.setAccentColor(selectedColor)
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -212,16 +193,18 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
     private var currentRoute = "home"
     private var bridgeIsReady = false
     private var pendingNavigation: (route: String, reselected: Bool)?
-    private var chatDockConstraint: NSLayoutConstraint?
 
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
 
         guard
             let publicURL = Bundle.main.resourceURL?.appendingPathComponent("public", isDirectory: true),
-            let css = try? String(contentsOf: publicURL.appendingPathComponent("apollo_capacitor.css"), encoding: .utf8),
+            let nativeCSS = try? String(contentsOf: publicURL.appendingPathComponent("apollo_capacitor.css"), encoding: .utf8),
+            let dateCSS = try? String(contentsOf: publicURL.appendingPathComponent("apollo_date_nav.css"), encoding: .utf8),
+            let oledCSS = try? String(contentsOf: publicURL.appendingPathComponent("apollo_oled.css"), encoding: .utf8),
+            let dateJavaScript = try? String(contentsOf: publicURL.appendingPathComponent("apollo_date_nav.js"), encoding: .utf8),
             let javascript = try? String(contentsOf: publicURL.appendingPathComponent("apollo_capacitor.js"), encoding: .utf8),
-            let cssData = try? JSONSerialization.data(withJSONObject: css, options: .fragmentsAllowed),
+            let cssData = try? JSONSerialization.data(withJSONObject: nativeCSS + "\n" + dateCSS + "\n" + oledCSS, options: .fragmentsAllowed),
             let cssLiteral = String(data: cssData, encoding: .utf8)
         else {
             assertionFailure("Apollo's bundled native bridge assets are missing")
@@ -229,7 +212,7 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         }
 
         let source = """
-        window.__apolloNativeBundledVersion = "1.5";
+        window.__apolloNativeBundledVersion = "1.6";
         (() => {
             if (!document.getElementById("apollo-capacitor-native-css")) {
                 const style = document.createElement("style");
@@ -238,6 +221,7 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
                 document.head.appendChild(style);
             }
         })();
+        \(dateJavaScript)
         \(javascript)
         """
 
@@ -245,6 +229,16 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         let handler = ApolloWeakScriptMessageHandler(delegate: self)
         messageHandler = handler
         userContentController?.add(handler, name: "apolloNative")
+        // The deployed 1.5 page may load its own bridge before our bundled
+        // 1.6 script. Mark that older bridge as already installed so only the
+        // signed bridge owns native listeners and dialogs.
+        userContentController?.addUserScript(
+            WKUserScript(
+                source: "window.__apolloCapacitorVersion = '1.5';",
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
         userContentController?.addUserScript(
             WKUserScript(
                 source: source,
@@ -307,16 +301,8 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         )
     }
 
-    func setChatDockAnchor(_ anchor: NSLayoutYAxisAnchor) {
-        guard let browser = webView else { return }
-        chatDockConstraint?.isActive = false
-        chatDockConstraint = browser.bottomAnchor.constraint(lessThanOrEqualTo: anchor)
-        chatDockConstraint?.isActive = currentRoute == "apollo"
-    }
-
     private func setCurrentRoute(_ route: String) {
         currentRoute = route
-        chatDockConstraint?.isActive = route == "apollo"
     }
 
     private func configureSettingsButton() {
@@ -346,11 +332,6 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
     @objc private func settingsTapped() {
         settingsButton.accessibilityTraits = [.button, .selected]
         navigate(to: "settings", reselected: false)
-    }
-
-    func setAccentColor(_ color: UIColor) {
-        settingsButton.tintColor = color
-        settingsButton.configuration?.baseForegroundColor = color
     }
 
     func userContentController(
@@ -389,10 +370,6 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
             }
         case "badgeChanged":
             (parent as? ApolloDockController)?.setApolloBadge(body["visible"] as? Bool ?? false)
-        case "accentChanged":
-            if let accent = body["accent"] as? String {
-                (parent as? ApolloDockController)?.setAccent(accent)
-            }
         case "confirm":
             presentConfirm(body)
         case "prompt":

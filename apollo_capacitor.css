@@ -50,41 +50,6 @@ html[data-theme="light"] .apollo-native-network-banner {
 }
 
 /* UIKit owns the floating dock; web content extends behind its real glass. */
-html.apollo-capacitor-ios #settingsView .apollo-native-accent-choices {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-    width: min(100%, 390px);
-}
-html.apollo-capacitor-ios #settingsView .apollo-native-accent-choice {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    min-height: 44px;
-    padding: 6px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: transparent;
-    color: var(--text);
-    font: inherit;
-    font-size: 12px;
-}
-html.apollo-capacitor-ios #settingsView .apollo-native-accent-choice[aria-checked="true"] {
-    border-color: var(--text);
-    background: var(--surface-hover);
-}
-html.apollo-capacitor-ios #settingsView .apollo-native-accent-swatch {
-    width: 13px;
-    height: 13px;
-    flex: 0 0 13px;
-    border: 1px solid var(--border);
-    border-radius: 50%;
-}
-@media (max-width: 380px) {
-    html.apollo-capacitor-ios #settingsView .apollo-native-accent-choices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
 html.apollo-capacitor-ios {
     --apollo-native-tabbar-height: 88px;
     --apollo-native-dock-reserve: calc(88px + env(safe-area-inset-bottom, 0px));
@@ -438,15 +403,20 @@ html.apollo-capacitor-ios .main {
 
     html.apollo-capacitor-ios #apolloView .apollo-composer {
         min-height: 50px !important;
+        align-items: center !important;
         padding: 0 7px !important;
         border-radius: 18px !important;
     }
 
     html.apollo-capacitor-ios #apolloView .apollo-input {
-        min-height: 50px !important;
+        box-sizing: border-box !important;
+        min-height: 44px !important;
         max-height: 146px !important;
-        padding: 12px 4px 11px !important;
-        line-height: 1.35 !important;
+        margin: 0 !important;
+        padding: 11px 4px !important;
+        line-height: 22px !important;
+        align-self: center !important;
+        vertical-align: middle !important;
     }
 
     html.apollo-capacitor-ios #apolloView .apollo-tools-trigger,
@@ -471,62 +441,6 @@ html.apollo-capacitor-ios .main {
         gap: 22px !important;
         margin-right: auto !important;
         margin-left: auto !important;
-    }
-
-    html.apollo-capacitor-ios #calendarView .apollo-week-controls,
-    html.apollo-capacitor-ios #routinesView .routine-toolbar.apollo-native-date-controls {
-        width: 100% !important;
-        display: grid !important;
-        grid-template-columns: 42px 42px minmax(0, 1fr) 42px 42px !important;
-        align-items: center !important;
-        gap: 8px !important;
-    }
-
-    html.apollo-capacitor-ios #calendarView .apollo-week-header {
-        padding-right: 0 !important;
-    }
-
-    html.apollo-capacitor-ios #calendarView #apolloWeekToday,
-    html.apollo-capacitor-ios #routinesView #routineToday {
-        grid-column: 3;
-        justify-self: center;
-        width: 88px !important;
-        min-width: 88px !important;
-    }
-
-    html.apollo-capacitor-ios #calendarView #apolloWeekPrev,
-    html.apollo-capacitor-ios #routinesView [data-date-move="-1"] {
-        grid-column: 4;
-    }
-
-    html.apollo-capacitor-ios #calendarView #apolloWeekNext,
-    html.apollo-capacitor-ios #routinesView [data-date-move="1"] {
-        grid-column: 5;
-    }
-
-    html.apollo-capacitor-ios #routinesView .routine-toolbar.apollo-native-date-controls {
-        max-width: none !important;
-    }
-
-    html.apollo-capacitor-ios #routinesView .routine-date-label {
-        grid-column: 1 / -1;
-        text-align: left !important;
-        min-height: 18px;
-    }
-
-    html.apollo-capacitor-ios #routinesView .routine-primary,
-    html.apollo-capacitor-ios #routinesView .routine-chip,
-    html.apollo-capacitor-ios #calendarView .apollo-week-button {
-        min-height: 42px !important;
-    }
-
-    html.apollo-capacitor-ios #routinesView .routine-date-arrow {
-        width: 42px !important;
-    }
-
-    html.apollo-capacitor-ios #routinesView #routineToday:disabled {
-        opacity: .58 !important;
-        color: var(--text) !important;
     }
 
     html.apollo-capacitor-ios #settingsView .apollo-native-notification-disclosure {
@@ -612,15 +526,18 @@ html.apollo-capacitor-ios.apollo-reduce-motion *::after {
     transition-duration: 1ms !important;
 }
 
-/* The chat WKWebView ends at the dock or keyboard guide, whichever is higher.
-   Legacy mobile focus/visualViewport classes cannot move the composer. */
+/* The WKWebView extends beneath the real glass dock. Keep the composer above
+   it until focus, when UIKit shrinks the WebView to the keyboard guide. */
 html.apollo-capacitor-ios body #apolloView.active .apollo-composer-wrap,
 html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloView.active .apollo-composer-wrap,
 html.apollo-capacitor-ios body.apollo-mobile-keyboard-open #apolloView.active .apollo-composer-wrap,
 html.apollo-capacitor-ios body.apollo-mobile-keyboard-visible #apolloView.active .apollo-composer-wrap,
 html.apollo-capacitor-ios body.apollo-mobile-typing #apolloView.active .apollo-composer-wrap {
-    bottom: 8px !important;
+    bottom: var(--apollo-native-dock-reserve) !important;
     transition-property: none !important;
+}
+html.apollo-capacitor-ios body #apolloView.active:focus-within .apollo-composer-wrap {
+    bottom: 8px !important;
 }
 
 html.apollo-capacitor-ios body .main {

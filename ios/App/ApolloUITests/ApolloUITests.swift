@@ -96,22 +96,40 @@ final class ApolloUITests: XCTestCase {
         keepScreenshot("Studio scroll edge beneath glass", in: app)
     }
 
-    func testAccentControlAvailableBeforeWebDeployment() throws {
+    func testCalendarAndRoutinesShareDateControlGeometry() throws {
+        let app = XCUIApplication()
+        app.launch()
+        dockButton("calendar", in: app).tap()
+        let calendar = ["Add event", "Today", "Previous day", "Next day"]
+            .map { app.buttons[$0] }
+        guard calendar.allSatisfy({ $0.waitForExistence(timeout: 12) }) else {
+            throw XCTSkip("Private Apollo calendar page is unavailable in this simulator session")
+        }
+        let calendarFrames = calendar.map(\.frame)
+        keepScreenshot("Calendar shared date navigation", in: app)
+
+        dockButton("routines", in: app).tap()
+        let routines = ["New routine", "Today", "Previous day", "Next day"]
+            .map { app.buttons[$0] }
+        guard routines.allSatisfy({ $0.waitForExistence(timeout: 12) }) else {
+            throw XCTSkip("Private Apollo routines page is unavailable in this simulator session")
+        }
+        for (calendarFrame, routine) in zip(calendarFrames, routines) {
+            XCTAssertEqual(calendarFrame.minX, routine.frame.minX, accuracy: 1.5)
+            XCTAssertEqual(calendarFrame.width, routine.frame.width, accuracy: 1.5)
+            XCTAssertGreaterThanOrEqual(routine.frame.height, 42)
+        }
+        keepScreenshot("Routines shared date navigation", in: app)
+    }
+
+    func testSettingsUseMonochromeWithoutAccentControl() throws {
         let app = XCUIApplication()
         app.launch()
         app.buttons["apollo.settings"].tap()
-        let blue = app.otherElements["Blue"]
-        XCTAssertTrue(blue.waitForExistence(timeout: 12), "Signed shell should supply Accent Color against the older private page")
-        blue.tap()
-        XCTAssertEqual(blue.value as? String, "1")
-        keepScreenshot("Blue accent selected in Settings", in: app)
-        app.terminate()
-        app.launch()
-        app.buttons["apollo.settings"].tap()
-        let restoredBlue = app.otherElements["Blue"]
-        XCTAssertTrue(restoredBlue.waitForExistence(timeout: 12))
-        XCTAssertEqual(restoredBlue.value as? String, "1")
-        keepScreenshot("Accent preference after relaunch", in: app)
-        app.otherElements["System"].tap()
+        guard app.staticTexts["Settings"].waitForExistence(timeout: 12) else {
+            throw XCTSkip("Private Apollo server is unavailable in this simulator session")
+        }
+        XCTAssertFalse(app.staticTexts["Accent Color"].exists)
+        keepScreenshot("Monochrome Settings", in: app)
     }
 }
