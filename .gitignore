@@ -43,6 +43,14 @@ __pycache__/
 .idea/
 *.swp
 *.tmp
+node_modules/
+.capacitor/
+DerivedData/
+*.xcuserstate
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+ios/App/App.xcodeproj/xcuserdata/
+www/apollo_capacitor.css
+www/apollo_capacitor.js
 
 # Apollo's old manual backup files
 *.backup

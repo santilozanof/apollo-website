@@ -1,0 +1,131 @@
+# Apollo iOS 1.2
+
+Apollo iOS is a private, iPhone-only Capacitor 8 application with a native iOS navigation and presentation layer. It is not configured for App Store distribution and does not contain credentials or integration tokens.
+
+## Architecture decision
+
+Apollo's frontend is not a separately built SPA. It is a single server-coupled `index.html` with extensive inline behavior, root-relative `/api` requests, streamed `fetch()` responses, and server-hosted assets. The production deployment also separates the static web service from a Python `ThreadingHTTPServer` on `127.0.0.1:8765`; Tailscale Serve/proxy routing restores the public `/api` prefix before dispatching backend routes.
+
+Authentication is currently the private Tailscale network boundary. There is no independent Apollo username/password or cookie-session middleware in this repository. Google and WHOOP OAuth state and tokens, Spotify credentials/cache, Canvas subscriptions, conversation history, and all personal data remain on the VPS.
+
+A locally bundled copy of the current frontend would change its origin to `capacitor://localhost`. That would require a new CORS policy, a real application authentication scheme, cross-origin streaming validation, asset URL rewriting, OAuth callback changes, and special handling for attachments and media. Capacitor's native HTTP bridge is also not a drop-in replacement for the current streamed `ReadableStream` chat path.
+
+For Apollo 1.2, the least disruptive architecture is therefore a native Capacitor container that loads the existing private HTTPS Tailscale origin:
+
+`https://ubuntu-2gb-hel1-1.tailc5eaaa.ts.net`
+
+This preserves same-origin APIs, SSE-style streaming over `fetch()`, OAuth callbacks, cookies if they are introduced later, Generative UI assets, KaTeX, and server-rendered behavior. It is a deliberate private-device exception to Capacitor's general guidance that `server.url` is intended for live reload. A future locally bundled app should begin with a dedicated authenticated API and an extracted frontend build, not a mechanical copy of the present document.
+
+The app never falls back to a public endpoint or cleartext HTTP. When the private origin cannot load, a bundled error page asks the user to connect Tailscale and retry.
+
+## Native architecture audit
+
+Apollo keeps one persistent `WKWebView` and does not create a second copy of route, conversation, form, streaming, OAuth, or backend state. A compact UIKit icon dock is layered over the Capacitor view controller and exchanges only validated route, theme, badge, and presentation messages with JavaScript. Switching destinations calls Apollo's existing route functions; it does not reload the WebView. All eight destinations have one-tap access, equal-width touch targets of at least 44 points on iPhone 13 mini and newer, full VoiceOver labels, and a restrained selected state.
+
+UIKit is used because `CAPBridgeViewController`, `WKWebView`, the custom dock, alerts, and action sheets are already UIKit components. This keeps ownership and lifecycle direct and avoids wrapping the existing controller in a second navigation hierarchy. SwiftUI becomes worthwhile if a future version introduces a native screen with native-owned state.
+
+The bridge accepts only known route names, bounded dialog text, validated request identifiers, and at most eight action-sheet choices. Native results are JSON-encoded before returning to JavaScript. No backend endpoints or credentials were added.
+
+## Native behavior included
+
+- iPhone-only Xcode target with automatic signing and bundle ID `com.santilozano.apollo`.
+- Capacitor 8 with Swift Package Manager; CocoaPods is not required.
+- App lifecycle, Browser, Haptics, Keyboard, and Status Bar plugins only.
+- Native bridge code injected into the remote document from the signed app bundle, so native behavior does not depend on a web deployment.
+- Compact, material-backed UIKit icon dock with SF Symbols for Home, Apollo, Music, Calendar, Tasks, Studio, Routines, and Settings. Its Apollo icon is a sun, and the duplicate web tab bar is hidden only inside the iOS app.
+- Bidirectional native/web route synchronization, route reselection scroll-to-top, and Apollo response-ready badge support without WebView reloads.
+- System confirmation alerts, text-entry prompts, and native action sheets for routine and chat-history overflow menus. Existing JavaScript handlers still perform validation and backend actions.
+- Native WebKit date, time, and selection pickers remain attached to the original HTML controls, preserving form state and validation.
+- Theme-aware status bar and dock, safe-area-aware mobile content, native keyboard resizing, interactive keyboard dismissal, and keyboard-aware dock motion.
+- Restrained selection/impact haptics on navigation and meaningful controls, with a bridge preference to disable them.
+- Reduced-motion behavior in both UIKit presentation and the native-only CSS layer.
+- External HTTP(S) destinations opened outside the trusted Apollo WebView.
+- Foreground connectivity check, nonblocking Tailscale banner, lifecycle events, and settings refresh after returning from OAuth.
+- Apollo sun artwork in the app icon, launch screen, web branding, chat header, loading/empty states, and dynamic assistant message states. The signed native bridge updates branding even before a web deployment.
+- Native-only mobile layout refinements for Home, Music, Calendar, Tasks, Studio, Routines, Settings, and chat. A single 58-point dock inset replaces conflicting bottom reserves; Music, Calendar, and task entry have targeted layout corrections.
+- A location usage description because the existing web app optionally reports device location for local weather/context. Apollo continues to work if permission is denied.
+
+## Preserved features
+
+Because the app keeps Apollo's production origin, it preserves the existing implementation of Chat, streamed responses, Generative UI, KaTeX, calculators, quizzes, history, Spotify controls, WHOOP, Google Calendar, Canvas, tasks, routines, settings, Studio, and server-side data persistence. Spotify playback still controls the active Spotify device through the existing backend; the WebView is not a replacement Spotify playback SDK.
+
+## Not implemented or not yet verified on a physical iPhone
+
+- Native push notifications. The website's Service Worker/Web Push UI may report unsupported in WKWebView. APNs requires an Apple signing team, entitlement, physical device, and server-side device-token delivery work.
+- Face ID/app lock. No biometric permission or third-party plugin was added without a defined lock/recovery policy and real-device verification.
+- App Store, TestFlight, ad hoc, or enterprise distribution.
+- Settings toggles and complex editing forms remain web-owned. Replacing them would duplicate working state and validation; their date/time/select controls already receive system-native iOS presentations through WebKit.
+- Broad swipe-to-change-tab gestures were intentionally not added because they conflict with charts, sliders, carousels, text selection, and horizontal web content.
+- Physical-device haptic feel, keyboard layout, text selection/copying, location choice, OAuth round trips, notification delivery, and Tailscale disconnect/reconnect behavior.
+- Production chat sends and write actions were intentionally not used during testing because they would modify personal data.
+
+## Build commands
+
+From the repository root:
+
+```sh
+npm install
+npm run ios:sync
+npm run ios:build
+```
+
+Regenerate the checked-in icon and launch artwork after changing the Apollo mark:
+
+```sh
+npm run ios:artwork
+```
+
+Open the native project:
+
+```sh
+npm run ios:open
+```
+
+## Install on the private iPhone
+
+These are the only remaining steps that require the owner's Apple Account and physical iPhone:
+
+1. On the iPhone, install Tailscale, sign in to the same tailnet as the Apollo VPS, and leave Tailscale connected.
+2. Connect the unlocked iPhone to this Mac with USB. Tap **Trust** on the iPhone if asked.
+3. Open `ios/App/App.xcodeproj` in Xcode (or run `npm run ios:open`).
+4. In Xcode, choose **Xcode > Settings > Accounts**, click **+**, and sign in with the Apple Account. Enter credentials only in Apple's Xcode window; never put them in this repository.
+5. In the project navigator, select the blue **App** project, select the **App** target, then open **Signing & Capabilities**.
+6. Keep **Automatically manage signing** enabled and choose the Apple Account's **Personal Team** (or paid development team) from **Team**.
+7. If Xcode says the bundle identifier is unavailable, replace `com.santilozano.apollo` with a unique reverse-domain identifier in both Xcode and `capacitor.config.ts`, then run `npm run ios:sync` again.
+8. In Xcode's top toolbar, choose the connected iPhone as the run destination and click the triangular **Run** button.
+9. If the iPhone requests Developer Mode, open **Settings > Privacy & Security > Developer Mode**, enable it, restart the iPhone, confirm after restart, and click **Run** in Xcode again.
+10. Launch Tailscale first, then Apollo. On first launch, choose whether to allow the optional location request. Apollo works without location.
+
+A free Personal Team is sufficient for private testing, but Apple requires its development provisioning to be refreshed periodically; current Personal Team profiles expire after seven days. A paid Apple Developer Program team has longer-lived development provisioning but is not required for this private installation.
+
+## Verification completed on 2026-10-15
+
+- `python3 -m unittest discover -s tests -v`: 227 tests passed.
+- `npm run test:ios-config`: 8 tests passed.
+- `npm run ios:build`: unsigned iOS Simulator build succeeded with Xcode 26.3 and the iOS 26.3 SDK.
+- Installed and launched Apollo on an **iPhone 16**, **iPhone 13 mini**, and **iPhone 17 Pro Max** simulator running iOS 26.3.1.
+- Private Tailscale HTTPS origin loaded successfully; observed HTTP 200 responses for Apollo assets and data APIs without exercising user-facing write actions.
+- Native navigation was exercised across Home, Apollo, Music, Calendar, Tasks, Studio, Routines, and Settings with no duplicate web navigation and no WebView reload. Studio loaded its projects on the iPhone 16 and 13 mini; the icon dock remained legible and tappable at the mini width. A Home Music card also selected the Music dock item through web-to-native route synchronization.
+- Native routine action sheet, destructive confirmation alert, and text-entry prompt were presented; every destructive path was canceled before a write.
+- System WebKit date, time, and selection pickers were opened without changing values.
+- Chat composer keyboard opening/dismissal was exercised; the dock hides while typing, the composer stays visible, and the dock returns after dismissal.
+- Light and dark system appearance, status-bar contrast, Dynamic Island/notch spacing, dock safe area, and the corrected Routines top safe area were visually verified.
+- Screen-by-screen visual QA on iPhone 16 covered the dashboard cards, chat header/composer, Spotify now-playing card, focused Calendar day, compact Tasks entry and sections, Studio projects, full-width Routines cards/hydration/heatmap, and Settings controls. Music's title and playback status no longer overlap; Calendar's date chevron renders correctly; Tasks no longer spends a third row on the Add button.
+- Smaller and larger simulator QA confirmed all eight dock icons fit without truncation or selected-state overlap. The larger screen also verified light-to-dark theme synchronization.
+- Background/home and resume preserved the active Apollo route and existing WebView state.
+- Terminate/reinstall/relaunch succeeded. The simulator's location permission was denied so it could not block the remaining tests; Apollo continued to work.
+- No production web deployment or live account mutation was performed. Local `index.html` and `apollo_os_v1.js` branding updates will reach the website only through the normal separate deployment; the native iOS bridge applies the sun immediately inside the installed app.
+- Runtime npm dependencies: zero known vulnerabilities. The development-only Capacitor CLI tree currently reports a moderate advisory in its `xcode -> uuid` dependency; it is not shipped as JavaScript in the iOS app and is awaiting an upstream-compatible dependency update.
+
+## Safe test gaps
+
+The following require the physical device or would alter live personal data, so they remain explicit acceptance tests:
+
+- Send and stream a new chat message, then confirm progressive rendering and history persistence on the physical device.
+- Exercise a generated calculator/quiz and KaTeX inside a real response.
+- Perform Spotify playback controls against the intended active device.
+- Complete Google/WHOOP OAuth or reconnect flows.
+- Create/update/delete calendar items, tasks, routines, or Canvas subscriptions.
+- Accept or deny location on the owner's device.
+- Disconnect Tailscale and confirm the bundled retry screen, then reconnect and retry.
+- Verify haptic strength, long-press/text-copy behavior, external-link presentation, OAuth return, background/resume, and keyboard animation on the physical iPhone 16.
