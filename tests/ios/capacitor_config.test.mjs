@@ -24,7 +24,7 @@ test("keeps native integration optional for the production website", () => {
   assert.match(index, /apollo_capacitor\.js/);
   assert.match(bridge, /if \(!capacitor\?\.isNativePlatform\?\.\(\)\) return/);
   assert.match(bridge, /__apolloCapacitorReady/);
-  assert.match(bridge, /__apolloCapacitorVersion = "1\.4"/);
+  assert.match(bridge, /__apolloCapacitorVersion = "1\.5"/);
   assert.match(bridge, /isLight \? "LIGHT" : "DARK"/);
 });
 
@@ -41,20 +41,22 @@ test("declares only the native permission Apollo currently requests", () => {
   assert.doesNotMatch(info, /NSMicrophoneUsageDescription/);
 });
 
-test("uses a system UITabBarController with seven routes and one persistent WebView", () => {
+test("uses a genuine-glass custom dock with seven direct routes and one persistent WebView", () => {
   for (const route of ["home", "apollo", "music", "calendar", "tasks", "studio", "routines"]) {
     assert.match(nativeController, new RegExp(`Destination\\(route: "${route}"`));
     assert.match(bridge, new RegExp(`"${route}"`));
   }
   assert.doesNotMatch(nativeController, /Destination\(route: "settings"/);
   assert.match(nativeController, /settingsButton\.accessibilityLabel = "Settings"/);
-  assert.match(sceneDelegate, /ApolloTabBarController\(\)/);
-  assert.match(nativeController, /ApolloTabBarController: UITabBarController/);
+  assert.match(sceneDelegate, /ApolloDockController\(\)/);
+  assert.match(nativeController, /ApolloDockController: UIViewController/);
   assert.match(nativeController, /private let apollo = ApolloViewController\(\)/);
-  assert.match(nativeController, /setViewControllers\(controllers, animated: false\)/);
-  assert.match(nativeController, /controller\.tabBarItem\.accessibilityIdentifier = "apollo\.tab\./);
+  assert.match(nativeController, /button\.accessibilityIdentifier = "apollo\.tab\./);
+  assert.match(nativeController, /UIGlassEffect\(style: \.regular\)/);
+  assert.match(nativeController, /effect\.isInteractive = true/);
   assert.match(nativeController, /UIImage\(named: "Nav-/);
-  assert.doesNotMatch(nativeController, /private let dock = UIView/);
+  assert.match(nativeController, /private let dock = UIView/);
+  assert.doesNotMatch(nativeController, /class ApolloTabBarController: UITabBarController/);
   assert.match(nativeCSS, /html\.apollo-capacitor-ios \.sidebar/);
   assert.match(nativeCSS, /display: none !important/);
 });
@@ -89,6 +91,8 @@ test("provides validated native dialog bridge operations", () => {
 
 test("handles keyboard, reduced motion, lifecycle, and route badges", () => {
   assert.match(nativeController, /keyboardLayoutGuide\.topAnchor/);
+  assert.match(nativeController, /keyboardLayoutGuide\.usesBottomSafeArea = false/);
+  assert.match(nativeController, /setChatDockAnchor/);
   assert.match(config, /resize: "none"/);
   assert.match(bridge, /setResizeMode", \{ mode: "none" \}/);
   assert.doesNotMatch(nativeController, /apolloNativeKeyboard/);
@@ -99,6 +103,17 @@ test("handles keyboard, reduced motion, lifecycle, and route badges", () => {
   assert.match(bridge, /apollo:native-resume/);
   assert.match(bridge, /badgeChanged/);
   assert.match(nativeCSS, /apollo-reduce-motion/);
+});
+
+test("persists one web-owned accent preference and synchronizes native chrome", () => {
+  assert.match(index, /apollo\.setting\.accent/);
+  assert.match(index, /data-apollo-accent="system"/);
+  assert.match(index, /data-apollo-accent="blue"/);
+  assert.match(bridge, /postNative\("accentChanged"/);
+  assert.match(bridge, /apollo-native-accent-setting/);
+  assert.match(bridge, /apollo\.setting\.accent/);
+  assert.match(nativeController, /case "accentChanged"/);
+  assert.match(nativeController, /selectedColor = \.label/);
 });
 
 test("retains native-only chat, music, routines, and notification refinements", () => {

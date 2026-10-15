@@ -2,8 +2,8 @@
 (() => {
     const capacitor = window.Capacitor;
     if (!capacitor?.isNativePlatform?.()) return;
-    if (window.__apolloCapacitorVersion === "1.4") return;
-    window.__apolloCapacitorVersion = "1.4";
+    if (window.__apolloCapacitorVersion === "1.5") return;
+    window.__apolloCapacitorVersion = "1.5";
     window.__apolloCapacitorReady = true;
 
     const platform = capacitor.getPlatform?.() || "native";
@@ -143,6 +143,51 @@
     // keyboard geometry, class toggle, or second composer animation is needed.
 
     function upgradeNativeUI() {
+        const appearancePanel = document.querySelector("#settingsView .apollo-settings-panel");
+        const shippedAccent = document.querySelector("#settingsView .apollo-accent-choice:not(.apollo-native-accent-choice)");
+        const fallbackAccent = document.querySelector("#settingsView .apollo-native-accent-setting");
+        if (shippedAccent && fallbackAccent) fallbackAccent.remove();
+        if (appearancePanel && !shippedAccent && !fallbackAccent) {
+            // The signed shell can expose this preference against an older
+            // private web deployment. It uses the same web setting key; once
+            // the server ships the control, this fallback disappears.
+            const row = document.createElement("div");
+            row.className = "apollo-setting-row apollo-native-accent-setting";
+            row.innerHTML = '<div class="apollo-setting-copy"><div class="apollo-setting-name">Accent Color</div><div class="apollo-setting-description">Monochrome follows the current appearance.</div></div><div class="apollo-setting-control"><div class="apollo-native-accent-choices" role="radiogroup" aria-label="Accent Color"></div></div>';
+            const choices = [
+                ["system", "System", "linear-gradient(135deg,#222 50%,#eee 50%)"],
+                ["black", "Black", "#111"], ["white", "White", "#fff"],
+                ["graphite", "Graphite", "#888"], ["blue", "Blue", "#4799fa"],
+                ["sage", "Sage", "#6bb895"], ["amber", "Amber", "#ebaa55"]
+            ];
+            const group = row.querySelector(".apollo-native-accent-choices");
+            const selected = localStorage.getItem("apollo.setting.accent") || "system";
+            choices.forEach(([value, label, swatch]) => {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "apollo-native-accent-choice";
+                button.setAttribute("role", "radio");
+                button.setAttribute("aria-checked", String(selected === value));
+                button.dataset.apolloAccent = value;
+                const dot = document.createElement("span");
+                dot.className = "apollo-native-accent-swatch";
+                dot.style.background = swatch;
+                button.append(dot, document.createTextNode(label));
+                button.addEventListener("click", () => {
+                    localStorage.setItem("apollo.setting.accent", value);
+                    document.documentElement.dataset.apolloAccent = value;
+                    group.querySelectorAll("[role=radio]").forEach(item =>
+                        item.setAttribute("aria-checked", String(item === button)));
+                    document.dispatchEvent(new CustomEvent("apollo:accent-changed", { detail: { accent: value } }));
+                });
+                group.append(button);
+            });
+            appearancePanel.insertBefore(
+                row,
+                document.getElementById("apolloReduceMotion")?.closest(".apollo-setting-row") || null
+            );
+        }
+
         const routineToolbar = document.querySelector("#routinesView .routine-toolbar");
         const routineAdd = document.getElementById("routineCreate");
         if (routineToolbar && routineAdd && !routineToolbar.classList.contains("apollo-native-date-controls")) {
@@ -248,6 +293,13 @@
             theme: isLight ? "light" : "dark",
             preference: ["light", "dark", "system"].includes(preference) ? preference : "system"
         });
+    }
+
+    function syncAccent() {
+        const accent = document.documentElement.dataset.apolloAccent
+            || localStorage.getItem("apollo.setting.accent")
+            || "system";
+        postNative("accentChanged", { accent });
     }
 
     function showNetworkState(message) {
@@ -468,6 +520,7 @@
         attributes: true,
         attributeFilter: ["data-theme"]
     });
+    document.addEventListener("apollo:accent-changed", syncAccent);
     new MutationObserver(syncRoute).observe(document.body, {
         attributes: true,
         attributeFilter: ["data-apollo-route"]
@@ -488,6 +541,7 @@
     reduceMotion.addEventListener?.("change", syncReducedMotion);
 
     syncStatusBarAndTheme();
+    syncAccent();
     syncBadge();
     checkApolloConnection();
     postNative("ready", { route: currentRoute() });

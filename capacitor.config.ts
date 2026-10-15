@@ -7,7 +7,7 @@ const config: CapacitorConfig = {
   appName: "Apollo",
   webDir: "www",
   backgroundColor: "#090909",
-  appendUserAgent: " Apollo-iOS/1.4",
+  appendUserAgent: " Apollo-iOS/1.5",
   loggingBehavior: "debug",
   ios: {
     backgroundColor: "#090909",

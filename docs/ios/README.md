@@ -1,4 +1,12 @@
-# Apollo iOS 1.4
+# Apollo iOS 1.5
+
+## Current iOS 1.5 architecture and QA
+
+- `ApolloDockController` is a custom UIKit container, not a system-managed tab bar. It keeps one persistent Capacitor WebView and offers seven direct 44pt-or-larger icon-only destinations; Settings remains a separate top-right native button. On iOS 26 the dock uses `UIGlassEffect(style: .regular)` in `UIVisualEffectView`; older supported systems use `systemChromeMaterial`. The material is native, but UIKit does not manage the custom dock's navigation behavior.
+- The WebView and root are transparent, with the page extending behind the dock and status bar. Content owns its end-of-scroll padding; UIKit owns the dock and keyboard geometry. Chat alone constrains the WebView above the dock or `UIKeyboardLayoutGuide`, whichever is higher, so the composer follows the software keyboard without another CSS/Capacitor resize clock.
+- Settings stores `apollo.setting.accent` in the existing web preference store. The bridge sends its value to UIKit; UserDefaults caches it only for launch-time native tint before the web page responds. System/Monochrome is the default and adapts black/white; optional Graphite, Blue, Sage, and Amber are available. The signed bridge supplies the same-key control when an older private web deployment lacks it, and removes that fallback once the web Settings control ships; no second preference store is introduced.
+- iPhone 16 iOS 26.3 simulator UI tests passed: seven direct buttons and Settings, repeated keyboard focus/dismissal with an unsent draft preserved across routes, Music Queue, Studio's scroll edge, and the same-key Accent Color fallback persisting after relaunch. An unsigned build passed with Xcode's iOS 26.2 SDK. iPhone 13 mini dark and iPhone 17 Pro Max light screenshots show all icons fitting with continuous status/dock backgrounds and content beneath the glass. The mini uses about 48pt per destination, so no overflow treatment is needed on these targets.
+- Physical iPhone checks remain necessary for haptic feel, signing/Tailscale installation, exact keyboard animation, and OAuth/background behavior. See the prior acceptance checklist below. The 1.4 notes that follow are historical and describe the superseded system tab bar.
 
 Apollo iOS is a private, iPhone-only Capacitor 8 application with a native iOS navigation and presentation layer. It is not configured for App Store distribution and does not contain credentials or integration tokens.
 
@@ -18,7 +26,7 @@ This preserves same-origin APIs, SSE-style streaming over `fetch()`, OAuth callb
 
 The app never falls back to a public endpoint or cleartext HTTP. When the private origin cannot load, a bundled error page asks the user to connect Tailscale and retry.
 
-## Current iOS 1.4 implementation
+## Historical iOS 1.4 implementation
 
 - `ApolloTabBarController` owns a stock `UITabBar` and its selection. Built with the iOS 26 SDK, this is UIKit's system-managed Liquid Glass tab bar, not a custom blur capsule. Four destinations are direct tabs; the system More interface contains Tasks, Studio, and Routines. Settings is a separate native `UIButton.Configuration.glass()` action in the top-right on iOS 26 (native gray configuration on older iOS).
 - One `ApolloViewController`, one Capacitor bridge, and one `WKWebView` remain alive above the tab controller's empty route controllers. Selecting a route calls the existing web navigation function and does not load another page. A selection made before the bridge is ready is replayed once it loads. The shared WebView is hidden only while UIKit's More list is visible, then restored when an overflow destination appears. Web-to-native route synchronization does not cancel an open More list.

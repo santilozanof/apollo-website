@@ -49,11 +49,47 @@ html[data-theme="light"] .apollo-native-network-banner {
     box-shadow: 0 8px 30px rgba(0,0,0,.1);
 }
 
-/* UIKit owns the tab bar and the WebView's unobscured viewport. */
+/* UIKit owns the floating dock; web content extends behind its real glass. */
+html.apollo-capacitor-ios #settingsView .apollo-native-accent-choices {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    width: min(100%, 390px);
+}
+html.apollo-capacitor-ios #settingsView .apollo-native-accent-choice {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 44px;
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+}
+html.apollo-capacitor-ios #settingsView .apollo-native-accent-choice[aria-checked="true"] {
+    border-color: var(--text);
+    background: var(--surface-hover);
+}
+html.apollo-capacitor-ios #settingsView .apollo-native-accent-swatch {
+    width: 13px;
+    height: 13px;
+    flex: 0 0 13px;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+}
+@media (max-width: 380px) {
+    html.apollo-capacitor-ios #settingsView .apollo-native-accent-choices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 html.apollo-capacitor-ios {
-    --apollo-native-tabbar-height: 66px;
-    --mobile-tabbar-height: 66px;
-    --apollo-mobile-nav-h: 66px;
+    --apollo-native-tabbar-height: 88px;
+    --apollo-native-dock-reserve: calc(88px + env(safe-area-inset-bottom, 0px));
+    --mobile-tabbar-height: 0px;
+    --apollo-mobile-nav-h: 0px;
     --mobile-page-padding-x: clamp(18px, 5vw, 24px);
     --mobile-header-padding-top: 18px;
     --mobile-content-gap: 22px;
@@ -576,7 +612,7 @@ html.apollo-capacitor-ios.apollo-reduce-motion *::after {
     transition-duration: 1ms !important;
 }
 
-/* iOS 1.4: the WKWebView itself ends at the native bar or keyboard guide.
+/* The chat WKWebView ends at the dock or keyboard guide, whichever is higher.
    Legacy mobile focus/visualViewport classes cannot move the composer. */
 html.apollo-capacitor-ios body #apolloView.active .apollo-composer-wrap,
 html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloView.active .apollo-composer-wrap,
@@ -588,7 +624,7 @@ html.apollo-capacitor-ios body.apollo-mobile-typing #apolloView.active .apollo-c
 }
 
 html.apollo-capacitor-ios body .main {
-    padding-bottom: 0 !important;
+    padding-bottom: var(--apollo-native-dock-reserve) !important;
 }
 
 @media (max-width: 760px) {
@@ -602,7 +638,15 @@ html.apollo-capacitor-ios body .main {
 
     html.apollo-capacitor-ios #homeView,
     html.apollo-capacitor-ios #routinesView {
-        padding-bottom: 24px !important;
+        padding-bottom: var(--apollo-native-dock-reserve) !important;
+    }
+
+    html.apollo-capacitor-ios #musicView.active .apollo-music-inner,
+    html.apollo-capacitor-ios #tasksView.active .apollo-tasks-shell,
+    html.apollo-capacitor-ios #studioView.active .studio5-shell,
+    html.apollo-capacitor-ios #settingsView.active .apollo-settings-inner,
+    html.apollo-capacitor-ios #calendarView.active .apollo-week-shell {
+        padding-bottom: var(--apollo-native-dock-reserve) !important;
     }
 
     html.apollo-capacitor-ios #apolloView .apollo-messages {

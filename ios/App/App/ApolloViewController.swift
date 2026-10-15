@@ -17,24 +17,7 @@ private final class ApolloWeakScriptMessageHandler: NSObject, WKScriptMessageHan
     }
 }
 
-private final class ApolloRouteViewController: UIViewController {
-    let route: String
-    var onAppear: ((String) -> Void)?
-
-    init(route: String) {
-        self.route = route
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        onAppear?(route)
-    }
-}
-
-final class ApolloTabBarController: UITabBarController, UITabBarControllerDelegate {
+final class ApolloDockController: UIViewController {
     private struct Destination {
         let route: String
         let title: String
@@ -51,38 +34,27 @@ final class ApolloTabBarController: UITabBarController, UITabBarControllerDelega
     ]
 
     private let apollo = ApolloViewController()
+    private let glass = UIVisualEffectView()
+    private let dock = UIView()
+    private let row = UIStackView()
+    private var buttons: [UIButton] = []
+    private var badge = UIView()
+    private var leadingConstraint: NSLayoutConstraint?
+    private var trailingConstraint: NSLayoutConstraint?
     private var selectedRoute = "home"
-    private var showingMore = false
+    private var accent = UserDefaults.standard.string(forKey: "apollo.setting.accent") ?? "system"
 
     override var childForStatusBarStyle: UIViewController? { apollo }
     override var childForStatusBarHidden: UIViewController? { apollo }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        delegate = self
-        let controllers = destinations.enumerated().map { index, destination -> UIViewController in
-            let controller = ApolloRouteViewController(route: destination.route)
-            controller.view.backgroundColor = .clear
-            if index >= 4 {
-                controller.onAppear = { [weak self] route in
-                    self?.activateOverflowRoute(route)
-                }
-            }
-            controller.tabBarItem = UITabBarItem(
-                title: destination.title,
-                image: UIImage(named: "Nav-\(destination.route)")?.withRenderingMode(.alwaysTemplate),
-                tag: index
-            )
-            controller.tabBarItem.accessibilityIdentifier = "apollo.tab.\(destination.route)"
-            return controller
+        view.backgroundColor = UIColor { traits in
+            traits.userInterfaceStyle == .dark ? UIColor(white: 0.035, alpha: 1) : UIColor(white: 0.985, alpha: 1)
         }
-        setViewControllers(controllers, animated: false)
-        customizableViewControllers = []
-        selectedIndex = 0
-
-        // A single Capacitor bridge and WKWebView outlive every tab selection.
-        // UIKit owns selection and material; the empty route controllers never
-        // instantiate duplicate web sessions or interrupt streaming.
+        // Custom containment is required because UITabBarController replaces
+        // destinations five through seven with More on iPhone. The same
+        // Capacitor bridge and WKWebView remain mounted for every selection.
         addChild(apollo)
         let content = apollo.view!
         content.translatesAutoresizingMaskIntoConstraints = false
@@ -90,63 +62,147 @@ final class ApolloTabBarController: UITabBarController, UITabBarControllerDelega
         NSLayoutConstraint.activate([
             content.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            content.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            content.bottomAnchor.constraint(equalTo: tabBar.topAnchor)
+            content.topAnchor.constraint(equalTo: view.topAnchor),
+            content.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
         apollo.didMove(toParent: self)
-        keepNativeBarOnTop()
+        configureDock()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        keepNativeBarOnTop()
+        let inset: CGFloat = view.bounds.width < 350 ? 6 : 12
+        leadingConstraint?.constant = inset
+        trailingConstraint?.constant = -inset
+        view.bringSubviewToFront(dock)
     }
 
-    private func keepNativeBarOnTop() {
-        view.bringSubviewToFront(apollo.view)
-        view.bringSubviewToFront(tabBar)
-    }
-
-    func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
-        if viewController === moreNavigationController {
-            // The system's More list must be tappable; keep the bridge alive
-            // but let UIKit present its native overflow UI in front of it.
-            apollo.view.isHidden = true
-            showingMore = true
-            return
+    private func configureDock() {
+        dock.translatesAutoresizingMaskIntoConstraints = false
+        dock.accessibilityIdentifier = "apollo.nativeDock"
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        glass.layer.cornerRadius = 30
+        glass.layer.cornerCurve = .continuous
+        glass.clipsToBounds = true
+        if #available(iOS 26.0, *) {
+            let effect = UIGlassEffect(style: .regular)
+            effect.isInteractive = true
+            glass.effect = effect
+        } else {
+            glass.effect = UIBlurEffect(style: .systemChromeMaterial)
         }
-        guard let index = viewControllers?.firstIndex(of: viewController), destinations.indices.contains(index) else { return }
-        showingMore = false
-        apollo.view.isHidden = false
-        let route = destinations[index].route
-        let reselected = route == selectedRoute
-        selectedRoute = route
-        apollo.navigate(to: route, reselected: reselected)
-        keepNativeBarOnTop()
+        dock.addSubview(glass)
+        NSLayoutConstraint.activate([
+            glass.leadingAnchor.constraint(equalTo: dock.leadingAnchor),
+            glass.trailingAnchor.constraint(equalTo: dock.trailingAnchor),
+            glass.topAnchor.constraint(equalTo: dock.topAnchor),
+            glass.bottomAnchor.constraint(equalTo: dock.bottomAnchor)
+        ])
+
+        row.axis = .horizontal
+        row.alignment = .fill
+        row.distribution = .fillEqually
+        row.spacing = 0
+        row.translatesAutoresizingMaskIntoConstraints = false
+        glass.contentView.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
+            row.topAnchor.constraint(equalTo: glass.contentView.topAnchor, constant: 4),
+            row.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor, constant: -4)
+        ])
+
+        for (index, destination) in destinations.enumerated() {
+            let button = UIButton(type: .custom)
+            button.tag = index
+            button.accessibilityLabel = destination.title
+            button.accessibilityIdentifier = "apollo.tab.\(destination.route)"
+            button.setImage(UIImage(named: "Nav-\(destination.route)")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            button.imageView?.contentMode = .scaleAspectFit
+            button.layer.cornerRadius = 24
+            button.layer.cornerCurve = .continuous
+            button.addTarget(self, action: #selector(dockTapped(_:)), for: .touchUpInside)
+            row.addArrangedSubview(button)
+            buttons.append(button)
+        }
+        badge = UIView()
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        badge.layer.cornerRadius = 3
+        badge.isHidden = true
+        badge.isUserInteractionEnabled = false
+        buttons[1].addSubview(badge)
+        NSLayoutConstraint.activate([
+            badge.widthAnchor.constraint(equalToConstant: 6),
+            badge.heightAnchor.constraint(equalToConstant: 6),
+            badge.centerXAnchor.constraint(equalTo: buttons[1].centerXAnchor, constant: 14),
+            badge.centerYAnchor.constraint(equalTo: buttons[1].centerYAnchor, constant: -13)
+        ])
+        view.addSubview(dock)
+        leadingConstraint = dock.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12)
+        trailingConstraint = dock.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12)
+        NSLayoutConstraint.activate([
+            leadingConstraint!, trailingConstraint!,
+            dock.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -6),
+            dock.heightAnchor.constraint(equalToConstant: 58)
+        ])
+        apollo.setChatDockAnchor(dock.topAnchor)
+        updateAppearance()
     }
 
     func selectRoute(_ route: String) {
         guard let index = destinations.firstIndex(where: { $0.route == route }) else { return }
-        if showingMore && route == selectedRoute { return }
-        showingMore = false
         selectedRoute = route
-        apollo.view.isHidden = false
-        if selectedIndex != index { selectedIndex = index }
-        keepNativeBarOnTop()
+        for (position, button) in buttons.enumerated() {
+            let selected = position == index
+            button.accessibilityTraits = selected ? [.button, .selected] : .button
+        }
+        updateAppearance()
     }
 
     func setApolloBadge(_ visible: Bool) {
-        guard let index = destinations.firstIndex(where: { $0.route == "apollo" }) else { return }
-        viewControllers?[index].tabBarItem.badgeValue = visible ? "•" : nil
+        badge.isHidden = !visible
     }
 
-    private func activateOverflowRoute(_ route: String) {
-        guard apollo.view.isHidden || selectedRoute != route else { return }
-        showingMore = false
-        apollo.view.isHidden = false
+    func setAccent(_ value: String) {
+        let allowed = ["system", "black", "white", "graphite", "blue", "sage", "amber"]
+        guard allowed.contains(value) else { return }
+        accent = value
+        UserDefaults.standard.set(value, forKey: "apollo.setting.accent")
+        updateAppearance()
+    }
+
+    private func updateAppearance() {
+        let selectedColor: UIColor
+        switch accent {
+        case "blue": selectedColor = UIColor(red: 0.28, green: 0.60, blue: 0.98, alpha: 1)
+        case "sage": selectedColor = UIColor(red: 0.42, green: 0.72, blue: 0.58, alpha: 1)
+        case "amber": selectedColor = UIColor(red: 0.92, green: 0.63, blue: 0.30, alpha: 1)
+        case "graphite": selectedColor = .secondaryLabel
+        case "black": selectedColor = traitCollection.userInterfaceStyle == .dark ? .white : .black
+        case "white": selectedColor = traitCollection.userInterfaceStyle == .dark ? .white : .black
+        default: selectedColor = .label
+        }
+        for (index, button) in buttons.enumerated() {
+            let selected = destinations[index].route == selectedRoute
+            button.tintColor = selected ? selectedColor : .secondaryLabel
+            button.backgroundColor = selected ? selectedColor.withAlphaComponent(0.12) : .clear
+        }
+        badge.backgroundColor = selectedColor
+        apollo.setAccentColor(selectedColor)
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle { updateAppearance() }
+    }
+
+    @objc private func dockTapped(_ button: UIButton) {
+        guard destinations.indices.contains(button.tag) else { return }
+        let route = destinations[button.tag].route
+        let reselected = selectedRoute == route
         selectedRoute = route
-        apollo.navigate(to: route, reselected: false)
-        keepNativeBarOnTop()
+        selectRoute(route)
+        apollo.navigate(to: route, reselected: reselected)
     }
 }
 
@@ -156,6 +212,7 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
     private var currentRoute = "home"
     private var bridgeIsReady = false
     private var pendingNavigation: (route: String, reselected: Bool)?
+    private var chatDockConstraint: NSLayoutConstraint?
 
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
@@ -172,7 +229,7 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         }
 
         let source = """
-        window.__apolloNativeBundledVersion = "1.4";
+        window.__apolloNativeBundledVersion = "1.5";
         (() => {
             if (!document.getElementById("apollo-capacitor-native-css")) {
                 const style = document.createElement("style");
@@ -200,6 +257,9 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         webView?.scrollView.contentInsetAdjustmentBehavior = .never
         webView?.scrollView.keyboardDismissMode = .interactive
         webView?.allowsLinkPreview = false
+        webView?.isOpaque = false
+        webView?.backgroundColor = .clear
+        webView?.scrollView.backgroundColor = .clear
     }
 
     deinit {
@@ -210,11 +270,14 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         super.viewDidLoad()
         guard let browser = webView else { return }
         let container = UIView(frame: browser.frame)
-        container.backgroundColor = UIColor(red: 0.035, green: 0.035, blue: 0.035, alpha: 1)
+        container.backgroundColor = .clear
         view = container
         browser.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(browser)
-        let pullToBottom = browser.bottomAnchor.constraint(equalTo: container.safeAreaLayoutGuide.bottomAnchor)
+        if #available(iOS 17.0, *) {
+            container.keyboardLayoutGuide.usesBottomSafeArea = false
+        }
+        let pullToBottom = browser.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         pullToBottom.priority = .defaultLow
         NSLayoutConstraint.activate([
             browser.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -233,6 +296,7 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
 
     func navigate(to route: String, reselected: Bool) {
         webView?.endEditing(true)
+        setCurrentRoute(route)
         guard bridgeIsReady else {
             pendingNavigation = (route, reselected)
             return
@@ -241,6 +305,18 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
         evaluateJavaScript(
             "window.apolloNativeNavigate?.(\(Self.javaScriptLiteral(route)), \(reselected ? "true" : "false"))"
         )
+    }
+
+    func setChatDockAnchor(_ anchor: NSLayoutYAxisAnchor) {
+        guard let browser = webView else { return }
+        chatDockConstraint?.isActive = false
+        chatDockConstraint = browser.bottomAnchor.constraint(lessThanOrEqualTo: anchor)
+        chatDockConstraint?.isActive = currentRoute == "apollo"
+    }
+
+    private func setCurrentRoute(_ route: String) {
+        currentRoute = route
+        chatDockConstraint?.isActive = route == "apollo"
     }
 
     private func configureSettingsButton() {
@@ -255,7 +331,7 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
             configuration = .gray()
         }
         configuration.image = UIImage(systemName: "gearshape", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .medium))
-        configuration.baseForegroundColor = .secondaryLabel
+        configuration.baseForegroundColor = .label
         settingsButton.configuration = configuration
         view.addSubview(settingsButton)
         NSLayoutConstraint.activate([
@@ -268,12 +344,13 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
     }
 
     @objc private func settingsTapped() {
-        guard bridgeIsReady else { return }
-        webView?.endEditing(true)
-        UISelectionFeedbackGenerator().selectionChanged()
-        currentRoute = "settings"
         settingsButton.accessibilityTraits = [.button, .selected]
-        evaluateJavaScript("window.apolloNativeNavigate?.(\"settings\")")
+        navigate(to: "settings", reselected: false)
+    }
+
+    func setAccentColor(_ color: UIColor) {
+        settingsButton.tintColor = color
+        settingsButton.configuration?.baseForegroundColor = color
     }
 
     func userContentController(
@@ -296,22 +373,26 @@ final class ApolloViewController: CAPBridgeViewController, WKScriptMessageHandle
                 break
             }
             if let route = body["route"] as? String {
-                currentRoute = route
+                setCurrentRoute(route)
                 settingsButton.accessibilityTraits = route == "settings" ? [.button, .selected] : .button
-                (parent as? ApolloTabBarController)?.selectRoute(route)
+                (parent as? ApolloDockController)?.selectRoute(route)
             }
         case "routeChanged":
             if let route = body["route"] as? String {
-                currentRoute = route
+                setCurrentRoute(route)
                 settingsButton.accessibilityTraits = route == "settings" ? [.button, .selected] : .button
-                (parent as? ApolloTabBarController)?.selectRoute(route)
+                (parent as? ApolloDockController)?.selectRoute(route)
             }
         case "themeChanged":
             if let theme = body["theme"] as? String {
                 applyTheme(theme, preference: body["preference"] as? String)
             }
         case "badgeChanged":
-            (parent as? ApolloTabBarController)?.setApolloBadge(body["visible"] as? Bool ?? false)
+            (parent as? ApolloDockController)?.setApolloBadge(body["visible"] as? Bool ?? false)
+        case "accentChanged":
+            if let accent = body["accent"] as? String {
+                (parent as? ApolloDockController)?.setAccent(accent)
+            }
         case "confirm":
             presentConfirm(body)
         case "prompt":
