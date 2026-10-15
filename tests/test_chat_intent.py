@@ -104,6 +104,44 @@ class ChatIntentPlannerTests(unittest.TestCase):
         self.assertEqual(plan["reference_resolution"]["names"], ["Azelaic acid 10%"])
         self.assertEqual(plan["reference_resolution"]["anchor_name"], "Niacinamide serum")
 
+    def test_planner_preserves_compound_replacement_with_quoted_literal(self):
+        planner = load_function("apollo_context_planner", {
+            "ask_hermes": lambda _messages: json.dumps({
+                "intent": "explicit_action",
+                "primary_domain": "routines",
+                "action_authorized": True,
+                "clarification": "",
+                "calendar": False,
+                "tasks": False,
+                "whoop": False,
+                "spotify": False,
+                "calendar_days": 7,
+                "reference_resolution": {
+                    "status": "resolved",
+                    "operation": "replace_step",
+                    "entity_type": "routine_step",
+                    "names": ["it", "Azelaic acid 10%"],
+                    "target_name": "Morning",
+                    "relation": "",
+                    "anchor_name": "",
+                    "clarification": "",
+                },
+                "reason": "quoted literal and explicit replacement",
+            }),
+            "json": json,
+        })
+        plan = planner([
+            {"role": "user", "content": "I use azelaic acid 10%."},
+            {"role": "assistant", "content": "That fits after niacinamide."},
+        ], "remove 'it' from my morning routine and add azelaic acid instead", {})
+        self.assertEqual(plan["intent"], "explicit_action")
+        self.assertTrue(plan["action_authorized"])
+        self.assertEqual(plan["reference_resolution"]["operation"], "replace_step")
+        self.assertEqual(
+            plan["reference_resolution"]["names"],
+            ["it", "Azelaic acid 10%"],
+        )
+
     def test_planner_fails_closed_when_reference_is_ambiguous(self):
         planner = load_function("apollo_context_planner", {
             "ask_hermes": lambda _messages: json.dumps({

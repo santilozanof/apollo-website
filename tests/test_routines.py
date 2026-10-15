@@ -320,6 +320,96 @@ Make each step individually checkable and verify that all four steps were saved 
         ).fetchone()
         self.assertIsNotNone(saved)
 
+    def test_compound_edit_replaces_quoted_literal_and_preserves_position(self):
+        routine = self.routine(steps=[
+            {"title": "Cleanser"},
+            {"title": "it"},
+            {"title": "Moisturizer"},
+            {"title": "SPF"},
+        ])
+        unrelated = {
+            step["title"]: (step["id"], step["position"])
+            for step in routine["steps"] if step["title"] != "it"
+        }
+        reply = routines.chat_action(
+            self.conn,
+            "remove 'it' from my morning routine and add azelaic acid instead "
+            "but in the correct order or the order you think it would fit in",
+            "Europe/Zurich",
+            conversation=[
+                {"role": "user", "content": "I use azelaic acid 10%."},
+                {"role": "assistant", "content": "Use it after niacinamide if present."},
+            ],
+            reference_resolution={
+                "status": "resolved",
+                "operation": "replace_step",
+                "entity_type": "routine_step",
+                "names": ["it", "Azelaic acid 10%"],
+                "target_name": "Morning",
+                "relation": "",
+                "anchor_name": "",
+            },
+        )
+        saved = routines._snapshot(self.conn, routine["id"])
+        self.assertEqual(
+            [step["title"] for step in saved["steps"]],
+            ["Cleanser", "Azelaic acid 10%", "Moisturizer", "SPF"],
+        )
+        self.assertEqual(
+            {
+                step["title"]: (step["id"], step["position"])
+                for step in saved["steps"] if step["title"] != "Azelaic acid 10%"
+            },
+            unrelated,
+        )
+        self.assertEqual(
+            reply, "Replaced it with Azelaic acid 10% in Morning."
+        )
+
+    def test_compound_edit_prevents_duplicate_without_partial_delete(self):
+        routine = self.routine(steps=[
+            {"title": "Cleanser"},
+            {"title": "it"},
+            {"title": "Azelaic acid 10%"},
+            {"title": "SPF"},
+        ])
+        before = [(step["id"], step["title"]) for step in routine["steps"]]
+        reply = routines.chat_action(
+            self.conn,
+            "remove 'it' from my morning routine and add azelaic acid instead",
+            "UTC",
+            reference_resolution={
+                "status": "resolved",
+                "operation": "replace_step",
+                "names": ["it", "Azelaic acid 10%"],
+                "target_name": "Morning",
+            },
+        )
+        saved = routines._snapshot(self.conn, routine["id"])
+        self.assertEqual([(step["id"], step["title"]) for step in saved["steps"]], before)
+        self.assertEqual(reply, "Azelaic acid 10% is already in Morning.")
+
+    def test_unquoted_placeholder_in_compound_edit_stays_ambiguous(self):
+        self.routine(steps=[{"title": "it"}, {"title": "SPF"}])
+        reply = routines.chat_action(
+            self.conn,
+            "remove it from my morning routine and add azelaic acid instead",
+            "UTC",
+            reference_resolution={
+                "status": "resolved",
+                "operation": "replace_step",
+                "names": ["it", "Azelaic acid 10%"],
+                "target_name": "Morning",
+            },
+        )
+        self.assertEqual(reply, "Which item do you want me to change?")
+        self.assertEqual(
+            [row[0] for row in self.conn.execute(
+                "SELECT title FROM routine_steps ORDER BY position"
+            )],
+            ["it", "SPF"],
+        )
+
     def test_contextual_follow_up_moves_recent_step_without_recreating_it(self):
         routine = routines.create_routine(self.conn, {
             "title": "Morning",

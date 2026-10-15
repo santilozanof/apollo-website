@@ -930,13 +930,17 @@ def _chat_contextual_action(conn, raw, time_zone, resolution):
     operation = str(resolution.get("operation") or "").lower()
     if operation not in {
         "add_step", "move_step", "delete_step", "rename_step", "rename_routine",
+        "replace_step",
     }:
         return None
     names = resolution.get("names")
     if not isinstance(names, list):
         names = [resolution.get("name")]
     names = [str(name or "").strip()[:160] for name in names if str(name or "").strip()]
-    if not names or len(names) > 10 or any(_chat_reference_placeholder(name) for name in names):
+    if not names or len(names) > 10 or any(
+        _chat_reference_placeholder(name) and not _chat_explicit_literal(raw, name)
+        for name in names
+    ):
         return _chat_clarification(resolution, "Which item do you want me to change?")
 
     target_name = str(resolution.get("target_name") or "").strip()
@@ -946,6 +950,80 @@ def _chat_contextual_action(conn, raw, time_zone, resolution):
 
     before = _snapshot(conn, group["id"])
     before_ids = {step["id"] for step in before["steps"]}
+
+    if operation == "replace_step":
+        if len(names) != 2:
+            return _chat_clarification(resolution, "Which item should I replace, and with what?")
+        old_name, new_name = names
+        old_step = _chat_step(before, old_name)
+        if old_step is None:
+            return _chat_clarification(
+                resolution, f"I couldn't find {old_name} in {before['title']}.")
+        duplicate = _chat_step(before, new_name)
+        if duplicate is not None and duplicate["id"] != old_step["id"]:
+            return f"{duplicate['title']} is already in {before['title']}."
+
+        ordered = sorted(before["steps"], key=lambda item: item["position"])
+        old_index = next(index for index, item in enumerate(ordered) if item["id"] == old_step["id"])
+        relation = str(resolution.get("relation") or "").lower()
+        anchor_name = str(resolution.get("anchor_name") or "").strip()
+        anchor = _chat_step(before, anchor_name) if anchor_name else None
+        if relation in {"before", "after"}:
+            if anchor is None or anchor["id"] == old_step["id"]:
+                return _chat_clarification(
+                    resolution, f"Which step should {new_name} go {relation}?")
+        else:
+            relation = ""
+            anchor = None
+
+        # Validate every precondition before the first write. The caller owns
+        # the surrounding transaction, so a later verification failure rolls
+        # back both halves of this compound edit.
+        item = delete_step(conn, old_step["id"], time_zone)
+        item = add_step(conn, group["id"], {"title": new_name}, time_zone)
+        added = next(
+            (step for step in item["steps"] if step["title"].casefold() == new_name.casefold()),
+            None,
+        )
+        if added is None:
+            raise RuntimeError("Routine replacement step was not saved")
+
+        if anchor is not None:
+            item = _reorder_step(
+                conn, item, added["id"], anchor["id"], relation, time_zone
+            )
+        elif len(ordered) > 1:
+            if old_index < len(ordered) - 1:
+                neighbor = ordered[old_index + 1]
+                item = _reorder_step(
+                    conn, item, added["id"], neighbor["id"], "before", time_zone
+                )
+            else:
+                neighbor = ordered[old_index - 1]
+                item = _reorder_step(
+                    conn, item, added["id"], neighbor["id"], "after", time_zone
+                )
+
+        saved = _snapshot(conn, group["id"])
+        saved_ids = {step["id"] for step in saved["steps"]}
+        if saved_ids != (before_ids - {old_step["id"]}) | {added["id"]}:
+            raise RuntimeError("Routine replacement changed unrelated steps")
+        if any(step["id"] == old_step["id"] for step in saved["steps"]):
+            raise RuntimeError("Routine replacement did not remove the old step")
+        replacements = [
+            step for step in saved["steps"]
+            if step["title"].casefold() == new_name.casefold()
+        ]
+        if len(replacements) != 1 or replacements[0]["id"] != added["id"]:
+            raise RuntimeError("Routine replacement failed semantic verification")
+        saved_order = [step["id"] for step in saved["steps"]]
+        if anchor is not None:
+            expected_delta = 1 if relation == "after" else -1
+            if saved_order.index(added["id"]) - saved_order.index(anchor["id"]) != expected_delta:
+                raise RuntimeError("Routine replacement position failed semantic verification")
+        elif saved_order.index(added["id"]) != old_index:
+            raise RuntimeError("Routine replacement did not preserve step position")
+        return f"Replaced {old_step['title']} with {new_name} in {saved['title']}."
 
     if operation == "add_step":
         if any(_chat_step(before, name) for name in names):
