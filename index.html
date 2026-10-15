@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>Apollo</title>
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#0b0b0b">
+<meta name="theme-color" content="#000000">
 
 <script id="apollo-boot-theme-init">
 (() => {
@@ -62,7 +62,7 @@ html.apollo-booting
 /* DARK */
 
 html[data-theme="dark"] {
-    --apollo-boot-bg: #090909;
+    --apollo-boot-bg: #000000;
     --apollo-boot-fg: #f5f5f5;
     --apollo-boot-track: rgba(255,255,255,.08);
     --apollo-boot-bar: rgba(255,255,255,.85);
@@ -187,14 +187,15 @@ html[data-theme="light"] {
 </style>
 <link rel="stylesheet" href="/vendor/katex/katex.min.css?v=0.19.0">
 <link rel="stylesheet" href="/apollo_genui.css?v=20261015-2">
+<script src="/apollo_date_nav.js?v=20261015-2"></script>
 <script src="/vendor/katex/katex.min.js?v=0.19.0"></script>
 <script src="/apollo_genui.js?v=20261015-2"></script>
 
 <style>
 :root {
-    --bg: #090909;
-    --surface: #101010;
-    --surface-hover: #151515;
+    --bg: #000000;
+    --surface: #0b0b0d;
+    --surface-hover: #151518;
     --border: rgba(255,255,255,.07);
     --border-hover: rgba(255,255,255,.13);
 
@@ -2532,7 +2533,7 @@ a.apollo-debrief-source:hover {
 
 </style>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <meta name="theme-color" content="#0d0d0d">
+    <meta name="theme-color" content="#000000">
 
 
 <style>
@@ -28595,6 +28596,8 @@ requestAnimationFrame(() => {
             </div>
         `;
 
+        window.ApolloDateNav?.mountCalendar();
+
         document
             .getElementById("apolloWeekPrev")
             .addEventListener("click", async () => {
@@ -36102,9 +36105,9 @@ console.log("Apollo Jump-to-date V8 ready.");
 html[data-theme="dark"] {
     color-scheme: dark;
 
-    --bg: #090909;
-    --surface: #101010;
-    --surface-hover: #151515;
+    --bg: #000000;
+    --surface: #0b0b0d;
+    --surface-hover: #151518;
 
     --border: rgba(255,255,255,.07);
     --border-hover: rgba(255,255,255,.13);
@@ -36115,11 +36118,11 @@ html[data-theme="dark"] {
 
     --accent: #f2f2f2;
 
-    --sidebar-bg: rgba(9,9,9,.82);
-    --input-bg: #101010;
-    --control-bg: #151515;
+    --sidebar-bg: rgba(0,0,0,.82);
+    --input-bg: #0b0b0d;
+    --control-bg: #151518;
     --control-selected: #f2f2f2;
-    --control-selected-text: #090909;
+    --control-selected-text: #000000;
 }
 
 
@@ -78587,7 +78590,7 @@ html.apollo-jarvis-mode
 
 
 <link id="apollo-routines-css" rel="stylesheet" href="/routines.css?v=20261014-2">
-<script id="apollo-routines-js" src="/routines.js?v=20261012-7"></script>
+<script id="apollo-routines-js" src="/routines.js?v=20261015-8"></script>
 
 <!-- APOLLO ROUTE STATE V2 -->
 <script id="apollo-route-state-v2">
@@ -78747,7 +78750,9 @@ html.apollo-jarvis-mode
 <link
     id="apollo-mobile-layout-v18-css"
     rel="stylesheet"
-    href="/apollo_mobile_v1.css?v=20261014-3"
+    href="/apollo_mobile_v1.css?v=20261015-4"
 >
+<link rel="stylesheet" href="/apollo_date_nav.css?v=20261015-2">
+<link rel="stylesheet" href="/apollo_oled.css?v=20261015-2">
 
 <script src="/apollo_notifications.js?v=20260904-3"></script>
