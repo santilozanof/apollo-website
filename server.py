@@ -20093,6 +20093,17 @@ def apollo_silence_candidate(
 
     # Things that strongly imply a continuing request.
     continuation_signals = (
+        "give ",
+        "name ",
+        "convert ",
+        "calculate ",
+        "define ",
+        "summarize ",
+        "translate ",
+        "answer ",
+        "write ",
+        "compare ",
+        "list ",
         "but ",
         "what ",
         "why ",
@@ -20124,8 +20135,9 @@ def apollo_silence_candidate(
     )
 
 
+    request_text = re.sub(r'^please\s+', '', lower)
     if any(
-        lower.startswith(
+        request_text.startswith(
             signal
         )
         for signal in continuation_signals
@@ -25033,10 +25045,11 @@ class ApolloHandler(BaseHTTPRequestHandler):
             # Task / Calendar actions already had first priority.
             # Only ordinary conversation reaches this point.
 
-            if not getattr(self, '_apollo_sse_open', False) and not apollo_should_reply_semantically(
-                messages,
-                user_message
-            ):
+            reply_gate_started = time.perf_counter()
+            should_reply = (getattr(self, '_apollo_sse_open', False) or
+                            apollo_should_reply_semantically(messages, user_message))
+            turn_timings['reply_gate_ms'] = round((time.perf_counter() - reply_gate_started) * 1000)
+            if not should_reply:
 
                 conn = db()
 

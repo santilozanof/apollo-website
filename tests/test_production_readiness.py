@@ -46,6 +46,14 @@ class BackfillTests(unittest.TestCase):
 
 
 class DestinationTests(unittest.TestCase):
+    def test_explicit_short_requests_bypass_silence_classifier(self):
+        import server
+        for prompt in ['Convert 90 minutes to hours. Answer briefly.', 'Give a one-sentence definition of an octave.',
+                       'Name the three primary colors of light.', 'Please summarize this paragraph.']:
+            with patch.object(server, 'ask_hermes', side_effect=AssertionError('unnecessary classifier')):
+                self.assertTrue(server.apollo_should_reply_semantically([], prompt))
+        self.assertTrue(server.apollo_silence_candidate('Thanks, that helps'))
+
     def test_private_mixed_dns_and_credentials_rejected(self):
         for url in ['file:///etc/passwd', 'https://user:pass@example.com/', 'http://example.com:8765']:
             with self.assertRaises(ValueError):
