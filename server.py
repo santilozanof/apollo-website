@@ -16608,6 +16608,10 @@ def apollo_schedule_chat_title(chat_id, history):
     # Capture the database: background title work must never prolong SSE EOF
     # or overwrite a user-supplied/edited title.
     database_path = DB_PATH
+    with sqlite3.connect(database_path) as title_conn:
+        row = title_conn.execute('SELECT title FROM chats WHERE id=?', (chat_id,)).fetchone()
+        if not row or row[0] != 'New Chat':
+            return
     def title_later():
         try:
             title = generate_chat_title(history)

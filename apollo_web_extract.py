@@ -5,9 +5,29 @@ Redirects are independently validated. Blocked/unsupported pages remain errors.
 """
 import ipaddress
 import socket
+from html.parser import HTMLParser
 from urllib.parse import urlsplit, urljoin
 
 MAX_BYTES = 2 * 1024 * 1024
+
+
+def collection_links(raw, url):
+    """Follow real on-page collection links to check whether an article is stale."""
+    found = set()
+    class Links(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            if tag != 'a':
+                return
+            href = dict(attrs).get('href', '')
+            target = urljoin(url, href)
+            parsed = urlsplit(target)
+            if (parsed.scheme in {'http', 'https'} and parsed.netloc == urlsplit(url).netloc
+                    and not parsed.query and not parsed.fragment
+                    and parsed.path.rstrip('/').rsplit('/', 1)[-1].lower() in
+                    {'downloads', 'releases', 'news', 'blog', 'versions', 'changelog'}):
+                found.add(target)
+    Links().feed(raw.decode('utf-8', errors='replace') if isinstance(raw, bytes) else raw)
+    return sorted(found, key=lambda value: (urlsplit(value).path.count('/'), value))[:4]
 
 
 def destination(url):
@@ -66,7 +86,8 @@ def extract_page(url):
             if not content or len(content.strip()) < 120:
                 raise ValueError('insufficient_page_text')
             return {'url': original, 'resolved_url': current, 'content': content[:18000],
-                    'backend': 'trafilatura', 'truncated': len(content) > 18000}
+                    'backend': 'trafilatura', 'truncated': len(content) > 18000,
+                    'index_links': collection_links(raw, current) if media != 'text/plain' else []}
         raise ValueError('too_many_redirects')
     except Exception as exc:
         # No exception text: network libraries may include URL query credentials.

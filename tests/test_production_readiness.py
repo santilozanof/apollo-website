@@ -2,7 +2,7 @@ import sqlite3
 import unittest
 from unittest.mock import patch
 from tests import test_memory_intelligence as memory_fixture
-from apollo_web_extract import destination
+from apollo_web_extract import destination, collection_links
 
 
 class BackfillTests(unittest.TestCase):
@@ -60,6 +60,29 @@ class DestinationTests(unittest.TestCase):
             self.assertEqual(destination('https://example.com/path')[1:], ('example.com', 443, '8.8.8.8'))
 
 class ExtractionEvidenceTests(unittest.TestCase):
+    def test_current_release_checks_linked_index_not_only_old_announcement(self):
+        from tests.test_live_research_pipeline import response, FakeHTTP
+        import apollo_live_research as live
+        old = 'https://www.ufc.com/events'
+        index = 'https://www.ufc.com/releases/'
+        result = response(answer='Version 1 [release]('+old+')')
+        def extract(url):
+            return {'url':url,'content':'Version 2 is the latest stable release' if url==index else 'Version 1 was released last year',
+                    'index_links':[] if url==index else [index]}
+        def opener(req,**kwargs):
+            import json
+            pages=json.loads(json.loads(req.data)['messages'][1]['content'])['retrieved_pages']
+            self.assertTrue(any(p.get('freshness_index') and 'Version 2' in p['content'] for p in pages))
+            return FakeHTTP({'choices':[{'finish_reason':'stop','message':{'content':'Version 2 [release index]('+index+')'}}]})
+        with patch.dict('os.environ',{'APOLLO_WEB_EXTRACT_BACKEND':'trafilatura'}),patch('apollo_web_extract.extract_page',side_effect=extract):
+            augmented=live._extract_and_synthesize(result,'What is the current release?','instruction','test','http://localhost',opener)
+        self.assertEqual(live._inspect_response(augmented)[0],'succeeded')
+        self.assertIn(index,live._source_evidence(augmented)[0])
+
+    def test_collection_navigation_uses_observed_same_origin_links(self):
+        html='<a href="/downloads/">Downloads</a><a href="/releases/">Releases</a><a href="http://127.0.0.1/news">bad</a>'
+        self.assertEqual(collection_links(html,'https://example.com/release/v1'),['https://example.com/downloads/','https://example.com/releases/'])
+
     def test_available_calendar_gaps_are_not_product_research(self):
         import apollo_live_research as live
         self.assertIsNone(live.live_query_kind('What does tomorrow look like for me, and which unfinished assignments should I tackle in the available gaps? Make a practical plan without changing anything.'))
