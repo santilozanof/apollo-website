@@ -1,0 +1,28 @@
+{
+  "services": [
+    {
+      "id": "google_calendar",
+      "connected": true,
+      "status": "connected",
+      "error": null
+    },
+    {
+      "id": "canvas_calendar",
+      "connected": true,
+      "status": "connected",
+      "error": null
+    },
+    {
+      "id": "spotify",
+      "connected": true,
+      "status": "connected",
+      "error": null
+    },
+    {
+      "id": "whoop",
+      "connected": true,
+      "status": "connected",
+      "error": null
+    }
+  ]
+}

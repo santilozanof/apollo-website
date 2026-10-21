@@ -1,0 +1,630 @@
+/* Native-only refinements. The class is added by apollo_capacitor.js. */
+html.apollo-capacitor-ios,
+html.apollo-capacitor-ios body {
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+html.apollo-capacitor-ios input,
+html.apollo-capacitor-ios textarea,
+html.apollo-capacitor-ios [contenteditable="true"],
+html.apollo-capacitor-ios .message,
+html.apollo-capacitor-ios .apollo-message {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+.apollo-native-network-banner {
+    position: fixed;
+    z-index: 1000000;
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+    left: 50%;
+    max-width: calc(100vw - 32px);
+    padding: 9px 14px;
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 999px;
+    background: rgba(24,24,25,.92);
+    box-shadow: 0 8px 30px rgba(0,0,0,.25);
+    color: #f5f5f5;
+    font-size: 13px;
+    line-height: 1.25;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -12px);
+    transition: opacity 180ms ease, transform 220ms cubic-bezier(.22,1,.36,1);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+}
+
+.apollo-native-network-banner.is-visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+html[data-theme="light"] .apollo-native-network-banner {
+    border-color: rgba(0,0,0,.08);
+    background: rgba(250,250,249,.94);
+    color: #151515;
+    box-shadow: 0 8px 30px rgba(0,0,0,.1);
+}
+
+/* UIKit owns the floating dock; web content extends behind its real glass. */
+html.apollo-capacitor-ios {
+    --apollo-native-tabbar-height: 88px;
+    --apollo-native-dock-reserve: calc(88px + env(safe-area-inset-bottom, 0px));
+    --mobile-tabbar-height: 0px;
+    --apollo-mobile-nav-h: 0px;
+    --mobile-page-padding-x: clamp(18px, 5vw, 24px);
+    --mobile-header-padding-top: 18px;
+    --mobile-content-gap: 22px;
+}
+
+html.apollo-capacitor-ios .sidebar,
+html.apollo-capacitor-ios body:not(.apollo-mobile-keyboard-visible) .sidebar,
+html.apollo-capacitor-ios body.apollo-mobile-keyboard-open:not(.apollo-mobile-keyboard-visible) .sidebar,
+html.apollo-capacitor-ios body.apollo-mobile-typing:not(.apollo-mobile-keyboard-visible) .sidebar {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+html.apollo-capacitor-ios .main {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    /* Full-height route viewports own their scroll insets individually.
+       Padding this parent shortened Routines and exposed a black strip. */
+    padding-bottom: 0 !important;
+}
+
+@media (max-width: 760px) {
+    html.apollo-capacitor-ios #routinesView {
+        padding-top: calc(env(safe-area-inset-top, 0px) + 18px) !important;
+        padding-right: var(--mobile-page-padding-x) !important;
+        padding-left: var(--mobile-page-padding-x) !important;
+        padding-bottom: calc(
+            20px
+            + var(--apollo-native-tabbar-height)
+            + env(safe-area-inset-bottom, 0px)
+        ) !important;
+    }
+
+    html.apollo-capacitor-ios #homeView {
+        padding-bottom: calc(24px + var(--apollo-native-tabbar-height) + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    html.apollo-capacitor-ios #homeView > .home-section {
+        margin-top: 22px !important;
+    }
+
+    html.apollo-capacitor-ios #homeView .home-card,
+    html.apollo-capacitor-ios #homeView .debrief-box,
+    html.apollo-capacitor-ios #homeView .apollo-whoop-box {
+        padding: 18px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView.active,
+    html.apollo-capacitor-ios #tasksView.active,
+    html.apollo-capacitor-ios #studioView.active,
+    html.apollo-capacitor-ios #settingsView.active,
+    html.apollo-capacitor-ios #calendarView.active {
+        bottom: calc(var(--apollo-native-tabbar-height) + env(safe-area-inset-bottom, 0px)) !important;
+    }
+
+    html.apollo-capacitor-ios #musicView.active .apollo-music-inner,
+    html.apollo-capacitor-ios #tasksView.active .apollo-tasks-shell,
+    html.apollo-capacitor-ios #studioView.active .studio5-shell {
+        padding-bottom: 28px !important;
+    }
+
+    html.apollo-capacitor-ios #studioView.active {
+        height: auto !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-music-header,
+    html.apollo-capacitor-ios #tasksView .apollo-tasks-header,
+    html.apollo-capacitor-ios #calendarView .apollo-week-header,
+    html.apollo-capacitor-ios #studioView .studio5-topbar {
+        margin-bottom: 22px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-music-header {
+        gap: 14px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-music-ask {
+        margin: 0 !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-music-stage {
+        height: auto !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-now-playing {
+        min-height: 0 !important;
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 18px !important;
+        padding: 20px !important;
+        border-radius: 20px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-now-art-wrap {
+        width: min(50vw, 196px) !important;
+        margin: 0 auto !important;
+        border-radius: 15px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-now-label {
+        margin-bottom: 10px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-now-title {
+        font-size: clamp(25px, 7vw, 31px) !important;
+        line-height: 1.12 !important;
+        text-overflow: ellipsis !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-now-artist {
+        margin-top: 8px !important;
+        font-size: 14px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-now-progress {
+        margin-top: 25px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-now-controls {
+        margin-top: 18px !important;
+        gap: 12px !important;
+        transform: none !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-now-control {
+        width: 44px !important;
+        height: 44px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-now-control.primary {
+        width: 54px !important;
+        height: 54px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-now-device {
+        margin-top: 15px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-music-coming {
+        margin-top: 22px !important;
+    }
+
+    html.apollo-capacitor-ios #calendarView.active {
+        display: flex !important;
+        flex-direction: column !important;
+        padding-bottom: 16px !important;
+    }
+
+    html.apollo-capacitor-ios #calendarView .apollo-week-header {
+        flex: 0 0 auto;
+    }
+
+    html.apollo-capacitor-ios #calendarView .apollo-week-shell {
+        flex: 1 1 auto;
+        height: auto !important;
+        min-height: 0 !important;
+        border-radius: 18px !important;
+    }
+
+    html.apollo-capacitor-ios #calendarView .apollo-week-controls {
+        gap: 8px !important;
+    }
+
+    html.apollo-capacitor-ios #apolloWeekMonth::after {
+        content: "" !important;
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        margin: -3px 0 0 2px;
+        border-right: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor;
+        transform: rotate(45deg);
+    }
+
+    html.apollo-capacitor-ios #calendarView .apollo-week-button {
+        min-height: 42px !important;
+        border-radius: 12px !important;
+    }
+
+    html.apollo-capacitor-ios #tasksView .apollo-task-add {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 68px !important;
+        margin-bottom: 24px !important;
+        padding: 10px !important;
+        gap: 8px !important;
+        border-radius: 18px !important;
+    }
+
+    html.apollo-capacitor-ios #tasksView .apollo-task-input {
+        grid-column: 1 / -1 !important;
+    }
+
+    html.apollo-capacitor-ios #tasksView .apollo-task-add .apollo-date-display,
+    html.apollo-capacitor-ios #tasksView .apollo-task-add .apollo-time-display {
+        min-width: 0 !important;
+        width: 100% !important;
+        padding-right: 8px !important;
+        padding-left: 10px !important;
+    }
+
+    html.apollo-capacitor-ios #tasksView .apollo-task-add-button {
+        grid-column: 3 !important;
+        min-width: 0 !important;
+        width: 68px !important;
+        padding: 0 !important;
+    }
+
+    html.apollo-capacitor-ios #tasksView .apollo-task-section {
+        margin-top: 26px !important;
+    }
+
+    html.apollo-capacitor-ios #tasksView .apollo-task-row {
+        min-height: 62px !important;
+    }
+
+    html.apollo-capacitor-ios #settingsView .apollo-settings-section {
+        margin-top: 26px !important;
+    }
+
+    html.apollo-capacitor-ios #settingsView .apollo-setting-row {
+        min-height: 62px !important;
+        padding: 13px 16px !important;
+        gap: 12px !important;
+    }
+
+    html.apollo-capacitor-ios #settingsView .apollo-settings-panel {
+        border-radius: 18px !important;
+    }
+
+    html.apollo-capacitor-ios #settingsView .apollo-setting-row:has(.apollo-toggle) {
+        flex-direction: row !important;
+        align-items: center !important;
+    }
+
+    html.apollo-capacitor-ios #settingsView .apollo-setting-row:has(.apollo-toggle) .apollo-setting-control {
+        width: auto !important;
+        flex: 0 0 auto !important;
+    }
+
+    html.apollo-capacitor-ios #studioView .studio5-topbar {
+        gap: 16px !important;
+    }
+
+    html.apollo-capacitor-ios #routinesView .routine-header {
+        margin-bottom: 20px !important;
+    }
+
+    html.apollo-capacitor-ios #routinesView .routine-primary {
+        box-sizing: border-box !important;
+        width: 42px !important;
+        min-width: 42px !important;
+        height: 42px !important;
+        min-height: 42px !important;
+        padding: 0 !important;
+        border: 1px solid var(--border-hover) !important;
+        border-radius: 13px !important;
+        background: var(--surface) !important;
+        color: var(--text) !important;
+        box-shadow: none !important;
+    }
+
+    html.apollo-capacitor-ios #routinesView .routine-primary-mobile {
+        font-size: 20px !important;
+        font-weight: 350 !important;
+    }
+
+    html.apollo-capacitor-ios #routinesView .routine-layout,
+    html.apollo-capacitor-ios #routinesView .routine-list,
+    html.apollo-capacitor-ios #routinesView .routine-side {
+        gap: 14px !important;
+    }
+
+    html.apollo-capacitor-ios #routinesView .routine-layout {
+        align-items: stretch !important;
+    }
+
+    html.apollo-capacitor-ios #routinesView .routine-list,
+    html.apollo-capacitor-ios #routinesView .routine-side {
+        width: 100% !important;
+    }
+
+    html.apollo-capacitor-ios #routinesView .hydration-card,
+    html.apollo-capacitor-ios #routinesView .routine-history-panel {
+        padding: 18px !important;
+        border-radius: 18px !important;
+    }
+
+    html.apollo-capacitor-ios #routinesView .hydration-quick button {
+        min-height: 40px !important;
+    }
+
+    html.apollo-capacitor-ios #routinesView .routine-heatmap {
+        gap: 5px !important;
+    }
+
+    html.apollo-capacitor-ios #apolloMobileChatHeader {
+        height: calc(env(safe-area-inset-top, 0px) + 58px) !important;
+        padding-top: calc(env(safe-area-inset-top, 0px) + 9px) !important;
+    }
+
+    html.apollo-capacitor-ios #apolloView .apollo-messages {
+        padding-top: calc(env(safe-area-inset-top, 0px) + 66px) !important;
+        padding-bottom: calc(var(--apollo-native-tabbar-height) + env(safe-area-inset-bottom, 0px) + 104px) !important;
+    }
+
+    html.apollo-capacitor-ios #apolloView.active .apollo-composer-wrap {
+        right: 14px !important;
+        left: 14px !important;
+    }
+
+    html.apollo-capacitor-ios button:active,
+    html.apollo-capacitor-ios [role="button"]:active {
+        transition-duration: 120ms !important;
+    }
+
+    /* Reserve the same top-right 44pt slot for the native Settings button. */
+    html.apollo-capacitor-ios #homeView > .header,
+    html.apollo-capacitor-ios #musicView .apollo-music-header,
+    html.apollo-capacitor-ios #calendarView .apollo-week-header,
+    html.apollo-capacitor-ios #tasksView .apollo-tasks-header,
+    html.apollo-capacitor-ios #studioView .studio5-topbar,
+    html.apollo-capacitor-ios #settingsView .apollo-settings-header,
+    html.apollo-capacitor-ios #routinesView .routine-header {
+        padding-right: 54px !important;
+    }
+
+    html.apollo-capacitor-ios #apolloMobileChatHeader {
+        justify-content: flex-start !important;
+        gap: 10px !important;
+        padding-right: 70px !important;
+    }
+
+    html.apollo-capacitor-ios #apolloMobileChatHeader .apollo-mobile-chat-header-actions {
+        margin-left: 0 !important;
+        gap: 2px !important;
+    }
+
+    html.apollo-capacitor-ios #apolloMobileChatHeader .apollo-mobile-chat-header-button {
+        width: 42px !important;
+        height: 42px !important;
+        flex-basis: 42px !important;
+        border-color: transparent !important;
+        background: transparent !important;
+    }
+
+    html.apollo-capacitor-ios #apolloView .apollo-composer {
+        min-height: 50px !important;
+        align-items: center !important;
+        padding: 0 7px !important;
+        border-radius: 18px !important;
+    }
+
+    html.apollo-capacitor-ios #apolloView .apollo-input {
+        box-sizing: border-box !important;
+        min-height: 44px !important;
+        max-height: 146px !important;
+        margin: 0 !important;
+        padding: 11px 4px !important;
+        line-height: 22px !important;
+        align-self: center !important;
+        vertical-align: middle !important;
+    }
+
+    html.apollo-capacitor-ios #apolloView .apollo-tools-trigger,
+    html.apollo-capacitor-ios #apolloView .apollo-send {
+        min-width: 44px !important;
+        min-height: 44px !important;
+    }
+
+    html.apollo-capacitor-ios #apolloView .apollo-send {
+        display: grid !important;
+        place-items: center !important;
+        padding: 0 !important;
+        line-height: 0 !important;
+    }
+
+    html.apollo-capacitor-ios #apolloView .apollo-send svg {
+        display: block !important;
+        width: 20px !important;
+        height: 20px !important;
+    }
+
+    html.apollo-capacitor-ios #homeView .ask-box,
+    html.apollo-capacitor-ios #musicView .apollo-music-ask-box {
+        min-height: 52px !important;
+    }
+
+    html.apollo-capacitor-ios #homeView .ask-input,
+    html.apollo-capacitor-ios #musicView .apollo-music-ask-input {
+        padding-top: 13px !important;
+        padding-bottom: 12px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-now-controls {
+        justify-content: center !important;
+        gap: 22px !important;
+        margin-right: auto !important;
+        margin-left: auto !important;
+    }
+
+    html.apollo-capacitor-ios #settingsView .apollo-native-notification-disclosure {
+        display: flex;
+        width: 100%;
+        min-height: 52px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 16px;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        text-align: left;
+    }
+
+    html.apollo-capacitor-ios #settingsView .apollo-native-notification-count {
+        margin-left: 5px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 450;
+    }
+
+    html.apollo-capacitor-ios #settingsView .apollo-native-disclosure-chevron {
+        width: 8px;
+        height: 8px;
+        border-right: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor;
+        transform: rotate(45deg);
+        transition: transform 180ms ease;
+    }
+
+    html.apollo-capacitor-ios #settingsView .apollo-native-expanded .apollo-native-disclosure-chevron {
+        transform: rotate(225deg);
+    }
+
+    html.apollo-capacitor-ios #settingsView .apollo-notification-history-section > .apollo-settings-section-title {
+        display: none !important;
+    }
+
+    html.apollo-capacitor-ios #settingsView .apollo-notification-history-section > .apollo-settings-panel {
+        max-height: 0;
+        opacity: 0;
+        overflow: hidden;
+        margin-top: 0;
+        border-width: 0;
+        transition: max-height 260ms ease, opacity 180ms ease, margin-top 180ms ease;
+    }
+
+    html.apollo-capacitor-ios #settingsView .apollo-notification-history-section.apollo-native-expanded > .apollo-settings-panel {
+        opacity: 1;
+        margin-top: 8px;
+        border-width: 1px;
+    }
+}
+
+html.apollo-capacitor-ios #apolloView .apollo-messages {
+    scroll-padding-bottom: 28px;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+html.apollo-capacitor-ios .apollo-message,
+html.apollo-capacitor-ios .apollo-message * {
+    -webkit-touch-callout: default;
+}
+
+html.apollo-capacitor-ios input,
+html.apollo-capacitor-ios textarea,
+html.apollo-capacitor-ios select {
+    font-size: max(16px, 1em);
+}
+
+html.apollo-capacitor-ios.apollo-reduce-motion *,
+html.apollo-capacitor-ios.apollo-reduce-motion *::before,
+html.apollo-capacitor-ios.apollo-reduce-motion *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+}
+
+/* UIKit owns the keyboard layout. Preserve the keyboard position through a
+   Send tap even after the textarea blurs; reset only after keyboardDidHide. */
+html.apollo-capacitor-ios body #apolloView.active .apollo-composer-wrap,
+html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloView.active .apollo-composer-wrap,
+html.apollo-capacitor-ios body.apollo-mobile-keyboard-open #apolloView.active .apollo-composer-wrap,
+html.apollo-capacitor-ios body.apollo-mobile-keyboard-visible #apolloView.active .apollo-composer-wrap,
+html.apollo-capacitor-ios body.apollo-mobile-typing #apolloView.active .apollo-composer-wrap {
+    bottom: var(--apollo-native-dock-reserve) !important;
+    transition-property: none !important;
+}
+html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloView.active .apollo-composer-wrap {
+    bottom: 8px !important;
+}
+
+/* The contextual Ask Apollo composer is fixed to the viewport on Music,
+   Tasks and Calendar. Their generic mobile inset is zeroed when UIKit owns
+   navigation, so explicitly give this actionable surface the native inset. */
+html.apollo-capacitor-ios body #apolloPresence.visible {
+    bottom: calc(var(--apollo-native-dock-reserve) + 10px) !important;
+}
+html.apollo-capacitor-ios body.apollo-native-keyboard-open #apolloPresence.visible {
+    bottom: 8px !important;
+}
+
+html.apollo-capacitor-ios body .main {
+    padding-bottom: 0 !important;
+}
+
+@media (max-width: 760px) {
+    html.apollo-capacitor-ios #musicView.active,
+    html.apollo-capacitor-ios #tasksView.active,
+    html.apollo-capacitor-ios #studioView.active,
+    html.apollo-capacitor-ios #settingsView.active,
+    html.apollo-capacitor-ios #calendarView.active {
+        bottom: 0 !important;
+    }
+
+    html.apollo-capacitor-ios #homeView,
+    html.apollo-capacitor-ios #routinesView {
+        padding-bottom: var(--apollo-native-dock-reserve) !important;
+    }
+
+    html.apollo-capacitor-ios #musicView.active .apollo-music-inner,
+    html.apollo-capacitor-ios #tasksView.active .apollo-tasks-shell,
+    html.apollo-capacitor-ios #studioView.active .studio5-shell,
+    html.apollo-capacitor-ios #settingsView.active .apollo-settings-inner,
+    html.apollo-capacitor-ios #calendarView.active .apollo-week-shell {
+        padding-bottom: var(--apollo-native-dock-reserve) !important;
+    }
+
+    html.apollo-capacitor-ios #apolloView .apollo-messages {
+        padding-bottom: 112px !important;
+    }
+
+    html.apollo-capacitor-ios #musicView #apolloNowPlaying > .apollo-native-queue-action {
+        position: absolute !important;
+        top: 14px !important;
+        right: 14px !important;
+        z-index: 5 !important;
+        margin: 0 !important;
+    }
+
+    /* This fixed sheet must end above the native bar. The generic mobile
+       rule uses --apollo-mobile-nav-h, which is zeroed in Capacitor. */
+    html.apollo-capacitor-ios #musicView .apollo-play-queue {
+        bottom: var(--apollo-native-dock-reserve) !important;
+        max-height: calc(100dvh - var(--apollo-native-dock-reserve) - env(safe-area-inset-top, 0px) - 12px) !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-native-queue-action .apollo-queue-trigger {
+        width: 44px !important;
+        height: 44px !important;
+        color: var(--muted) !important;
+        background: transparent !important;
+    }
+
+    html.apollo-capacitor-ios #musicView .apollo-native-queue-action .apollo-queue-trigger span {
+        display: none !important;
+    }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+    html.apollo-capacitor-ios .home,
+    html.apollo-capacitor-ios .apollo-music-inner,
+    html.apollo-capacitor-ios .apollo-tasks-shell,
+    html.apollo-capacitor-ios .apollo-settings-shell,
+    html.apollo-capacitor-ios .routine-shell {
+        padding-top: calc(env(safe-area-inset-top, 0px) + 12px) !important;
+    }
+}

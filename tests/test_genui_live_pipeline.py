@@ -175,6 +175,32 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("image_gallery", json.loads(raw)["messages"][-1]["content"])
 
+    def test_generated_image_is_copied_and_old_mime_is_repaired_on_reload(self):
+        from PIL import Image
+        _, raw = request("POST", "/api/chats", {})
+        chat_id = json.loads(raw)["id"]
+        source = server.BASE_DIR / "generated-image.dat"
+        Image.new("RGB", (320, 160), "blue").save(source, "PNG")
+        conn = server.db()
+        message_id = conn.execute("INSERT INTO messages(chat_id,role,content) VALUES (?, 'assistant', '')", (chat_id,)).lastrowid
+        content, attachments = server.apollo_capture_generated_images(conn, chat_id, message_id, "MEDIA:" + str(source))
+        self.assertEqual(content, "")
+        self.assertEqual(attachments[0]["mime_type"], "image/png")
+        # Reproduce a legacy incorrectly typed image, then remove the transient AI file.
+        conn.execute("UPDATE message_attachments SET mime_type='application/octet-stream' WHERE id=?", (attachments[0]["id"],))
+        conn.commit(); conn.close(); source.unlink()
+        status, raw = request("GET", f"/api/chats/{chat_id}")
+        self.assertEqual(status, 200)
+        saved = json.loads(raw)["messages"][0]["attachments"][0]
+        self.assertEqual(saved["mime_type"], "image/png")
+        self.assertNotIn("file_path", saved)
+        status, image = request("GET", saved["url"])
+        self.assertEqual(status, 200)
+        self.assertTrue(image.startswith(b"\x89PNG"))
+        status, preview = request("GET", saved["url"] + "/preview")
+        self.assertEqual(status, 200)
+        self.assertEqual(server.image_mime(preview[:64]), "image/webp")
+
     def planned_turn(self, chat_id, content, plan, response="Normal answer."):
         patches = {
             "apollo_context_planner": lambda *_a, **_k: plan,

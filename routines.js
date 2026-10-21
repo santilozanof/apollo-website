@@ -64,6 +64,7 @@
     document.querySelector(".main")?.appendChild(view);
     window.ApolloDateNav?.mountRoutines();
     document.getElementById("routineDateLabel").textContent = dateLabel(state.date);
+    window.ApolloDateNav?.setToday("routines", true);
 
     const canonicalViews = () => [document.querySelector(".home"), ...[
         "apolloView", "musicView", "calendarView", "tasksView", "studioView", "settingsView"
@@ -200,7 +201,7 @@
     function render() {
         if (!state.data) return;
         document.getElementById("routineDateLabel").textContent = dateLabel(state.date);
-        document.getElementById("routineToday").hidden = state.date === today();
+        window.ApolloDateNav?.setToday("routines", state.date === today());
         const routines = state.data.routines || [];
         document.getElementById("routineList").innerHTML = routines.length
             ? routines.map(renderRoutine).join("")
@@ -356,7 +357,7 @@
         document.getElementById("routineHydration").innerHTML = `<section class="hydration-card">
             <div class="routine-panel-label">Water today</div><div class="hydration-value">${number(hydration.total_ml / 1000)} L <span>/ ${number(hydration.goal_ml / 1000)} L</span></div>
             <div class="hydration-water" role="progressbar" aria-label="Hydration" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div style="--progress:${progress}%"></div></div>
-            <div class="hydration-quick">${[150, 250, 500].map(amount => `<button data-water="${amount}" type="button">+${amount} ml</button>`).join("")}</div>
+            <div class="hydration-quick">${[150, 250, 500, 710].map(amount => `<button data-water="${amount}" type="button">+${amount} ml</button>`).join("")}</div>
             <div class="hydration-foot"><span><button class="routine-text-button" data-water-custom type="button">Custom</button><button class="routine-text-button" data-water-goal type="button">Set goal</button></span>${hydration.entries.length ? '<button class="routine-text-button" data-water-undo type="button">Undo</button>' : ""}</div></section>`;
     }
 
@@ -385,9 +386,28 @@
         }
     });
 
+    let waterPending = false;
+    let waterIntent = null;
+    let waterLastSaved = 0;
     async function addWater(amount) {
+        if (waterPending || Date.now() - waterLastSaved < 700) return;
         if (!Number.isFinite(amount) || amount <= 0) { toast("Enter a valid amount"); return; }
-        await save({ action: "log_water", amount_ml: amount, idempotency_key: crypto.randomUUID() });
+        waterPending = true;
+        // Reuse the key after an uncertain response so retry cannot log twice.
+        if (!waterIntent || waterIntent.amount_ml !== amount) waterIntent = { action: "log_water", amount_ml: amount, idempotency_key: crypto.randomUUID() };
+        const disable = value => document.querySelectorAll("[data-water], [data-water-custom]").forEach(button => button.disabled = value);
+        disable(true);
+        try {
+            const operation = state.saveQueue.then(async () => {
+                await api(waterIntent);
+                waterIntent = null;
+                waterLastSaved = Date.now();
+                await load(true);
+            });
+            state.saveQueue = operation.catch(() => {});
+            await operation;
+        } catch (error) { toast(error.message || "Could not save water. Tap again to retry safely."); }
+        finally { waterPending = false; disable(false); }
     }
 
     function renderHistory() {
@@ -532,11 +552,13 @@
     document.querySelectorAll("[data-date-move]").forEach(element => element.addEventListener("click", () => {
         state.date = shiftDate(state.date, Number(element.dataset.dateMove));
         document.getElementById("routineDateLabel").textContent = dateLabel(state.date);
+        window.ApolloDateNav?.setToday("routines", state.date === today());
         load();
     }));
     document.getElementById("routineToday").addEventListener("click", () => {
         state.date = today();
         document.getElementById("routineDateLabel").textContent = dateLabel(state.date);
+        window.ApolloDateNav?.setToday("routines", true);
         load();
     });
 

@@ -1,4 +1,6 @@
 import ast
+import sys
+from types import SimpleNamespace
 import io
 import json
 import sqlite3
@@ -85,6 +87,9 @@ class RoutinesApiRegressionTests(unittest.TestCase):
                 return json.loads(handler.rfile.read(size) or b"{}")
 
             namespace = {
+                "__name__": __name__,
+                "sys": sys,
+                "apollo_intelligence": SimpleNamespace(handle_api=lambda *_: False),
                 "BaseHTTPRequestHandler": BaseHTTPRequestHandler,
                 "urllib": urllib,
                 "datetime": datetime,

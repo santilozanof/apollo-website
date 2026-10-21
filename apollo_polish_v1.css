@@ -440,9 +440,38 @@
 
 @media (max-width: 640px) {
     #apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action {
-        width: 38px !important;
-        height: 38px !important;
-        min-width: 38px !important;
-        min-height: 38px !important;
+        width: 44px !important;
+        height: 44px !important;
+        min-width: 44px !important;
+        min-height: 44px !important;
     }
+}
+
+/* The send glyph has a centered 24x24 viewBox; remove the button's inline
+   baseline and inherited padding so the geometry, not an optical offset, wins. */
+#apolloView .apollo-send {
+    display: grid !important;
+    place-items: center !important;
+    padding: 0 !important;
+    line-height: 0 !important;
+}
+#apolloView .apollo-send svg {
+    display: block !important;
+    width: 20px !important;
+    height: 20px !important;
+}
+
+/* Jarvis uses the same assistant grid; its legacy absolute/43px offsets are
+   intentionally overridden by the shared text-column alignment. */
+html.apollo-jarvis-mode #apolloView .apollo-message.assistant > .apollo-message-actions {
+    grid-column: 2 !important;
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    margin: var(--apollo-space-2) 0 0 !important;
+    opacity: .72 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    transform: none !important;
 }

@@ -1,0 +1,23 @@
+{
+  "code_sha256": {
+    "server.py": "d9c8ccb20502f1d877095e78dbc022252830b4b7be63a2550982d16ff56b7361",
+    "apollo_intelligence.py": "300a2008f0b3dff0c577fc111ab078b770e9e8bb1a4a4c218409d844c80a6790",
+    "apollo_agent.py": "55fbe32ab1b511a06f7e1fd22bcc0c962d2d2885b4fa6ba9fe58a663390d6b90",
+    "apollo_memory.py": "5766277ca9db9833ad4d45a9f22a0d601030a77f62e66ab0101c652de243a71f",
+    "apollo_live_research.py": "99b4644c0609fbb851361465d618f44bf36007d715fd6cd2ca22771049181f85",
+    "connection_health.py": "8bbcd52af4ef45302c6bc6e4fa6714733b3a58b751ac105e328eec5c03d2faa0"
+  },
+  "candidate_counts": {
+    "chats": 877,
+    "messages": 5273,
+    "personal_memories": 2,
+    "message_embeddings": 16,
+    "memory_jobs": 5273,
+    "message_response_context": 5
+  },
+  "pending_consolidation": 5259,
+  "unique_indexed_messages": 14,
+  "recorded_requests": 57,
+  "completed_and_persisted": 56,
+  "model_sha256": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
+}

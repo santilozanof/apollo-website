@@ -113,6 +113,7 @@
     return node;
   };
   const safeUrl = (value, image = false) => {
+    if (!String(value || "").trim()) return "";
     try {
       const url = new URL(String(value || ""), location.href);
       if (image && /\.(?:html?|php|aspx?)$/i.test(url.pathname)) return "";
@@ -495,14 +496,18 @@
 
   function appendInline(parent, value, citations = new Map()) {
     const source = String(value || "");
-    const pattern = /(`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)]+\)|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\.|[^$\\])+?\$(?!\d)|\*\*[^*]+\*\*|\*[^*\n]+\*|\[(\d+)\])/g;
+    const pattern = /(!\[[^\]]*\]\((?:https?:\/\/|\/(?!\/))[^\s)]+\)|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)]+\)|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\.|[^$\\])+?\$(?!\d)|\*\*[^*]+\*\*|\*[^*\n]+\*|\[(\d+)\])/g;
     let cursor = 0;
     let match;
     while ((match = pattern.exec(source))) {
       if (match.index > cursor) parent.appendChild(document.createTextNode(source.slice(cursor, match.index)));
       const token = match[0];
       let node;
-      if (token.startsWith("[")) {
+      if (token.startsWith("![")) {
+        const match = token.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+        const url = safeUrl(match?.[2], true);
+        node = url ? imageNode({url, alt: match[1]}) : document.createTextNode("Image URL is unavailable.");
+      } else if (token.startsWith("[")) {
         const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
         const citation = token.match(/^\[(\d+)\]$/);
         if (link) {
@@ -747,6 +752,7 @@
   }
 
   function openImage(source, alt) {
+    const previousFocus = document.activeElement;
     const box = el("div", "apollo-ui-lightbox");
     const image = el("img");
     const close = el("button", null, "×");
@@ -755,10 +761,16 @@
     box.setAttribute("aria-label", alt || "Image preview");
     image.src = source;
     image.alt = alt || "";
+    image.addEventListener("error", () => box.appendChild(el("p", "apollo-ui-media-unavailable", "The full image could not load. Close and retry when connected.")));
     close.type = "button";
     close.setAttribute("aria-label", "Close image preview");
-    const dismiss = () => { box.remove(); document.removeEventListener("keydown", onKey); };
-    const onKey = event => { if (event.key === "Escape") dismiss(); };
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const dismiss = () => { box.remove(); document.body.style.overflow = overflow; document.removeEventListener("keydown", onKey); previousFocus?.focus(); };
+    const onKey = event => {
+      if (event.key === "Escape") dismiss();
+      if (event.key === "Tab") { event.preventDefault(); close.focus(); }
+    };
     close.addEventListener("click", dismiss);
     box.addEventListener("click", event => { if (event.target === box) dismiss(); });
     document.addEventListener("keydown", onKey);
@@ -769,25 +781,43 @@
   function imageNode(item) {
     const figure = el("figure", "apollo-ui-figure");
     const image = el("img", "apollo-ui-image");
-    image.alt = item.alt || item.title || "";
+    const status = el("span", "apollo-image-status", "Loading image…");
+    const retry = el("button", "apollo-image-retry", "Retry image");
+    retry.type = "button";
+    retry.hidden = true;
+    status.setAttribute("role", "status");
+    image.alt = item.alt || item.title || "Attached image";
     image.loading = "lazy";
-    image.src = item.url;
-    image.addEventListener("load", () => figure.classList.add("is-loaded"));
-    image.addEventListener("error", () => {
-      const container = figure.parentElement;
-      figure.remove();
-      if (container?.classList.contains("apollo-ui-card")) {
-        container.classList.add("apollo-ui-card-text-only");
-      } else if (container?.classList.contains("apollo-ui-gallery")) {
-        const remaining = container.querySelectorAll(".apollo-ui-figure").length;
-        container.classList.toggle("one", remaining === 1);
-        if (!remaining) container.appendChild(el("p", "apollo-ui-media-unavailable", "These images could not be loaded. Use the source links below to view them directly."));
-      }
+    image.tabIndex = 0;
+    image.setAttribute("role", "button");
+    image.setAttribute("aria-label", "Open " + image.alt);
+    image.addEventListener("load", () => {
+      figure.classList.add("is-loaded"); figure.classList.remove("has-error");
+      status.hidden = true; retry.hidden = true;
     });
-    image.addEventListener("click", () => openImage(image.src, image.alt));
-    figure.appendChild(image);
+    image.addEventListener("error", () => {
+      // A preview is optional; the durable original is still usable.
+      if (item.original && image.getAttribute("src") !== item.original) { image.src = item.original; return; }
+      figure.classList.add("has-error");
+      status.hidden = false; status.textContent = "Image unavailable. Check your connection and retry.";
+      retry.hidden = false;
+    });
+    retry.addEventListener("click", () => {
+      retry.hidden = true; status.textContent = "Loading image…";
+      image.src = item.url;
+    });
+    image.addEventListener("click", () => openImage(image.currentSrc || image.src, image.alt));
+    image.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); image.click(); }
+    });
+    image.src = item.url;
+    figure.append(image, status, retry);
     if (item.caption) figure.appendChild(el("figcaption", null, item.caption));
     return figure;
+  }
+  if (typeof window !== "undefined") {
+    window.apolloImageNode = imageNode;
+    window.apolloOpenImage = openImage;
   }
 
   async function reconcileChecklist(block, items, state, apply) {

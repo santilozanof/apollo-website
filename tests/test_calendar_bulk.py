@@ -218,6 +218,7 @@ class CalendarBulkTests(unittest.TestCase):
             for index in range(135)
         ]
         namespace = self.base_namespace(google_calendar_events=lambda **_kwargs: events)
+        namespace.update(app_state_get=lambda *_: "Europe/Zurich", apollo_calendar_events=lambda **_kwargs: (events, {}))
         context = load_function("apollo_context_calendar", namespace)
         self.assertEqual(len(context(30)), 135)
 
@@ -475,9 +476,9 @@ class CalendarBulkTests(unittest.TestCase):
             load_function(name, namespace)
 
         action = namespace["calendar_server_batch_action"](
-            "change all my classes before leaving for Paris +8 hours to Europe time",
+            "I already confirmed this change: change all my classes before leaving for Paris +8 hours to Europe time",
             conversation_context=(
-                "I leave for Paris on October 3, 2026. I already confirmed this."
+                "I leave for Paris on October 3, 2026."
             ),
             client_context={"time_zone": "Europe/Paris"},
         )
@@ -524,6 +525,7 @@ class CalendarBulkTests(unittest.TestCase):
                 "_events": [],
             },
             client_context={"time_zone": "Europe/Paris"},
+            server_approved=True,
         )
         self.assertTrue(reply.startswith("Done"))
         self.assertEqual(saved, [])
@@ -554,9 +556,9 @@ class CalendarBulkTests(unittest.TestCase):
 
         reply = namespace["apollo_calendar_chat"](
             11,
-            "change all my classes before leaving to paris +8 hours to be in europe time",
+            "I approved this change: change all my classes before leaving to paris +8 hours to be in europe time",
             {"surface": "calendar", "time_zone": "Europe/Paris"},
-            conversation_context="Paris departure: October 3, 2026. I approved it.",
+            conversation_context="Paris departure: October 3, 2026.",
         )
 
         self.assertTrue(reply.startswith("Done"))

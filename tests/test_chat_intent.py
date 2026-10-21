@@ -203,6 +203,19 @@ class ChatIntentPlannerTests(unittest.TestCase):
         self.assertIsNone(referenced_follow_up)
         self.assertIsNone(implied_action)
 
+    def test_real_world_implicit_sources_and_old_references_keep_semantic_planning(self):
+        fast = load_function("apollo_fast_context_plan", {"re": re})
+        for prompt in (
+            "Which unfinished tasks are due soon?",
+            "Which of my connected services can you access right now?",
+            "What colour did we choose for the packaging of that Cedar Atlas project months ago?",
+            "What beverage did I say I enjoy with breakfast in that old validation conversation?",
+            "What did I tell you about the fictional Zorblax-947 underwater bakery?",
+            "Show my calendar and unfinished assignments.",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertIsNone(fast([], prompt))
+
 
 if __name__ == "__main__":
     unittest.main()

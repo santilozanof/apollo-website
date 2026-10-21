@@ -23,7 +23,7 @@
     oldSidebar?.setAttribute("aria-hidden", "true");
 
     const icon = name => ({
-        mark: '<svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5.4 22.2 13.2 5.6l9.4 16.6M7.2 18.2c4.3-3.5 9.6-4 15.4-1.2"/></svg>',
+        mark: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/></svg>',
         now: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12a7 7 0 1 0 14 0 7 7 0 1 0-14 0"/><path d="M12 8v4l2.8 1.8"/></svg>',
         chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v10.2H9.2L5 19z"/></svg>',
         tasks: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7.2h2.5M10 7.2h9M5 12h2.5M10 12h9M5 16.8h2.5M10 16.8h9"/></svg>',
@@ -36,7 +36,7 @@
         more: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18" cy="12" r="1"/></svg>',
         arrow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M14 7l5 5-5 5"/></svg>',
         plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
-        spark: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c.5 4.7 3.1 7.4 7.5 8.5-4.4 1.1-7 3.8-7.5 8.5-.5-4.7-3.1-7.4-7.5-8.5 4.4-1.1 7-3.8 7.5-8.5Z"/></svg>',
+        sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/></svg>',
         chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>',
         close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>'
     }[name] || "");
@@ -136,7 +136,7 @@
             </header>
 
             <form class="os-command" id="osCommand">
-                <span class="os-command-mark">${icon("spark")}</span>
+                <span class="os-command-mark">${icon("sun")}</span>
                 <label class="os-sr-only" for="osCommandInput">Ask Apollo</label>
                 <textarea id="osCommandInput" rows="1" maxlength="12000" placeholder="Ask Apollo anything…"></textarea>
                 <button type="submit" aria-label="Send to Apollo">${icon("arrow")}</button>

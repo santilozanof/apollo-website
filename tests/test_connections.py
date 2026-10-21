@@ -1,4 +1,5 @@
 import ast
+import re
 import unittest
 from pathlib import Path
 
@@ -18,18 +19,19 @@ def load_function(name, namespace):
 
 class ConnectionRegistryTests(unittest.TestCase):
     def registry(self, *, google=None, canvas=None, spotify=None, whoop=None):
-        return load_function("apollo_connections_registry", {
-            "google_calendar_connection_status": lambda: google or {
+        return load_function("_apollo_connections_probe", {
+            "Path": Path, "SPOTIFY_TOOL": str(SERVER), "re": re,
+            "apollo_google_health_probe": lambda: google or {
                 "connected": True, "reconnect": False, "error": None,
             },
             "calendar_subscription_status": lambda _provider: canvas or {
                 "connected": True, "last_synced_at": "2026-10-14T12:00:00Z",
                 "last_error": None,
             },
-            "get_now_playing": lambda: spotify or {
+            "get_now_playing": lambda **kwargs: spotify or {
                 "connection_state": "connected", "device": None,
             },
-            "whoop_connection_status": lambda: whoop or {
+            "apollo_whoop_health_probe": lambda: whoop or {
                 "status": "connected", "connected": True,
                 "last_successful_sync": "2026-10-14T11:00:00Z", "error": None,
             },
@@ -92,7 +94,7 @@ class ConnectionRegistryTests(unittest.TestCase):
     def test_connections_endpoint_uses_central_registry(self):
         source = SERVER.read_text(encoding="utf-8")
         route = source.index('if route == "/api/connections"')
-        registry = source.index("apollo_connections_registry()", route)
+        registry = source.index("apollo_connections_registry(", route)
         self.assertGreater(registry, route)
 
 

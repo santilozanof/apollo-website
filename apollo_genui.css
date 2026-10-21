@@ -391,3 +391,17 @@ html[data-theme="light"] .apollo-ui-segment.active { background: rgba(0,0,0,.08)
     .apollo-stream-content *,
     .apollo-stream-indicator i { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Preserve full images, including tall screenshots and multiple attachments. */
+.apollo-ui-figure .apollo-ui-image,
+#apolloView .apollo-message-attachment.image .apollo-ui-image {
+  width: 100%; height: auto; max-height: 520px; aspect-ratio: auto;
+  object-fit: contain; border-radius: 12px;
+}
+.apollo-ui-figure { position: relative; }
+.apollo-image-status { display: block; padding: 12px; font-size: 12px; opacity: .65; }
+.apollo-image-status[hidden], .apollo-image-retry[hidden] { display: none; }
+.apollo-ui-figure.has-error { min-height: 100px; border: 1px solid rgba(127,127,127,.25); border-radius: 12px; }
+.apollo-ui-figure.has-error img { height: 48px; opacity: .5; }
+.apollo-image-retry { margin: 0 12px 12px; padding: 7px 12px; border-radius: 9px; color: inherit; background: transparent; border: 1px solid rgba(127,127,127,.3); cursor: pointer; }
+.apollo-ui-lightbox .apollo-ui-media-unavailable { color: white; }

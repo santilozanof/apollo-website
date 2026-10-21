@@ -1,0 +1,16 @@
+/* Scoped additions to the existing Settings panel. */
+#apolloMemoryControls summary { padding: 16px; cursor: pointer; min-height: 44px; }
+#apolloMemoryControls details > div { padding-top: 0 !important; }
+#apolloMemoryControls p, #apolloMemoryControls blockquote { overflow-wrap: anywhere; line-height: 1.5; }
+#apolloMemoryControls small { display: block; opacity: .65; line-height: 1.5; margin-bottom: 8px; overflow-wrap: anywhere; }
+#apolloMemoryControls h4 { font-size: 14px; margin: 24px 0 12px; }
+#apolloMemoryControls button, #apolloMemoryControls input:not([type=checkbox]), #apolloMemoryControls select {
+    font: inherit; color: inherit; border: 1px solid rgba(128,128,128,.3); border-radius: 8px;
+    background: transparent; min-height: 40px; padding: 8px 10px; max-width: 100%; box-sizing: border-box;
+}
+#apolloMemoryControls button { margin: 4px; cursor: pointer; overflow-wrap: anywhere; white-space: normal; }
+#apolloMemoryControls button:disabled { opacity: .5; cursor: wait; }
+#apolloMemoryControls input[type=checkbox] { width: 18px; height: 18px; vertical-align: middle; accent-color: #6578bf; }
+#apolloMemoryControls input:focus-visible, #apolloMemoryControls button:focus-visible, #apolloMemoryControls summary:focus-visible { outline: 2px solid #6578bf; outline-offset: 2px; }
+#apolloMemoryControls [role=status] { padding: 0 16px; }
+#apolloMemoryControls blockquote { margin: 8px 0 18px; border-left: 2px solid #6578bf; padding-left: 12px; }

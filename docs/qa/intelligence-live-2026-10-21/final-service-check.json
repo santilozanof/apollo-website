@@ -1,0 +1,34 @@
+{
+  "production_connections": {
+    "services": [
+      {
+        "id": "google_calendar",
+        "connected": true,
+        "status": "connected"
+      },
+      {
+        "id": "canvas_calendar",
+        "connected": true,
+        "status": "connected"
+      },
+      {
+        "id": "spotify",
+        "connected": true,
+        "status": "connected"
+      },
+      {
+        "id": "whoop",
+        "connected": true,
+        "status": "temporary_error"
+      }
+    ]
+  },
+  "candidate_spotify": {
+    "playing": false,
+    "connection_state": "connected",
+    "playback_state": "idle",
+    "device_type": null
+  },
+  "production_memory_tables": [],
+  "stopped_validation_pid": 2370691
+}

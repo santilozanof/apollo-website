@@ -1,4 +1,6 @@
 import json
+import sys
+import apollo_intelligence
 import math
 import os
 import re
@@ -19,7 +21,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import routines
 import debrief_personalization
 import music_curator
-from apollo_media import visual_request, visual_response
+import apollo_live_research
+from connection_health import HealthMonitor
+from apollo_media import visual_request, visual_response, image_mime, image_preview, persist_supported_images
 from automation_engine import (
     AutomationEngine,
     init_automation_schema,
@@ -100,7 +104,7 @@ AUTOMATION_ENGINE = None
 
 
 def get_api_key():
-    env_path = Path("/root/.hermes/.env")
+    env_path = Path(os.environ.get("HERMES_HOME", "/root/.hermes")) / ".env"
 
     for line in env_path.read_text().splitlines():
         if line.startswith("API_SERVER_KEY="):
@@ -832,6 +836,7 @@ def init_db():
     init_automation_schema(conn)
     routines.init_schema(conn)
     debrief_personalization.init_schema(conn)
+    apollo_intelligence.initialize(conn)
 
     conn.commit()
     conn.close()
@@ -872,11 +877,13 @@ def apollo_capture_generated_images(
 
     import re
 
+    assistant_message = persist_supported_images(assistant_message, CHAT_UPLOAD_DIR)
     generated_paths = []
     visible_lines = []
 
     allowed_roots = [
-        Path("/root/Apollo").resolve(),
+        BASE_DIR.resolve(),
+        CHAT_UPLOAD_DIR.resolve(),
         Path("/root/.hermes/cache/images").resolve()
     ]
 
@@ -1037,10 +1044,8 @@ def apollo_capture_generated_images(
             )
         )
 
-        mime_type = (
-            mime_type
-            or "application/octet-stream"
-        )
+        with source.open("rb") as image_file:
+            mime_type = image_mime(image_file.read(64)) or mime_type or "application/octet-stream"
 
 
         storage_name = (
@@ -1413,6 +1418,11 @@ external information, asks for research or verification, asks you to inspect a
 file, or requests an actual external action. Do not browse or research merely to
 polish a normal conversational answer. For short follow-ups, use the existing
 conversation context and respond directly.
+
+When a request needs current external facts, use the available web tools before
+answering. Never claim that live web access is unavailable merely because a
+previous turn did not search. If a search fails, say what failed and do not
+invent current facts or citations.
 
 Never claim that a task, routine, calendar event, hydration record, account, or
 Spotify playback state was changed unless Apollo's authenticated backend action
@@ -3609,13 +3619,23 @@ def _apollo_choose_hermes_toolsets(messages):
 
     return []
 
-def _apollo_build_hermes_payload(messages, stream=False):
+def _apollo_build_hermes_payload(messages, stream=False, enabled_toolsets=(), purpose="answer"):
 
-    route = _apollo_choose_model(messages)
+    route = (_apollo_choose_model(messages) if purpose == "answer" else {
+        "tier": "SMART", "model": "gpt-5.6-terra", "reasoning_effort": "medium", "reason": "internal structured reasoning"
+    })
 
-    toolsets = _apollo_choose_hermes_toolsets(
-        messages
-    )
+    # Tools execute through the bounded local runtime and existing authorized
+    # action handlers. Classifiers and response writers cannot invoke a second,
+    # hidden platform agent (or obtain terminal access from a vague follow-up).
+    if set(enabled_toolsets) - {"web"}:
+        raise ValueError("Only explicitly enabled read-only web tools are supported")
+    toolsets = list(enabled_toolsets)
+    route = dict(route)
+    route["model"] = os.environ.get("APOLLO_MODEL_" + route["tier"], route["model"])
+    trace = apollo_intelligence.CURRENT_TRACE.get()
+    if trace:
+        trace.record("model", model=route["model"], reasoning=route["reasoning_effort"])
 
     if toolsets is None or "calendar" in toolsets:
         recent_text = "\n".join(
@@ -3687,11 +3707,13 @@ def _apollo_build_hermes_payload(messages, stream=False):
     return payload
 
 
-def ask_hermes(messages, timeout=600):
+def ask_hermes(messages, timeout=90, enabled_toolsets=()):
     payload = json.dumps(
         _apollo_build_hermes_payload(
             messages,
-            stream=False
+            stream=False,
+            enabled_toolsets=enabled_toolsets,
+            purpose="internal",
         )
     ).encode("utf-8")
 
@@ -3803,6 +3825,16 @@ def apollo_context_planner(
                 "Decide which LIVE personal data sources Apollo "
                 "should inspect before answering the current request. "
                 "\n\n"
+                "Also identify personal memory/history recovery and external research needs. "
+                "Set memory_query to concise topic terms when saved preferences or project facts matter; "
+                "set history_query when the user refers to an earlier discussion, unsaved fact, plan, "
+                "or cross-chat project. Search history before saying you do not remember. "
+                "A new declarative preference is handled by background consolidation; leave memory_query "
+                "and history_query empty unless the user asks to retrieve or compare earlier information. "
+                "Set research_query for changing external facts or requested verification; otherwise empty. "
+                "Use the recent working conversation first: if a sourced answer already contains the "
+                "fact requested by a follow-up, do not research it again. "
+                "These retrieval fields grant no authority to perform external actions. "
                 "Available live sources:\n"
                 "- calendar: the user's real Google Calendar, including "
                 "upcoming commitments, classes, appointments, plans, "
@@ -3812,6 +3844,8 @@ def apollo_context_planner(
                 "- whoop: the user's current WHOOP recovery, sleep, "
                 "strain and latest workout data.\n"
                 "- spotify: the user's current Spotify playback state.\n\n"
+                "- connections: live integration connection status and supported capabilities; "
+                "select it when asked which services/accounts are connected or accessible.\n\n"
                 "Also classify the CURRENT request by meaning. The valid "
                 "primary_domain values are general, hydration, routines, "
                 "tasks, calendar, spotify, whoop, automation, and multi. "
@@ -3883,7 +3917,9 @@ def apollo_context_planner(
                 "\"tasks\": false, "
                 "\"whoop\": false, "
                 "\"spotify\": false, "
+                "\"connections\": false, "
                 "\"calendar_days\": 7, "
+                "\"memory_query\": \"\", \"history_query\": \"\", \"research_query\": \"\", "
                 "\"reference_resolution\": {"
                 "\"status\": \"none|resolved|ambiguous\", "
                 "\"operation\": \"add_step|move_step|delete_step|rename_step|rename_routine|replace_step|none\", "
@@ -4009,6 +4045,8 @@ def apollo_context_planner(
         "spotify":
             plan.get("spotify") is True,
 
+        "connections": plan.get("connections") is True,
+
         "calendar_days":
             calendar_days,
 
@@ -4021,6 +4059,9 @@ def apollo_context_planner(
                 or ""
             )[:240]
     }
+
+    for retrieval_field in ("memory_query", "history_query", "research_query"):
+        normalized[retrieval_field] = str(plan.get(retrieval_field) or "")[:1000]
 
     raw_resolution = plan.get("reference_resolution")
     if not isinstance(raw_resolution, dict):
@@ -4068,7 +4109,7 @@ def apollo_context_planner(
 
     print(
         "[Apollo Context Planner]",
-        normalized
+        {key: normalized[key] for key in ("intent", "primary_domain", "calendar", "tasks", "whoop", "spotify")}
     )
 
 
@@ -4094,14 +4135,21 @@ def apollo_conservative_intent_fallback(user_message):
         ("automation", ("remind me", "automation", "notify me")),
     )
     domain = next((name for name, terms in domains if any(term in text for term in terms)), "general")
-    intent = "explicit_action" if action and domain != "general" else (
+    # A failed classifier must not turn a quoted/hypothetical action verb into
+    # write permission. Only the existing narrow, reversible hydration command
+    # has a deterministic fallback; all other writes require a valid plan.
+    hydration_command = bool(re.fullmatch(
+        r"(?:please\s+)?(?:add|log)\s+\d+(?:\.\d+)?\s*(?:ml|milliliters?|liters?|l)(?:\s+(?:of water|to my water intake|to my hydration))?[.!]?",
+        text,
+    ))
+    intent = "explicit_action" if hydration_command else "ambiguous_action" if action and domain != "general" else (
         "personal_query" if personal and domain != "general" else "general_knowledge"
     )
     return {
         "intent": intent,
         "primary_domain": domain,
         "action_authorized": intent == "explicit_action",
-        "clarification": "",
+        "clarification": "I couldn't safely interpret that change. Nothing has been changed; please retry." if intent == "ambiguous_action" else "",
         "calendar": domain == "calendar" and intent == "personal_query",
         "tasks": domain == "tasks" and intent == "personal_query",
         "whoop": domain == "whoop" and intent == "personal_query",
@@ -4156,6 +4204,27 @@ def apollo_fast_context_plan(messages, user_message):
         r"\b(this|that|it|these|those|above|earlier|previous|same)\b",
         lower,
     ):
+        return None
+
+    # Changing facts and historical references need semantic planning even
+    # when their wording would otherwise resemble a general question.
+    if re.search(r"\b(remember|recall|told you|tell you about|did (?:i|we) (?:say|tell|choose|decide)|(?:weeks?|months?|years?) ago|(?:old|previous|earlier) (?:chat|conversation)s?|last week|last month|latest|current|recent|price|prices|news|weather|open tonight|still available)\b", lower):
+        return None
+
+    # A source noun without "my" can still be a personal lookup ("Which
+    # unfinished tasks are due soon?"). Likewise, never reduce a multi-source
+    # request to whichever source happens to appear first in this fast path.
+    source_signals = [
+        bool(re.search(pattern, lower)) for pattern in (
+            r"\b(tasks?|todos?|homework|assignments?|canvas)\b",
+            r"\b(calendar|schedule|appointments?|meetings?)\b",
+            r"\b(spotify|playback)\b",
+            r"\b(whoop|recovery|strain|hrv)\b",
+        )
+    ]
+    if sum(source_signals) > 1 or re.search(r"\b(connected|connections|integrations?|services)\b", lower):
+        return None
+    if any(source_signals) and not re.search(r"\b(my|mine|do i have|have i)\b", lower):
         return None
 
     personal_whoop = (
@@ -4262,12 +4331,19 @@ def apollo_intent_routes_to(plan, *domains):
 
 
 def apollo_context_calendar(
-    days
+    days, time_zone=None
 ):
-
-    events = google_calendar_events(
-        days=days
+    # Include whole local days. A rolling 24-hour window at 09:00 omitted
+    # tomorrow's afternoon classes and incorrectly made them look like free time.
+    zone_name = time_zone or app_state_get("time_zone", "Europe/Zurich")
+    today = datetime.now(ZoneInfo(zone_name)).date()
+    events, errors = apollo_calendar_events(
+        start_date=today.isoformat(),
+        end_date=(today + timedelta(days=days + 1)).isoformat(),
+        time_zone=zone_name,
     )
+    if errors:
+        raise RuntimeError("Calendar context incomplete: " + ", ".join(errors))
 
 
     compact = []
@@ -4333,13 +4409,31 @@ def apollo_context_calendar(
 
 
 
-def apollo_context_tasks():
+def apollo_task_context_rows(tasks, time_zone=None):
+    try:
+        zone = ZoneInfo(time_zone or app_state_get("time_zone", "Europe/Zurich"))
+    except (ValueError, KeyError):
+        zone = timezone.utc
+    compact = []
+    for task in tasks:
+        item = {key: task.get(key) for key in ("id", "title", "due_at", "completed", "source", "courseName")}
+        try:
+            stamp = datetime.fromisoformat(str(task.get("due_at") or "").replace('Z', '+00:00'))
+            stamp = stamp.replace(tzinfo=stamp.tzinfo or zone).astimezone(zone)
+            item["due_local"] = stamp.strftime("%A, %Y-%m-%d %H:%M %Z")
+        except ValueError:
+            pass
+        compact.append(item)
+    return compact
+
+
+def apollo_context_tasks(time_zone=None):
 
     tasks = get_tasks()
 
 
     return (
-        tasks[:100]
+        apollo_task_context_rows(tasks[:100], time_zone)
         if isinstance(
             tasks,
             list
@@ -4471,9 +4565,10 @@ def apollo_fetch_planned_context(
     loaders = {
         "calendar": lambda: {
             "upcoming_days": days,
-            "events": apollo_context_calendar(days),
+            "events": (apollo_context_calendar(days, time_zone=plan["time_zone"])
+                       if plan.get("time_zone") else apollo_context_calendar(days)),
         },
-        "tasks": apollo_context_tasks,
+        "tasks": (lambda: apollo_context_tasks(time_zone=plan["time_zone"])) if plan.get("time_zone") else apollo_context_tasks,
         "whoop": apollo_context_whoop,
         "spotify": apollo_context_spotify,
     }
@@ -4532,6 +4627,8 @@ def stream_hermes(messages):
         timeout=120
     )
 
+    completed = False
+    received_content = False
     try:
         for raw_line in response:
             line = raw_line.decode(
@@ -4545,6 +4642,7 @@ def stream_hermes(messages):
             data = line[5:].strip()
 
             if data == "[DONE]":
+                completed = True
                 break
 
             try:
@@ -4552,17 +4650,32 @@ def stream_hermes(messages):
             except json.JSONDecodeError:
                 continue
 
+            if chunk.get("error"):
+                raise RuntimeError(
+                    "Hermes request failed: "
+                    + str(chunk["error"])[:300]
+                )
+
             choices = chunk.get("choices", [])
 
             if not choices:
                 continue
 
+            if choices[0].get("finish_reason") in ("error", "cancelled", "length", "tool_calls"):
+                raise RuntimeError(
+                    "Hermes request "
+                    + str(choices[0]["finish_reason"])
+                )
+
             delta = choices[0].get("delta", {})
             content = delta.get("content", "")
 
             if content:
+                received_content = True
                 yield content
 
+        if not completed or not received_content:
+            raise RuntimeError("Hermes response was incomplete; please retry.")
     finally:
         response.close()
 
@@ -8477,48 +8590,13 @@ def apollo_music_user_error(error):
     return "Spotify is temporarily unavailable. Please try again in a moment."
 
 
-def apollo_music_recent_personal_context(
-    limit=120
-):
-
-    conn = db()
-
-    rows = conn.execute(
-        """
-        SELECT
-            role,
-            content,
-            created_at
-        FROM messages
-        WHERE content IS NOT NULL
-          AND TRIM(content) != ''
-        ORDER BY id DESC
-        LIMIT ?
-        """,
-        (
-            int(limit),
-        )
-    ).fetchall()
-
-    conn.close()
-
-
-    # Put them back into chronological order.
-    rows = list(
-        reversed(rows)
+def apollo_music_recent_personal_context(limit=120):
+    """Use the shared privacy-aware history index for playlist alias context."""
+    result = apollo_intelligence.store(sys.modules[__name__]).search(
+        "music spotify playlist artist", limit=min(int(limit), 20)
     )
-
-
-    return [
-        {
-            "role":
-                row["role"],
-
-            "content":
-                row["content"]
-        }
-        for row in rows
-    ]
+    return [{"role": row["role"], "content": row["content"]}
+            for row in reversed(result["results"])]
 
 
 def apollo_music_resolve_personal_alias(
@@ -8842,11 +8920,13 @@ def apollo_spotify_tool_command(command, argument=None, timeout=12):
             )
         raw_error = str(failure.get("error") or "").casefold()
         if failure.get("status") == 401 or any(marker in raw_error for marker in (
-            "invalid_grant", "refresh token", "not authenticated", "not authorized",
+            "invalid_grant", "invalid_client", "not authenticated", "not authorized",
         )):
             raise RuntimeError("Spotify needs to be reconnected.")
         if "no active, controllable spotify device" in raw_error:
             raise RuntimeError("Open Spotify on an active device and try again.")
+        if failure.get("status") == 403 and any(marker in raw_error for marker in ("insufficient", "scope", "permission")):
+            raise RuntimeError("Spotify needs to be reconnected.")
         if failure.get("status") in {403, 404}:
             raise RuntimeError(
                 "Spotify cannot control the current device or playback context."
@@ -11593,6 +11673,8 @@ def google_clear_oauth_tokens(reason="oauth_tokens_cleared",
     """Clear a refresh credential only after a definitive OAuth revocation."""
     had_access = bool(app_state_get("google_access_token"))
     had_refresh = bool(app_state_get("google_refresh_token"))
+    if had_refresh:
+        app_state_set("google_reconnect_required", "1")
     app_state_delete("google_access_token")
     app_state_delete("google_access_token_expires_at")
     app_state_delete("google_refresh_token")
@@ -12543,6 +12625,7 @@ def calendar_subscription_connect(feed_url, provider="canvas", display_name=None
     except Exception:
         # The saved connection remains visible with its backend-only error.
         pass
+    CONNECTION_HEALTH.at = 0
     return calendar_subscription_status(provider)
 
 
@@ -12561,6 +12644,7 @@ def calendar_subscription_disconnect(provider="canvas"):
     conn.execute("DELETE FROM calendar_subscriptions WHERE provider = ?", (provider,))
     conn.commit()
     conn.close()
+    CONNECTION_HEALTH.at = 0
     return {"connected": False, "provider": provider}
 
 
@@ -12587,8 +12671,8 @@ def whoop_connection_status():
     except Exception as error:
         message = str(error)
         reconnect = any(marker in message.casefold() for marker in (
-            "invalid_grant", "refresh token", "not connected",
-            "authorization", "401",
+            "invalid_grant", "invalid_client", "not connected",
+            "401", "403",
         ))
         return {
             "status": "reconnection_required" if reconnect else "temporary_error",
@@ -12604,9 +12688,56 @@ def whoop_connection_status():
     }
 
 
-def apollo_connections_registry():
+def apollo_google_health_probe():
+    if not app_state_get("google_refresh_token"):
+        return {"connected": False, "reconnect": bool(app_state_get("google_reconnect_required")),
+                "not_configured": not bool(app_state_get("google_reconnect_required")), "error": "Authorization expired"}
+    result = google_calendar_connection_status()
+    if not result.get("connected"):
+        if re.search(r"credentials file|client ID or secret|invalid.*credentials", str(result.get("error") or ""), re.I):
+            result["reconnect"] = True
+        return result
+    try:
+        google_calendar_request_raw(lambda token: urllib.request.Request(
+            "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1",
+            headers={"Authorization": "Bearer " + token}), "GET")
+        app_state_delete("google_reconnect_required")
+        return result
+    except Exception as error:
+        message = str(error).lower()
+        auth = isinstance(error, GoogleCalendarAuthError) or (
+            "403" in message and any(word in message for word in ("insufficient", "permission", "forbidden")))
+        return {"connected": False, "reconnect": auth, "error": "Authorization rejected" if auth else "Service temporarily unavailable"}
+
+
+def apollo_whoop_health_probe():
+    result = whoop_connection_status()
+    if result.get("status") == "not_configured" and app_state_get("whoop_refresh_token"):
+        result["status"] = "invalid_credentials"
+    if result.get("status") != "connected": return result
+    try:
+        whoop_api_get("/recovery?limit=1")
+    except Exception as error:
+        auth = bool(re.search(r"\b(?:401|403)\b|invalid_grant|invalid_client", str(error), re.I))
+        return {"status": "reconnection_required" if auth else "temporary_error", "connected": False,
+                "error": "Authorization rejected" if auth else "Service temporarily unavailable"}
+    return result
+
+
+CONNECTION_HEALTH = HealthMonitor(
+    lambda: app_state_get("connection_health_v2", "{}"),
+    lambda value: app_state_set("connection_health_v2", value),
+    lambda: _apollo_connections_probe(),
+)
+
+
+def apollo_connections_registry(force=False, wait=False):
+    return CONNECTION_HEALTH.snapshot(force=force, wait=wait)
+
+
+def _apollo_connections_probe():
     """Return every real user-facing integration and only supported actions."""
-    google = google_calendar_connection_status()
+    google = apollo_google_health_probe()
     if google.get("connected"):
         google_status = "connected"
     elif google.get("reconnect"):
@@ -12617,16 +12748,21 @@ def apollo_connections_registry():
         )
     else:
         google_status = "temporary_error"
+    if google.get("not_configured"):
+        google_status = "not_configured"
 
     canvas = calendar_subscription_status("canvas")
     canvas_status = (
         "temporary_error" if canvas.get("connected") and canvas.get("last_error")
         else "connected" if canvas.get("connected")
-        else "disconnected"
+        else "not_configured"
     )
 
+    if canvas.get("connected") and re.search(r"HTTP Error (401|403|404|410)\b", canvas.get("last_error") or ""):
+        canvas_status = "reconnection_required"
+
     try:
-        spotify_state = get_now_playing()
+        spotify_state = get_now_playing(force=True) if Path(SPOTIFY_TOOL).exists() else {"connection_state": "not_configured"}
     except Exception as error:
         spotify_state = {"connection_state": "error", "error": str(error)}
     spotify_connection = str(
@@ -12634,11 +12770,12 @@ def apollo_connections_registry():
     )
     spotify_status = {
         "connected": "connected",
+        "not_configured": "not_configured",
         "disconnected": "reconnection_required",
         "error": "temporary_error",
     }.get(spotify_connection, "temporary_error")
 
-    whoop = whoop_connection_status()
+    whoop = apollo_whoop_health_probe()
 
     return {
         "integrations": [
@@ -12664,7 +12801,10 @@ def apollo_connections_registry():
                 "connected": bool(canvas.get("connected")),
                 "last_successful_sync": canvas.get("last_synced_at"),
                 "error": "Canvas synchronization failed." if canvas.get("last_error") else None,
-                "actions": ([
+                "actions": (([{
+                    "id": "reconnect", "label": "Replace feed", "method": "POST",
+                    "url": "/api/calendar/subscriptions/canvas/connect", "input": "feed_url",
+                }] if canvas_status == "reconnection_required" else []) + [
                     {"id": "refresh", "label": "Refresh", "method": "POST",
                      "url": "/api/calendar/subscriptions/canvas/refresh"},
                     {"id": "disconnect", "label": "Disconnect", "method": "POST",
@@ -12685,6 +12825,7 @@ def apollo_connections_registry():
                 "last_successful_sync": None,
                 "error": None if spotify_status == "connected" else "Spotify connection needs attention.",
                 "actions": [],
+                "management_note": "Spotify authorization is managed by the existing server Spotify helper. Renew that authorization, then check again.",
                 "device_available": bool(spotify_state.get("device")),
             },
             {
@@ -15303,11 +15444,13 @@ def calendar_server_batch_action(
     if end_date is None or end_date <= request_date:
         return None
 
-    approval_text = "\n".join([message, str(conversation_context or "")]).lower()
-    approved = bool(re.search(
-        r"\b(already\s+)?(confirmed|approved|go\s+ahead|do\s+it)\b",
-        approval_text,
-    ))
+    # Old conversation text can resolve dates and entities, but cannot approve
+    # a new batch. Persisted pending actions handle scoped follow-up approvals.
+    approval_text = message.lower()
+    approved = bool(re.match(
+        r"^(?:i\s+(?:already\s+)?(?:confirmed|approved)\b|(?:go\s+ahead|do\s+it)\b)",
+        approval_text.strip(),
+    )) and not bool(re.search(r"\b(not|never|didn't|haven't|don't)\b", approval_text))
 
     return {
         "range_start": request_date.isoformat(),
@@ -15586,7 +15729,8 @@ def calendar_prepare_action(
     chat_id,
     interpreted,
     last_calendar_event=None,
-    client_context=None
+    client_context=None,
+    server_approved=False,
 ):
     intent = interpreted.get(
         "intent"
@@ -15676,7 +15820,7 @@ def calendar_prepare_action(
         # The deterministic server route reaches this point only when the
         # user already approved this exact filter and transformation. A newly
         # fetched page must not reset that approval or create another prompt.
-        if action.get("approved") is True:
+        if server_approved is True and action.get("approved") is True:
             try:
                 return calendar_execute_pending(
                     {"intent": "update", "action": action},
@@ -16411,11 +16555,12 @@ def calendar_handle_pending(
 
 def apollo_save_assistant_message(
     chat_id,
-    assistant_message
+    assistant_message,
+    evidence=None
 ):
     conn = db()
 
-    conn.execute("""
+    cursor = conn.execute("""
         INSERT INTO messages (
             chat_id,
             role,
@@ -16426,6 +16571,8 @@ def apollo_save_assistant_message(
         chat_id,
         assistant_message
     ))
+
+    apollo_intelligence.save_response_context(conn, cursor.lastrowid, evidence)
 
     conn.execute("""
         UPDATE chats
@@ -16450,27 +16597,33 @@ def apollo_save_assistant_message(
         for row in history_rows
     ]
 
-    if len(history) == 2:
-        title = generate_chat_title(
-            history
-        )
-
-        conn.execute("""
-            UPDATE chats
-            SET title = ?
-            WHERE id = ?
-        """, (
-            title,
-            chat_id
-        ))
-
     conn.commit()
     conn.close()
+
+    if len(history) == 2:
+        apollo_schedule_chat_title(chat_id, history)
+
+
+def apollo_schedule_chat_title(chat_id, history):
+    # Capture the database: background title work must never prolong SSE EOF
+    # or overwrite a user-supplied/edited title.
+    database_path = DB_PATH
+    def title_later():
+        try:
+            title = generate_chat_title(history)
+            with sqlite3.connect(database_path) as title_conn:
+                title_conn.execute("UPDATE chats SET title=? WHERE id=? AND title='New Chat'", (title, chat_id))
+        except Exception as error:
+            print(f"[Apollo Title] Failed safely: {type(error).__name__}")
+    threading.Thread(target=title_later, name='apollo-chat-title', daemon=True).start()
 
 
 def apollo_open_sse(
     handler
 ):
+    if getattr(handler, '_apollo_sse_open', False):
+        return
+    handler._apollo_sse_open = True
     handler.send_response(200)
 
     handler.send_header(
@@ -16494,7 +16647,8 @@ def apollo_open_sse(
 def apollo_finish_direct_sse(
     handler,
     chat_id,
-    assistant_message
+    assistant_message,
+    evidence=None
 ):
     content_event = json.dumps({
         "type": "content",
@@ -16509,10 +16663,10 @@ def apollo_finish_direct_sse(
 
     handler.wfile.flush()
 
-    apollo_save_assistant_message(
-        chat_id,
-        assistant_message
-    )
+    if evidence:
+        apollo_save_assistant_message(chat_id, assistant_message, evidence=evidence)
+    else:
+        apollo_save_assistant_message(chat_id, assistant_message)
 
     done_event = json.dumps({
         "type": "done",
@@ -16777,6 +16931,7 @@ def apollo_calendar_chat(
                 },
                 last_calendar_event=last_calendar_event,
                 client_context=client_context,
+                server_approved=server_batch_action.get("approved") is True,
             )
 
 
@@ -20163,6 +20318,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
 
+        if apollo_intelligence.handle_api(sys.modules[__name__], self, "GET"):
+            return
+
         # Tailscale Serve mounted at /api strips that prefix.
         # Restore it so existing Apollo routes continue to work.
         self.path = canonical_api_request_path(self.path)
@@ -20275,7 +20433,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
         if route == "/api/connections":
             json_response(
                 self,
-                apollo_connections_registry()
+                apollo_connections_registry(force="refresh=1" in parsed_url.query, wait="refresh=1" in parsed_url.query)
             )
             return
 
@@ -20410,6 +20568,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
             app_state_delete(
                 "google_oauth_state_created_at"
             )
+            CONNECTION_HEALTH.at = 0
+
 
             self.send_response(302)
             self.send_header(
@@ -20604,6 +20764,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
             app_state_delete(
                 "whoop_oauth_state_created_at"
             )
+            CONNECTION_HEALTH.at = 0
+
 
 
             self.send_response(
@@ -21021,6 +21183,11 @@ class ApolloHandler(BaseHTTPRequestHandler):
             if debrief:
                 try:
                     parsed_content = json.loads(debrief.get("content") or "{}")
+                    if debrief.get("local_date") != local_date:
+                        parsed_content.setdefault("availability", []).insert(0, {
+                            "source": "Briefing", "message": "Saved briefing from " + debrief["local_date"] + "; today's briefing is not available yet."
+                        })
+                        debrief["content"] = json.dumps(parsed_content)
                     story_ids = []
                     for section in ("stories", "for_you", "worth_knowing"):
                         for item in parsed_content.get(section) or []:
@@ -21033,7 +21200,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
                             story_ids,
                         ).fetchall()
                         feedback_by_story = {
-                            item["story_id"]: "more" if item["feedback"] > 0 else "less"
+                            item["story_id"]: {1: "more", -1: "less", -2: "not_interested"}.get(item["feedback"], "less")
                             for item in rows
                         }
                 except (TypeError, json.JSONDecodeError):
@@ -21057,6 +21224,25 @@ class ApolloHandler(BaseHTTPRequestHandler):
                         local_date
                 }
             )
+            return
+
+        if route.startswith("/api/chat-media/"):
+            digest = route.rsplit("/", 1)[-1]
+            if not re.fullmatch(r"[a-f0-9]{64}", digest):
+                json_response(self, {"error": "Invalid image"}, 400)
+                return
+            path = CHAT_UPLOAD_DIR / (digest + ".media")
+            if not path.is_file():
+                json_response(self, {"error": "Saved image unavailable"}, 404)
+                return
+            payload = path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", image_mime(payload[:64]) or "application/octet-stream")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "private, max-age=86400")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(payload)
             return
 
         # ─────────────────────────────
@@ -21131,65 +21317,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
             )
 
 
-            if (
-                is_preview
-                and str(
-                    attachment["mime_type"]
-                    or ""
-                ).startswith("image/")
-            ):
-
-                from PIL import Image
-
-                preview_path = file_path.with_suffix(
-                    ".preview.webp"
-                )
-
-                if not preview_path.exists():
-
-                    try:
-
-                        with Image.open(
-                            file_path
-                        ) as image:
-
-                            image.thumbnail(
-                                (
-                                    1280,
-                                    1280
-                                ),
-                                Image.Resampling.LANCZOS
-                            )
-
-                            if image.mode not in (
-                                "RGB",
-                                "RGBA"
-                            ):
-                                image = image.convert(
-                                    "RGB"
-                                )
-
-                            image.save(
-                                preview_path,
-                                "WEBP",
-                                quality=84,
-                                method=4
-                            )
-
-                    except Exception as exc:
-
-                        print(
-                            "[Apollo Attachment Preview]",
-                            exc
-                        )
-
-                        preview_path = file_path
-
-
-                if preview_path.exists():
-
-                    file_path = preview_path
-
+            if is_preview and file_path.exists():
+                file_path = image_preview(file_path)
 
             if not file_path.exists():
 
@@ -21205,28 +21334,11 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 return
 
 
-            payload = (
-                file_path.read_bytes()
-            )
-
-
+            payload = file_path.read_bytes()
+            mime = image_mime(payload[:64]) or attachment["mime_type"] or "application/octet-stream"
             self.send_response(200)
-
-            self.send_header(
-                "Content-Type",
-                (
-                    "image/webp"
-                    if (
-                        is_preview
-                        and file_path.suffix
-                        == ".webp"
-                    )
-                    else (
-                        attachment["mime_type"]
-                        or "application/octet-stream"
-                    )
-                )
-            )
+            self.send_header("Content-Type", mime)
+            self.send_header("X-Content-Type-Options", "nosniff")
 
             self.send_header(
                 "Content-Length",
@@ -21451,6 +21563,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     message_id,
                     filename,
                     mime_type,
+                    file_path,
                     size_bytes
                 FROM message_attachments
                 WHERE chat_id = ?
@@ -21464,7 +21577,16 @@ class ApolloHandler(BaseHTTPRequestHandler):
             attachments_by_message = {}
 
 
-            for attachment in attachment_rows:
+            for stored_attachment in attachment_rows:
+                attachment = dict(stored_attachment)
+                try:
+                    with Path(attachment["file_path"]).open("rb") as image_file:
+                        detected = image_mime(image_file.read(64))
+                    if detected and detected != attachment["mime_type"]:
+                        attachment["mime_type"] = detected
+                        conn.execute("UPDATE message_attachments SET mime_type=? WHERE id=?", (detected, attachment["id"]))
+                except OSError:
+                    pass  # The renderer reports a missing file, preserving its record.
 
                 attachments_by_message.setdefault(
                     attachment[
@@ -21500,6 +21622,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 })
 
 
+            conn.commit()
             conn.close()
 
             if not chat:
@@ -21537,6 +21660,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self):
+
+        if apollo_intelligence.handle_api(sys.modules[__name__], self, "POST"):
+            return
 
         routine_route = urllib.parse.urlparse(
             canonical_api_request_path(self.path)
@@ -21969,6 +22095,14 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     )
                 )
 
+
+                mime_type = image_mime(payload[:64]) or mime_type
+                if mime_type in {"image/heic", "image/heif"}:
+                    converted = image_preview(file_path)
+                    if converted == file_path:
+                        file_path.unlink(missing_ok=True)
+                        conn.close()
+                        raise ValueError("This HEIC photo could not be decoded. Export it as JPEG or PNG and try again.")
 
                 cursor = conn.execute(
                     """
@@ -23365,6 +23499,16 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
             if retry_message:
 
+                retried = conn.execute(
+                    "SELECT id FROM messages WHERE chat_id=? AND role='user' AND content=? ORDER BY id DESC LIMIT 1",
+                    (chat_id, user_message),
+                ).fetchone()
+                if retried is None:
+                    conn.close()
+                    json_response(self, {"error": "Original message not found"}, 400)
+                    return
+                user_message_id = retried["id"]
+
                 # Rewind conversation to the user message being retried.
                 # Delete that response and everything after it.
 
@@ -23430,6 +23574,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
                             *attachment_ids
                         )
                     )
+
+            conn.commit()
+            apollo_intelligence.store(sys.modules[__name__]).enforce_retention()
 
             # Retrieve conversation history,
             # including attachments from earlier turns.
@@ -23591,8 +23738,20 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 history_chars += _size
 
             history_rows = list(reversed(bounded_history))
+            memory_store = apollo_intelligence.store(sys.modules[__name__])
+            history_rows = memory_store.filter_working_history(history_rows, user_message_id)
+            attachment_context_by_message = {
+                row["message_id"]: row["content"] for row in
+                memory_store.filter_working_history(context_rows, user_message_id, id_key="message_id")
+            }
+            recent_attachment_context = "\n\n".join(list(attachment_context_by_message.values())[-3:])
 
             messages = []
+
+            prior_sources = apollo_intelligence.previous_response_context(
+                sys.modules[__name__], memory_store, chat_id, {row['id'] for row in history_rows})
+            if prior_sources:
+                messages.append(prior_sources)
 
 
             for row in history_rows:
@@ -23725,6 +23884,15 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     "utc_offset_minutes"
                 )
 
+                if not local_time:
+                    try:
+                        device_now = datetime.now(ZoneInfo(time_zone or "Europe/Zurich"))
+                    except (ValueError, KeyError):
+                        device_now = datetime.now(timezone.utc)
+                    local_time = device_now.isoformat()
+                    time_zone = time_zone or "Europe/Zurich"
+                    utc_offset = int(device_now.utcoffset().total_seconds() / 60)
+
                 if local_time or time_zone:
 
                     time_context = (
@@ -23833,6 +24001,42 @@ class ApolloHandler(BaseHTTPRequestHandler):
             )
 
 
+            # Outside-world questions have a deterministic read-only route.
+            # Resolve them before Apollo's action planner so "next UFC card"
+            # cannot be mistaken for a personal calendar request.
+            live_kind = apollo_live_research.live_query_kind(
+                user_message, messages
+            )
+            if live_kind and not apollo_intelligence.RECALL.search(user_message):
+                research_evidence = {}
+                apollo_open_sse(self)
+                apollo_send_status_sse(self, "Checking current sources…")
+                try:
+                    hermes_key = get_api_key()
+                except (OSError, RuntimeError):
+                    research_status, research_answer = (
+                        "authentication_failure", ""
+                    )
+                else:
+                    try:
+                        research_status, research_answer = apollo_live_research.research(
+                            messages,
+                            user_message,
+                            live_kind,
+                            str(client_context.get("time_zone") or app_state_get("time_zone", "Europe/Zurich"))
+                            if isinstance(client_context, dict) else app_state_get("time_zone", "Europe/Zurich"),
+                            hermes_key,
+                            HERMES_URL,
+                            evidence_sink=research_evidence.update,
+                        )
+                    except Exception as error:
+                        print(f"[Apollo Research] Unexpected failure: {error}")
+                        research_status, research_answer = "request_failed", ""
+                reply = (research_answer if research_status == "succeeded"
+                         else apollo_live_research.failure_message(research_status))
+                apollo_finish_direct_sse(self, chat_id, reply, evidence=research_evidence or None)
+                return
+
             # One semantic plan governs personal data access and every
             # consequential domain router for this turn. Domain availability
             # never overrides the current message's meaning.
@@ -23859,6 +24063,31 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 "fallback",
             )
 
+            if turn_plan.get('intent') != 'explicit_action' and (
+                any(turn_plan.get(key) for key in ('calendar', 'tasks', 'spotify', 'whoop', 'connections', 'history_query', 'memory_query', 'research_query'))
+                or apollo_intelligence.RECALL.search(user_message)
+                or apollo_intelligence.MEMORY_ACTION.search(user_message)
+            ):
+                apollo_open_sse(self)
+                apollo_send_status_sse(self, 'Checking relevant sources…')
+
+            intelligence_result = None
+            try:
+                intelligence_started = time.perf_counter()
+                intelligence_result = apollo_intelligence.enrich(
+                    sys.modules[__name__], messages, user_message, turn_plan,
+                    user_message_id, client_context if isinstance(client_context, dict) else {},
+                )
+                if intelligence_result:
+                    turn_timings["agent_trace_id"] = intelligence_result["trace"]["id"]
+                    turn_timings["agent_status"] = intelligence_result["status"]
+                turn_timings["memory_agent_ms"] = round((time.perf_counter() - intelligence_started) * 1000)
+            except Exception as error:
+                print("[Apollo Memory/Agent] " + type(error).__name__)
+                messages.insert(1, {"role": "system", "content":
+                    "Personal memory retrieval failed this turn. Do not claim history was searched or invent memories. "
+                    "Tell the user about this failure if their question requires prior personal context."})
+
             if turn_plan.get("intent") == "ambiguous_action":
                 clarification = str(
                     turn_plan.get("clarification")
@@ -23870,6 +24099,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     clarification,
                 )
                 return
+
 
 
             # ─────────────────────────────
@@ -24614,7 +24844,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
                         status_callback=
                             task_status
                     )
-                    if apollo_intent_routes_to(turn_plan, "tasks")
+                    if (apollo_intent_routes_to(turn_plan, "tasks")
+                        and turn_plan.get("intent") == "explicit_action")
                     else None
                 )
 
@@ -24685,7 +24916,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
                         conversation_context=
                             calendar_conversation_context
                     )
-                    if apollo_intent_routes_to(turn_plan, "calendar")
+                    if (apollo_intent_routes_to(turn_plan, "calendar")
+                        and turn_plan.get("intent") == "explicit_action")
                     else None
                 )
 
@@ -24719,16 +24951,16 @@ class ApolloHandler(BaseHTTPRequestHandler):
             # decides semantically which live personal sources would
             # improve the answer.
 
+            live_context = {}
             try:
 
                 context_plan = turn_plan
+                context_plan["time_zone"] = client_context.get("time_zone") if isinstance(client_context, dict) else None
 
 
                 context_started = time.perf_counter()
                 live_context = (
-                    apollo_fetch_planned_context(
-                        context_plan
-                    )
+                    {} if intelligence_result else apollo_fetch_planned_context(context_plan)
                 )
                 turn_timings["context_retrieval_ms"] = round(
                     (time.perf_counter() - context_started) * 1000
@@ -24759,6 +24991,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
                         "answer; do not mechanically list everything. "
                         "If a selected source has an error, do not invent "
                         "its contents. "
+                        "A previous answer may have used live sources on its own turn. "
+                        "Their absence from this turn is not evidence that the previous answer "
+                        "was fabricated. Recheck a source before retracting earlier factual advice. "
                         "Do not mention the internal context planner, "
                         "routing, source selection, JSON, or backend "
                         "implementation to the user."
@@ -24794,7 +25029,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
             # Task / Calendar actions already had first priority.
             # Only ordinary conversation reaches this point.
 
-            if not apollo_should_reply_semantically(
+            if not getattr(self, '_apollo_sse_open', False) and not apollo_should_reply_semantically(
                 messages,
                 user_message
             ):
@@ -24853,20 +25088,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 )
 
             try:
-                self.send_response(200)
-                self.send_header(
-                    "Content-Type",
-                    "text/event-stream; charset=utf-8"
-                )
-                self.send_header(
-                    "Cache-Control",
-                    "no-cache, no-store"
-                )
-                self.send_header(
-                    "Connection",
-                    "close"
-                )
-                self.end_headers()
+                apollo_open_sse(self)
 
                 assistant_parts = []
                 model_started = time.perf_counter()
@@ -25035,7 +25257,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 try:
                     event = json.dumps({
                         "type": "error",
-                        "error": error_body
+                        "error": "The model request failed. Please retry."
                     })
 
                     self.wfile.write(
@@ -25087,6 +25309,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
             assistant_message_id = (
                 cursor.lastrowid
             )
+
+            apollo_intelligence.save_response_context(conn, assistant_message_id,
+                apollo_intelligence.response_provenance(intelligence_result, live_context))
 
             (
                 assistant_message,
@@ -25158,19 +25383,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
             if message_count == 2:
-                try:
-                    title = generate_chat_title(history)
-                    conn.execute("""
-                        UPDATE chats
-                        SET title = ?
-                        WHERE id = ?
-                    """, (
-                        title,
-                        chat_id
-                    ))
-                    conn.commit()
-                except Exception as error:
-                    print(f"[Apollo Title] Failed safely: {error}")
+                apollo_schedule_chat_title(chat_id, history)
 
             conn.close()
             print(
@@ -25284,6 +25497,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
 
+        if apollo_intelligence.handle_api(sys.modules[__name__], self, "DELETE"):
+            return
+
         # Tailscale Serve mounted at /api strips that prefix.
         if not self.path.startswith("/api"):
             self.path = "/api" + self.path
@@ -25358,6 +25574,7 @@ if __name__ == "__main__":
 
     init_db()
     apollo_music_recover_job_status()
+    MEMORY_WORKER_STOP = apollo_intelligence.start_worker(sys.modules[__name__])
 
     # One-time-safe migration of the existing Canvas cache into external task
     # rows. The UID index makes this idempotent on every restart.

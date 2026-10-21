@@ -25,7 +25,7 @@ FL_IMAGES = (
     ("Mixer", "mixer_main.png", "mixer.htm"),
     ("Browser", "browser.png", "browser.htm"),
 )
-ALLOWED_IMAGE_HOSTS = {"www.image-line.com", "thumb.wikimedia.org"}
+ALLOWED_IMAGE_HOSTS = {"www.image-line.com", "thumb.wikimedia.org", "upload.wikimedia.org"}
 ALLOWED_MIME = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 
 
@@ -221,3 +221,75 @@ def visual_response(subject):
         ]
     }
     return f"I found these direct image assets of {label}.\n\n```apollo-ui\n{json.dumps(gallery, ensure_ascii=False)}\n```"
+
+
+def image_mime(data):
+    """Use bytes, not the browser-supplied upload type or file extension."""
+    if data.startswith(b'\x89PNG\r\n\x1a\n'): return 'image/png'
+    if data.startswith(b'\xff\xd8\xff'): return 'image/jpeg'
+    if data[:6] in (b'GIF87a', b'GIF89a'): return 'image/gif'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP': return 'image/webp'
+    if data[4:8] == b'ftyp':
+        if data[8:12] in (b'heic', b'heix', b'hevc', b'hevx', b'mif1'): return 'image/heic'
+        if data[8:12] in (b'avif', b'avis'): return 'image/avif'
+    return None
+
+
+def image_preview(path):
+    """Preview failures must never prevent serving a browser-readable original."""
+    import os
+    import tempfile
+    preview = path.with_name(path.name + '.preview.webp')
+    if preview.exists(): return preview
+    temporary = None
+    try:
+        from PIL import Image, ImageOps
+        with path.open('rb') as source: header = source.read(64)
+        if image_mime(header) == 'image/heic':
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+        with Image.open(path) as original:
+            image = ImageOps.exif_transpose(original)
+            image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+            if image.mode not in ('RGB', 'RGBA'): image = image.convert('RGB')
+            with tempfile.NamedTemporaryFile(dir=path.parent, suffix='.webp', delete=False) as file:
+                temporary = file.name
+            image.save(temporary, 'WEBP', quality=88)
+            os.replace(temporary, preview)
+        return preview
+    except (ImportError, OSError, ValueError):
+        return path
+    finally:
+        if temporary and os.path.exists(temporary): os.unlink(temporary)
+
+
+def persist_supported_images(content, directory):
+    """Archive the public sources our media resolver actually supports.
+
+    No arbitrary URL proxy, redirects, cookies or credentials. Content-addressed
+    assets survive source URL changes and are shared across repeated answers.
+    """
+    import hashlib
+    import os
+    import tempfile
+    urls = set(re.findall(r'https://[^\s"<>\\)]+', content))
+    for url in sorted(urls)[:16]:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.hostname not in ALLOWED_IMAGE_HOSTS or parsed.query: continue
+        if not re.search(r'\.(png|jpe?g|webp|gif)$', parsed.path, re.I): continue
+        digest = hashlib.sha256(url.encode()).hexdigest()
+        target = directory / (digest + '.media')
+        try:
+            if not target.exists():
+                request = urllib.request.Request(url, headers={'User-Agent': 'ApolloMedia/2.5'})
+                with _OPENER.open(request, timeout=8) as response:
+                    data = response.read(8_000_001)
+                if len(data) > 8_000_000 or not image_mime(data[:64]): continue
+                with tempfile.NamedTemporaryFile(dir=directory, delete=False) as file:
+                    file.write(data)
+                    name = file.name
+                os.replace(name, target)
+            content = content.replace(url, '/api/chat-media/' + digest)
+        except (OSError, ValueError):
+            pass  # Keep the actual URL and an actionable client error if offline.
+    return content
