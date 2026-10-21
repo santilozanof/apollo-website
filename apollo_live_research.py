@@ -34,7 +34,9 @@ def live_query_kind(message, recent_messages=()):
         return "current"
     if re.search(r"\b(concerts?|gigs?|festivals?|shows?|exhibitions?|events? in|happening in|happening near)\b", text) and re.search(r"\b(next|upcoming|coming|today|tonight|tomorrow|this week|this weekend|when|where|near|in lausanne)\b", text):
         return "events"
-    if re.search(r"\b(price|cost|opening hours|open now|available|in stock|exchange rate|specs|release date|availability)\b", text) and re.search(r"\b(current|now|today|latest|how much|what|is|are|when)\b", text):
+    # "Available" alone also describes personal calendar gaps and work blocks.
+    # Those requests must reach the planner and authenticated service adapters.
+    if re.search(r"\b(price|cost|opening hours|open now|in stock|exchange rate|specs|release date|availability)\b", text) and re.search(r"\b(current|now|today|latest|how much|what|is|are|when)\b", text):
         return "current"
     if re.search(r"\b(news|updates?)\b", text) and re.search(r"\b(what|any|about|on|from|in)\b", text):
         return "current"

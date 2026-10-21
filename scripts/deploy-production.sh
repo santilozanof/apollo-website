@@ -14,7 +14,7 @@ assert ready['revision']==sys.argv[1], 'This revision has not completed deployme
 assert ready['migration_rehearsal'] and ready['rollback_rehearsal']
 backup=pathlib.Path(ready['backup'])
 manifest=json.loads((backup/'manifest.json').read_text())
-for name in ['apollo.db','apollo-files.tar.gz','config.tar.gz','repository.bundle']:
+for name in manifest['files']:
  assert hashlib.file_digest((backup/name).open('rb'), 'sha256').hexdigest()==manifest['files'][name]['sha256'],name
 assert hashlib.sha256(pathlib.Path('/opt/apollo/models/all-MiniLM-L6-v2/model.safetensors').read_bytes()).hexdigest()==ready['model_sha256']
 assert subprocess.check_output(['git','status','--porcelain','--untracked-files=no']).strip()==b'', 'Preserve unexpected production edits before deploying'
@@ -60,6 +60,7 @@ systemctl start apollo-backend
 for attempt in {1..30}; do
   if curl --fail --silent http://127.0.0.1:8765/api/chats >/dev/null; then
     test "$(systemctl show hermes-gateway -p MainPID --value)" = "$(cat "$release_dir/hermes-pid")"
+    printf '%s\n' "$previous" > /root/apollo-active-release
     echo 'Rollback verified; the current database and credentials were retained.'
     exit 0
   fi

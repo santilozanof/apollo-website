@@ -60,6 +60,12 @@ class DestinationTests(unittest.TestCase):
             self.assertEqual(destination('https://example.com/path')[1:], ('example.com', 443, '8.8.8.8'))
 
 class ExtractionEvidenceTests(unittest.TestCase):
+    def test_available_calendar_gaps_are_not_product_research(self):
+        import apollo_live_research as live
+        self.assertIsNone(live.live_query_kind('What does tomorrow look like for me, and which unfinished assignments should I tackle in the available gaps? Make a practical plan without changing anything.'))
+        self.assertIsNone(live.live_query_kind('Which unfinished assignments can fit in my available time?'))
+        self.assertEqual(live.live_query_kind('What is the current price of this product?'), 'current')
+
     def test_local_pages_are_used_for_synthesis_and_citations(self):
         from tests.test_live_research_pipeline import response, FakeHTTP
         import apollo_live_research as live
