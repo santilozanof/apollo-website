@@ -25112,6 +25112,12 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 first_model_chunk_at = None
 
                 visual_subject = visual_request(user_message, messages)
+                # A legacy appearance heuristic must never replace evidence
+                # already retrieved for a personal/multi-service answer.
+                if (intelligence_result or live_context) and not re.search(
+                    r'\b(images?|photos?|pictures?|screenshots?)\b', user_message, re.I
+                ):
+                    visual_subject = None
                 response_chunks = (
                     [visual_response(visual_subject)]
                     if visual_subject else stream_hermes(messages)

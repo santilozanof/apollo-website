@@ -166,6 +166,17 @@ class PipelineTests(unittest.TestCase):
                 'intent': 'personal_query', 'primary_domain': 'tasks', 'tasks': True})
         self.assertTrue(any('Essay' in message['content'] for message in captured))
 
+    def test_personal_plan_is_not_replaced_by_legacy_image_search(self):
+        with mock.patch.object(server, 'apollo_context_calendar', return_value=[{'summary':'Class'}]), \
+             mock.patch.object(server, 'get_tasks', return_value=[{'title':'Essay'}]), \
+             mock.patch.object(server, 'calendar_subscription_status', return_value={'connected':False}), \
+             mock.patch.object(server, 'visual_request', return_value='legacy false positive'), \
+             mock.patch.object(server, 'visual_response', side_effect=AssertionError('personal evidence replaced by images')):
+            captured, done = self.turn('What does tomorrow look like for me and my assignments?', plan={
+                'intent':'personal_query','primary_domain':'multi','calendar':True,'tasks':True})
+        self.assertTrue(any('Essay' in message['content'] and 'Class' in message['content'] for message in captured))
+        self.assertIn('supplied evidence', done['message']['content'])
+
     def test_calendar_context_covers_full_tomorrow_in_device_zone(self):
         from datetime import datetime as real_datetime
         from zoneinfo import ZoneInfo

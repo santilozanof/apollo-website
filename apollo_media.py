@@ -72,6 +72,12 @@ def visual_request(message, history=()):
     """Return a bounded subject for an explicit visual request, or None."""
     text = re.sub(r"\s+", " ", str(message or "")).strip()
     lower = text.lower()
+    # "What does tomorrow/my workload look like?" asks for a plan, not
+    # photographs. Keep explicit media requests and the existing physical/UI
+    # appearance requests, but do not hijack temporal or personal-data prose.
+    if (not re.search(r'\b(images?|photos?|pictures?|screenshots?)\b', lower)
+            and re.search(r'\b(today|tomorrow|yesterday|schedule|calendar|tasks?|assignments?|deadlines?|workload|agenda|week|plans?)\b', lower)):
+        return None
     ordinal_subject = _ordinal_subject(str(message or ""), history)
     if ordinal_subject:
         return ordinal_subject

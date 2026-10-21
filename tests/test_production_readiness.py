@@ -46,6 +46,14 @@ class BackfillTests(unittest.TestCase):
 
 
 class DestinationTests(unittest.TestCase):
+    def test_planning_look_like_does_not_request_photographs(self):
+        from apollo_media import visual_request
+        for prompt in ['What does tomorrow look like for me, and which unfinished assignments should I tackle in the available gaps?',
+                       'What does my workload look like for the week?', 'What does my schedule look like for tomorrow?']:
+            self.assertIsNone(visual_request(prompt))
+        self.assertEqual(visual_request('What does FL Studio look like?'), 'fl-studio')
+        self.assertEqual(visual_request('Show me photos of a vintage espresso machine.'), 'vintage espresso machine')
+
     def test_explicit_short_requests_bypass_silence_classifier(self):
         import server
         for prompt in ['Convert 90 minutes to hours. Answer briefly.', 'Give a one-sentence definition of an octave.',
