@@ -522,3 +522,6 @@ html[data-reduce-motion="true"] .routine-toast {
     animation: none !important;
     transition-duration: .01ms !important;
 }
+
+.hydration-quick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.hydration-quick button:disabled { opacity: .45; cursor: wait; }

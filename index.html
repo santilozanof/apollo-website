@@ -186,11 +186,14 @@ html[data-theme="light"] {
 
 </style>
 <link rel="stylesheet" href="/vendor/katex/katex.min.css?v=0.19.0">
-<link rel="stylesheet" href="/apollo_genui.css?v=20261015-2">
+<link rel="stylesheet" href="/apollo_genui.css?v=20261027-1">
 <link rel="stylesheet" href="/apollo_capacitor.css?v=20261015-2">
 <script src="/apollo_date_nav.js?v=20261015-2"></script>
 <script src="/vendor/katex/katex.min.js?v=0.19.0"></script>
-<script src="/apollo_genui.js?v=20261015-2"></script>
+<script src="/vendor/chat/markdown-it.min.js?v=15.0.2"></script>
+<script src="/vendor/chat/purify.min.js?v=3.4.17"></script>
+<script src="/vendor/chat/highlight.min.js?v=11.12.0"></script>
+<script src="/apollo_genui.js?v=20261027-1"></script>
 
 <style>
 :root {
@@ -6666,9 +6669,9 @@ html[data-theme="light"]
     <div class="apollo-boot-inner">
 
         <div class="apollo-boot-logo">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="4.2"/>
-                <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>
+            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" aria-hidden="true">
+                <path d="M5 25 L14.5 6 L27 25" stroke-width="1.8"/>
+                <path d="M6.5 20 C11 15.5 18 14.5 27 19" stroke-width="1.35"/>
             </svg>
         </div>
 
@@ -6684,9 +6687,9 @@ html[data-theme="light"]
 
         <div class="brand">
             <div class="brand-mark">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" aria-label="Apollo" role="img">
-        <circle cx="12" cy="12" r="4.2"/>
-        <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>
+    <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" aria-label="Apollo" role="img">
+        <path d="M5 25 L14.5 6 L27 25" stroke-width="1.8"/>
+        <path d="M6.5 20 C11 15.5 18 14.5 27 19" stroke-width="1.35"/>
     </svg>
 </div>
             <div class="brand-name">APOLLO</div>
@@ -6706,9 +6709,9 @@ html[data-theme="light"]
 
             <button class="nav-button">
                 <span class="nav-icon apollo-nav-sun">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <circle cx="12" cy="12" r="4.2"/>
-                        <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>
+                    <svg viewBox="0 0 32 32" aria-hidden="true">
+                        <path d="M5 25 L14.5 6 L27 25" stroke-width="1.8"/>
+                        <path d="M6.5 20 C11 15.5 18 14.5 27 19" stroke-width="1.35"/>
                     </svg>
                 </span>
                 <span class="nav-label">Apollo</span>
@@ -6788,6 +6791,8 @@ html[data-theme="light"]
                 </div>
 
             </header>
+
+            <aside id="apolloConnectionBanner" role="status" aria-live="polite" hidden></aside>
 
             <section class="ask home-section home-section--ask">
 
@@ -7106,9 +7111,9 @@ html[data-theme="light"]
             <div class="apollo-welcome-inner">
 
                 <div class="apollo-welcome-mark">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round">
-                        <circle cx="12" cy="12" r="4.2"/>
-                        <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>
+                    <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round">
+                        <path d="M5 25 L14.5 6 L27 25" stroke-width="1.8"/>
+                        <path d="M6.5 20 C11 15.5 18 14.5 27 19" stroke-width="1.35"/>
                     </svg>
                 </div>
 
@@ -10814,11 +10819,11 @@ body.light
             title="Drag Apollo"
         >
             <svg
-                viewBox="0 0 24 24"
+                viewBox="0 0 32 32"
                 aria-hidden="true"
             >
-                <circle cx="12" cy="12" r="4.2"/>
-                <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>
+                <path d="M5 25 L14.5 6 L27 25" stroke-width="1.8"/>
+                <path d="M6.5 20 C11 15.5 18 14.5 27 19" stroke-width="1.35"/>
             </svg>
         </div>
 
@@ -12028,7 +12033,7 @@ body.light
                 );
 
 
-            if (!link) return;
+            if (!link || link.querySelector(".apollo-ui-figure")) return;
 
 
             const img =
@@ -22210,7 +22215,7 @@ html.apollo-jarvis-mode .jv10-core-ring.inner::after {
 <link
     id="apollo-mobile-v1-css"
     rel="stylesheet"
-    href="/apollo_mobile_v1.css?v=20261014-3"
+    href="/apollo_mobile_v1.css?v=20261027-1"
 >
 
 
@@ -22226,9 +22231,9 @@ html.apollo-jarvis-mode .jv10-core-ring.inner::after {
             class="apollo-mobile-chat-mark"
             aria-hidden="true"
         >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round">
-                <circle cx="12" cy="12" r="4.2"/>
-                <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>
+            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round">
+                <path d="M5 25 L14.5 6 L27 25" stroke-width="1.8"/>
+                <path d="M6.5 20 C11 15.5 18 14.5 27 19" stroke-width="1.35"/>
 
             </svg>
         </span>
@@ -22316,6 +22321,7 @@ html.apollo-jarvis-mode .jv10-core-ring.inner::after {
 let apolloChatId = null;
 window.apolloGetActiveChatId = () => apolloChatId;
 let apolloSending = false;
+let apolloActiveStreamController = null;
 
 /* APOLLO CHAT SESSION FRESHNESS */
 const APOLLO_CHAT_IDLE_MS =
@@ -22369,6 +22375,16 @@ const apolloView = document.getElementById("apolloView");
 const apolloHome = document.querySelector(".home");
 const apolloInput = document.getElementById("apolloInput");
 const apolloSend = document.getElementById("apolloSend");
+const apolloSendIcon = apolloSend.innerHTML;
+function apolloSetGenerationActive(active) {
+    apolloSending = active;
+    apolloSend.disabled = false;
+    apolloSend.setAttribute("aria-label", active ? "Stop generation" : "Send");
+    apolloSend.title = active ? "Stop generation" : "Send";
+    apolloSend.innerHTML = active
+        ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></svg>'
+        : apolloSendIcon;
+}
 const apolloMessages = document.getElementById("apolloMessages");
 const apolloWelcome = document.getElementById("apolloWelcome");
 
@@ -23457,29 +23473,15 @@ function apolloAddMessage(
                     );
 
 
-                    const image =
-                        document.createElement(
-                            "img"
-                        );
-
-
-                    image.src =
-                        (
-                            attachment.preview_url
-                            || (
-                                attachment.url
-                                + "/preview"
-                            )
-                        );
-
-                    image.alt =
-                        attachment.filename
-                        || "Attached image";
-
-
-                    item.appendChild(
-                        image
-                    );
+                    item.removeAttribute("target");
+                    item.addEventListener("click", event => event.preventDefault());
+                    if (window.apolloImageNode) {
+                        item.appendChild(window.apolloImageNode({
+                            url: attachment.preview_url || attachment.url + "/preview",
+                            original: attachment.url,
+                            alt: attachment.filename || "Attached image"
+                        }));
+                    }
 
                 }
 
@@ -24415,9 +24417,9 @@ function apolloShowImageGenerating() {
                 <div class="apollo-image-generating-inner">
 
                     <div class="apollo-image-generating-mark">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round">
-                            <circle cx="12" cy="12" r="4.2"/>
-                            <path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>
+                        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round">
+                            <path d="M5 25 L14.5 6 L27 25" stroke-width="1.8"/>
+                            <path d="M6.5 20 C11 15.5 18 14.5 27 19" stroke-width="1.35"/>
                         </svg>
                     </div>
 
@@ -24520,16 +24522,17 @@ let apolloChatCreatePromise = null;
 function apolloFinalizeInterruptedStream(
     renderer,
     streamingMessage,
-    content
+    content,
+    reason = "Response interrupted"
 ) {
-    const streamedRoot = renderer?.interrupt("Response interrupted");
+    const streamedRoot = renderer?.interrupt(reason);
     if (!streamingMessage?.isConnected) return;
     streamingMessage.style.display = "";
     const safeContent =
         window.ApolloGenUI
             ?.completeStreamSegments?.(content, false)
             .segments.join("\n\n")
-        || "Response interrupted";
+        || reason;
     const finalRendered = apolloAddMessage(
         "assistant",
         safeContent,
@@ -24656,8 +24659,9 @@ async function apolloRetryMessage(message) {
         messageToRemove = nextMessage;
     }
 
-    apolloSending = true;
-    apolloSend.disabled = true;
+    apolloSetGenerationActive(true);
+    const streamController = new AbortController();
+    apolloActiveStreamController = streamController;
     let apolloStreamRenderer = null;
     let apolloStreamingMessage = null;
     let assistantContent = "";
@@ -24672,6 +24676,7 @@ async function apolloRetryMessage(message) {
             `/api/chats/${requestChatId}/messages`,
             {
                 method: "POST",
+                signal: streamController.signal,
                 headers: {
                     "Content-Type": "application/json"
                 },
@@ -24700,6 +24705,7 @@ async function apolloRetryMessage(message) {
 
         let newMessage = null;
         let text = null;
+        let streamCompleted = false;
 
         while (true) {
 
@@ -24801,6 +24807,7 @@ async function apolloRetryMessage(message) {
                     }
 
                     if (data.type === "done") {
+                        streamCompleted = true;
 
                         if (
                             typeof window.apolloMarkResponseReady
@@ -24845,6 +24852,7 @@ async function apolloRetryMessage(message) {
                 }
             }
         }
+        if (!streamCompleted) throw new Error("Response ended before completion. Retry when ready.");
 
     } catch (error) {
 
@@ -24852,8 +24860,14 @@ async function apolloRetryMessage(message) {
         apolloFinalizeInterruptedStream(
             apolloStreamRenderer,
             apolloStreamingMessage,
-            assistantContent
+            assistantContent,
+            error.name === "AbortError" ? "Generation stopped" : "Response interrupted"
         );
+        if (!apolloStreamingMessage && isRequestChatVisible()) {
+            apolloAddMessage("assistant", error.name === "AbortError"
+                ? "Generation stopped. You can retry this response."
+                : "The response could not complete. You can retry it.", [], false);
+        }
 
         if (
             typeof isRequestChatVisible === "function"
@@ -24869,8 +24883,8 @@ async function apolloRetryMessage(message) {
 
     } finally {
 
-        apolloSending = false;
-        apolloSend.disabled = false;
+        if (apolloActiveStreamController === streamController) apolloActiveStreamController = null;
+        apolloSetGenerationActive(false);
         if (typeof apolloRefreshHistory === "function") {
             apolloRefreshHistory().catch(() => {});
         }
@@ -25181,6 +25195,11 @@ async function apolloSaveDebriefFeedback(button, item, feedback) {
         });
     } catch (error) {
         console.error("Apollo debrief feedback:", error);
+        const notice = document.createElement("span");
+        notice.className = "apollo-debrief-status";
+        notice.setAttribute("role", "status");
+        notice.textContent = "Feedback was not saved. Please try again.";
+        controls?.appendChild(notice);
     } finally {
         buttons.forEach(control => control.disabled = false);
     }
@@ -25221,9 +25240,21 @@ function apolloDebriefStoryRow(item, label, allowFeedback) {
 
     contentWrap.appendChild(headline);
     if (bodyText) contentWrap.appendChild(body);
+    if (item.details || item.why_care) {
+        const details = document.createElement("details");
+        details.className = "apollo-debrief-detail";
+        const summary = document.createElement("summary");
+        summary.textContent = "Read more";
+        const text = document.createElement("div");
+        text.className = "apollo-debrief-body";
+        text.style.whiteSpace = "pre-line";
+        text.textContent = [item.why_care, item.details].filter(Boolean).join("\n\n");
+        details.append(summary, text);
+        contentWrap.appendChild(details);
+    }
 
     if (item.source) {
-        const source = document.createElement(item.url ? "a" : "div");
+        const source = document.createElement(/^https:\/\//.test(item.url || "") ? "a" : "div");
         source.className = "apollo-debrief-source";
         const published = item.published_at
             ? new Date(item.published_at)
@@ -25237,7 +25268,7 @@ function apolloDebriefStoryRow(item, label, allowFeedback) {
             }));
         }
         source.textContent = sourceParts.join(" · ");
-        if (item.url) {
+        if (/^https:\/\//.test(item.url || "")) {
             source.href = item.url;
             source.target = "_blank";
             source.rel = "noopener noreferrer";
@@ -25256,7 +25287,8 @@ function apolloDebriefStoryRow(item, label, allowFeedback) {
     if (allowFeedback) {
         [
             ["more", "More like this"],
-            ["less", "Less like this"]
+            ["less", "Less like this"],
+            ["not_interested", "Not interested"]
         ].forEach(([value, text]) => {
             const button = document.createElement("button");
             button.type = "button";
@@ -25291,7 +25323,7 @@ function apolloRenderOriginalDebrief(element, stories) {
     const items = document.createElement("div");
     items.className = "apollo-debrief-items";
 
-    stories.slice(0, 6).forEach(item => {
+    stories.forEach(item => {
         items.appendChild(
             apolloDebriefStoryRow(
                 item,
@@ -25360,15 +25392,47 @@ function apolloRenderDebrief(element, content, feedbackByStory = {}) {
             )
         ];
 
-    const visibleStories = stories.filter(
-        item => !apolloDebriefStoryIsExcluded(item)
-    );
+    const news = stories.filter(item => !apolloDebriefStoryIsExcluded(item));
+    let musicCount = 0;
+    const balancedNews = news.filter(item => {
+        const music = (item.topics || []).includes("music") || item.category?.toLowerCase() === "music";
+        return !music || ++musicCount <= 1;
+    });
+    const visibleStories = [
+        ...(Array.isArray(brief.my_day) ? brief.my_day : []),
+        ...balancedNews.filter(item => !(item.topics || []).includes("music") && item.category?.toLowerCase() !== "music"),
+        ...(Array.isArray(brief.personal_intelligence) ? brief.personal_intelligence : []),
+        ...balancedNews.filter(item => (item.topics || []).includes("music") || item.category?.toLowerCase() === "music")
+    ];
 
-    visibleStories.slice(0, 6).forEach(item => {
+    visibleStories.forEach(item => {
         item.user_feedback = feedbackByStory[item.id] || null;
     });
 
     apolloRenderOriginalDebrief(element, visibleStories);
+    const notices = Array.isArray(brief.availability) ? [...brief.availability] : [];
+    if (brief.as_of) {
+        const date = new Date(brief.as_of);
+        if (!Number.isNaN(date.getTime()) && date.toDateString() !== new Date().toDateString()) {
+            notices.unshift({message: "This briefing is from " + date.toLocaleDateString() + ". Today's information has not been generated yet."});
+        }
+    }
+    notices.forEach(notice => {
+        const line = document.createElement("div");
+        line.className = "apollo-debrief-status";
+        line.textContent = notice.message;
+        if (notice.action === "connections") {
+            const button = document.createElement("button");
+            button.type = "button"; button.className = "apollo-debrief-followup";
+            button.textContent = "Review connections";
+            button.addEventListener("click", () => {
+                window.openSettings?.();
+                document.getElementById("apolloConnectionsPanel")?.scrollIntoView({block: "center"});
+            });
+            line.append(" ", button);
+        }
+        element.appendChild(line);
+    });
 }
 requestAnimationFrame(() => {
     setTimeout(
@@ -25673,6 +25737,8 @@ async function apolloSendMessage() {
     let apolloStreamRenderer = null;
     let apolloStreamingMessage = null;
     let assistantContent = "";
+    let requestIsVisible = () => false;
+    let userMessageAdded = false;
 
 
     /* =====================================================
@@ -25871,8 +25937,9 @@ async function apolloSendMessage() {
         return;
     }
 
-    apolloSending = true;
-    apolloSend.disabled = true;
+    apolloSetGenerationActive(true);
+    const streamController = new AbortController();
+    apolloActiveStreamController = streamController;
 
     apolloInput.value = "";
     apolloInput.style.height = "auto";
@@ -25909,6 +25976,7 @@ if (apolloChatIsStale()) {
             () =>
                 Number(apolloChatId)
                 === requestChatId;
+        requestIsVisible = isRequestChatVisible;
 
 
         const uploadedAttachments =
@@ -25920,6 +25988,7 @@ if (apolloChatIsStale()) {
             content,
             uploadedAttachments
         );
+        userMessageAdded = true;
 
 
         apolloClearPendingAttachments();
@@ -25938,6 +26007,7 @@ if (apolloChatIsStale()) {
             `/api/chats/${apolloChatId}/messages`,
             {
                 method: "POST",
+                signal: streamController.signal,
                 headers: {
                     "Content-Type": "application/json"
                 },
@@ -25998,6 +26068,7 @@ if (!response.ok) {
 
         let message = null;
         let text = null;
+        let streamCompleted = false;
 
         while (true) {
             const { value, done } = await reader.read();
@@ -26097,6 +26168,7 @@ if (!response.ok) {
                     }
 
                     if (data.type === "done") {
+                        streamCompleted = true;
 
                         apolloTouchChatActivity();
 
@@ -26152,6 +26224,7 @@ if (!response.ok) {
 
             }
         }
+        if (!streamCompleted) throw new Error("Response ended before completion. Retry when ready.");
 
     if (isRequestChatVisible()) {
         apolloFinishUserSendViewport();
@@ -26160,18 +26233,28 @@ if (!response.ok) {
     } catch (error) {
 
         apolloHideTyping();
+        if (!userMessageAdded && content) {
+            apolloInput.value = content;
+            apolloInput.dispatchEvent(new Event("input", {bubbles: true}));
+        }
         apolloFinalizeInterruptedStream(
             apolloStreamRenderer,
             apolloStreamingMessage,
-            assistantContent
+            assistantContent,
+            error.name === "AbortError" ? "Generation stopped" : "Response interrupted"
         );
+        if (!apolloStreamingMessage && requestIsVisible()) {
+            apolloAddMessage("assistant", error.name === "AbortError"
+                ? "Generation stopped. You can retry this response."
+                : "The response could not complete. You can retry it.", [], false);
+        }
 
         console.error("Apollo:", error);
 
     } finally {
 
-        apolloSending = false;
-        apolloSend.disabled = false;
+        if (apolloActiveStreamController === streamController) apolloActiveStreamController = null;
+        apolloSetGenerationActive(false);
         if (typeof apolloRefreshHistory === "function") {
             /*
              * The visible `done` event intentionally arrives before optional
@@ -26198,7 +26281,10 @@ if (navButtons[1]) {
 
 apolloSend.addEventListener(
     "click",
-    apolloSendMessage
+    () => {
+        if (apolloSending) apolloActiveStreamController?.abort();
+        else apolloSendMessage();
+    }
 );
 
 apolloInput.addEventListener(
@@ -37596,7 +37682,7 @@ html.apollo-reduce-motion *::after {
             return `<div class="apollo-setting-row" data-connection-id="${escapeConnectionText(integration.id)}">
                 <div class="apollo-setting-copy">
                     <div class="apollo-setting-name">${escapeConnectionText(integration.name)}</div>
-                    <div class="apollo-setting-description">${escapeConnectionText(integration.description)}</div>
+                    <div class="apollo-setting-description">${escapeConnectionText(integration.description)} ${integration.needs_attention ? escapeConnectionText(integration.management_note || "") : ""}</div>
                 </div>
                 <div class="apollo-connection-control">
                     <div class="apollo-connection-status ${integration.status === "connected" ? "connected" : integration.status}">
@@ -37637,6 +37723,8 @@ html.apollo-reduce-motion *::after {
         }
     }
 
+    window.addEventListener("apollo:connection-health", event => renderConnections(event.detail.integrations || []));
+
     connectionPanel?.addEventListener("click", async event => {
         const button = event.target.closest("[data-connection-action]");
         if (!button) return;
@@ -37661,6 +37749,7 @@ html.apollo-reduce-motion *::after {
             const description = row?.querySelector(".apollo-setting-description");
             if (description) description.textContent = error.message;
         } finally {
+            await window.apolloRefreshConnectionHealth?.(true);
             await loadConnectionStatus();
         }
     });
@@ -78532,8 +78621,8 @@ html.apollo-jarvis-mode
 </script>
 
 
-<link id="apollo-routines-css" rel="stylesheet" href="/routines.css?v=20261014-2">
-<script id="apollo-routines-js" src="/routines.js?v=20261015-1"></script>
+<link id="apollo-routines-css" rel="stylesheet" href="/routines.css?v=20261019-1">
+<script id="apollo-routines-js" src="/routines.js?v=20261019-1"></script>
 
 <!-- APOLLO ROUTE STATE V2 -->
 <script id="apollo-route-state-v2">
@@ -78700,3 +78789,13 @@ html.apollo-jarvis-mode
 
 <script src="/apollo_notifications.js?v=20260904-3"></script>
 <script src="/apollo_capacitor.js?v=20261015-3"></script>
+
+<link rel="stylesheet" href="/apollo_reliability.css?v=20261019-1">
+<script src="/apollo_health.js?v=20261019-1"></script>
+<link rel="stylesheet" href="/apollo_memory_controls.css?v=20261021-1">
+<script src="/apollo_memory_controls.js?v=20261021-1"></script>
+<link rel="stylesheet" href="/apollo_music_insights.css?v=20261027-1">
+<script src="/apollo_music_insights.js?v=20261027-2"></script>
+<script src="/apollo_brand.js?v=20261027-1"></script>
+<script src="/apollo_shortcuts.js?v=20261027-1"></script>
+<style>.apollo-shortcut-target { outline: 2px solid currentColor; outline-offset: 3px; }</style>

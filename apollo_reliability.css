@@ -1,0 +1,19 @@
+#apolloConnectionBanner { margin: 0 0 22px; padding: 14px 16px; border: 1px solid rgba(186,139,62,.3); border-radius: 14px; background: rgba(186,139,62,.07); font-size: 13px; line-height: 1.5; }
+#apolloConnectionBanner[hidden] { display: none !important; }
+#apolloConnectionBanner summary { cursor: pointer; font-weight: 550; }
+#apolloConnectionBanner p { opacity: .75; margin: 8px 0; }
+#apolloConnectionBanner button, #apolloConnectionBanner a { display: inline-block; font: inherit; color: inherit; background: transparent; border: 1px solid rgba(127,127,127,.25); border-radius: 8px; padding: 6px 10px; cursor: pointer; text-decoration: none; margin: 8px 0 0; }
+.apollo-health-detail { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: center; padding-top: 6px; }
+.apollo-health-detail span { flex: 1 1 220px; }
+.apollo-debrief-detail summary { cursor: pointer; font-size: 12px; opacity: .7; margin-top: 8px; }
+.apollo-debrief-feedback.is-selected { text-decoration: underline; opacity: 1; }
+.apollo-debrief-status { font-size: 12px; opacity: .7; line-height: 1.6; margin: 12px 0; }
+#apolloView .apollo-message-attachments .apollo-message-attachment.image { width: auto; height: auto; min-width: 0; overflow: visible; }
+#apolloView .apollo-message-attachments .apollo-message-attachment.image img { width: 100%; height: auto; max-height: 520px; aspect-ratio: auto; object-fit: contain; }
+/* Legacy inline media rules use !important; explicitly replace their crop/layout contract. */
+#apolloView .apollo-message-attachments.multiple { display: grid !important; columns: auto !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; width: min(360px, 75vw) !important; max-width: 100% !important; align-items: start; }
+#apolloView .apollo-message-attachments .apollo-message-attachment.image { aspect-ratio: auto !important; height: auto !important; width: 100% !important; }
+#apolloView .apollo-message-attachments .apollo-message-attachment.image img { height: auto !important; max-height: 520px !important; object-fit: contain !important; aspect-ratio: auto !important; }
+.home > #apolloConnectionBanner { order: 1; }
+.home > #apolloConnectionBanner { margin-top: 16px; }
+#apolloView .apollo-message-attachment.image .apollo-image-status:not([hidden]) { display: block !important; }

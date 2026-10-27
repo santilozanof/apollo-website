@@ -33,7 +33,7 @@
     button.className = "nav-button";
     button.setAttribute("aria-label", "Routines");
     button.innerHTML = `
-        <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7.5h14M5 12h14M5 16.5h9"/><path d="m17 16.5 1.5 1.5 2.5-3"/></svg></span>
+        <span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/></svg></span>
         <span class="nav-label">Routines</span>`;
     /* Keep every legacy tab at its existing index. Some older Apollo modules
        still bind Studio by position, so Routines is appended after it. */
@@ -357,8 +357,9 @@
         document.getElementById("routineHydration").innerHTML = `<section class="hydration-card">
             <div class="routine-panel-label">Water today</div><div class="hydration-value">${number(hydration.total_ml / 1000)} L <span>/ ${number(hydration.goal_ml / 1000)} L</span></div>
             <div class="hydration-water" role="progressbar" aria-label="Hydration" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div style="--progress:${progress}%"></div></div>
-            <div class="hydration-quick">${[150, 250, 500].map(amount => `<button data-water="${amount}" type="button">+${amount} ml</button>`).join("")}</div>
+            <div class="hydration-quick">${[150, 250, 500, 710].map(amount => `<button data-water="${amount}" type="button">+${amount} ml</button>`).join("")}</div>
             <div class="hydration-foot"><span><button class="routine-text-button" data-water-custom type="button">Custom</button><button class="routine-text-button" data-water-goal type="button">Set goal</button></span>${hydration.entries.length ? '<button class="routine-text-button" data-water-undo type="button">Undo</button>' : ""}</div></section>`;
+        window.apolloShortcutWaterTarget?.();
     }
 
     document.getElementById("routineHydration").addEventListener("click", async event => {
@@ -386,9 +387,28 @@
         }
     });
 
+    let waterPending = false;
+    let waterIntent = null;
+    let waterLastSaved = 0;
     async function addWater(amount) {
+        if (waterPending || Date.now() - waterLastSaved < 700) return;
         if (!Number.isFinite(amount) || amount <= 0) { toast("Enter a valid amount"); return; }
-        await save({ action: "log_water", amount_ml: amount, idempotency_key: crypto.randomUUID() });
+        waterPending = true;
+        // Reuse the key after an uncertain response so retry cannot log twice.
+        if (!waterIntent || waterIntent.amount_ml !== amount) waterIntent = { action: "log_water", amount_ml: amount, idempotency_key: crypto.randomUUID() };
+        const disable = value => document.querySelectorAll("[data-water], [data-water-custom]").forEach(button => button.disabled = value);
+        disable(true);
+        try {
+            const operation = state.saveQueue.then(async () => {
+                await api(waterIntent);
+                waterIntent = null;
+                waterLastSaved = Date.now();
+                await load(true);
+            });
+            state.saveQueue = operation.catch(() => {});
+            await operation;
+        } catch (error) { toast(error.message || "Could not save water. Tap again to retry safely."); }
+        finally { waterPending = false; disable(false); }
     }
 
     function renderHistory() {

@@ -2,6 +2,7 @@ from pathlib import Path
 import mimetypes
 import shutil
 import uuid
+from urllib.parse import urlsplit
 
 
 _db = None
@@ -35,6 +36,15 @@ def _conn():
 
 def _clean(value):
     return str(value or "").strip()
+
+
+def _safe_reference_url(value):
+    """Only web references are navigable in Studio's project library."""
+    url = _clean(value)
+    parsed = urlsplit(url)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
+        raise ValueError("Use an HTTP or HTTPS reference link")
+    return url
 
 
 def _project(project_id):
@@ -1314,6 +1324,8 @@ def _media_type(
     mime,
     filename,
 ):
+    if Path(filename or "").suffix.lower() == ".flp":
+        return "fl_studio_project"
     mime = _clean(mime).lower()
 
     if mime.startswith("image/"):
@@ -1494,6 +1506,7 @@ def create_media_link(data):
 
     if not url:
         raise ValueError("URL is required")
+    url = _safe_reference_url(url)
 
     title = (
         _clean(data.get("title"))
@@ -1612,6 +1625,8 @@ def update_media(data):
         external_url
         or None
     )
+    if external_url:
+        external_url = _safe_reference_url(external_url)
 
     conn.execute(
         """

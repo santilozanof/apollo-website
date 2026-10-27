@@ -45,15 +45,15 @@ console.log(JSON.stringify(results));
         source = (ROOT / "index.html").read_text(encoding="utf-8")
         self.assertIn("function apolloDebriefStoryIsExcluded(item)", source)
         self.assertIn("football|soccer|fifa|uefa|world cup", source)
-        self.assertIn("const visibleStories = stories.filter(", source)
+        self.assertIn("const news = stories.filter(item => !apolloDebriefStoryIsExcluded(item))", source)
         self.assertIn("apolloRenderOriginalDebrief(element, visibleStories);", source)
 
     def test_failed_news_is_not_saved_as_a_complete_debrief(self):
         source = (ROOT / "generate_debrief.py").read_text(encoding="utf-8")
-        self.assertIn('existing_content.get("news_status") != "unavailable"', source)
-        self.assertNotIn('"news_status": "unavailable"', source)
-        self.assertIn("if len(stories) < 4:", source)
-        self.assertNotIn("get_personal_today", source)
+        self.assertIn("existing.get('news_status') == 'ready'", source)
+        self.assertIn("status = 'ready' if stories else 'unavailable'", source)
+        self.assertIn("personal, health = collect_personal(now)", source)
+        self.assertIn("attempts.get('count', 0) >= 3", source)
 
 
 if __name__ == "__main__":

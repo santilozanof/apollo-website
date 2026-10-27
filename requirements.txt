@@ -1,2 +1,7 @@
 # Web Push encryption and VAPID delivery. Kept server-side only.
 pywebpush>=2.0,<3.0
+# Chat previews, EXIF orientation and iPhone HEIC uploads.
+Pillow>=10.4,<13
+pillow-heif>=0.18,<2
+# Public HTML main-text extraction; no hosted extraction credentials required.
+trafilatura>=2.3,<3

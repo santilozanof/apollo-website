@@ -30,7 +30,7 @@ class DebriefRankingTests(unittest.TestCase):
     def setUp(self):
         self.now = datetime(2026, 10, 13, 10, tzinfo=ZoneInfo("Europe/Zurich"))
 
-    def test_music_and_culture_beat_repetitive_minor_ai_and_gta(self):
+    def test_significant_news_beats_obscure_music_and_minor_ai(self):
         pool = [
             candidate("Underground soul artist releases a sample-built album", "music", 0.72, "Bandcamp", "https://daily.bandcamp.com/album/release"),
             candidate("Menswear exhibition opens in Zurich", "fashion", 0.68, "Vogue", "https://vogue.com/article/zurich-exhibition"),
@@ -40,14 +40,14 @@ class DebriefRankingTests(unittest.TestCase):
         ]
         selected = personalization.select_stories(pool, now=self.now)
         headlines = [item["headline"] for item in selected["stories"]]
-        self.assertIn(pool[0]["headline"], headlines)
+        self.assertNotIn(pool[0]["headline"], headlines)
         self.assertIn(pool[1]["headline"], headlines)
         self.assertFalse(any("AI app" in headline or "GTA" in headline for headline in headlines))
         self.assertIn(pool[4]["headline"], headlines)
 
     def test_duplicate_story_is_suppressed_without_meaningful_update(self):
-        story = candidate("Artist announces new soul album and tour", "music")
-        previous = [{"headline": "Soul artist announces a new album and tour"}]
+        story = candidate("Peace agreement restores humanitarian aid access", "world")
+        previous = [{"headline": "Peace agreement restores humanitarian aid access"}]
         self.assertEqual(
             personalization.select_stories([story], previous_stories=previous, now=self.now)["stories"],
             [],
@@ -86,8 +86,8 @@ class DebriefRankingTests(unittest.TestCase):
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
         personalization.init_schema(conn)
-        liked = candidate("Jazz producer shares a new sampling project", "music", url="https://pitchfork.com/a")
-        disliked = candidate("House producer shares a new club project", "music", url="https://pitchfork.com/b")
+        liked = candidate("Frank Ocean announces a new album release", "music", url="https://pitchfork.com/a")
+        disliked = candidate("Sade announces a new album release", "music", url="https://pitchfork.com/b")
         personalization.save_feedback(conn, {**liked, "feedback": "more"})
         personalization.save_feedback(conn, {**disliked, "feedback": "less"})
         conn.commit()
@@ -103,9 +103,9 @@ class DebriefRankingTests(unittest.TestCase):
         self.assertEqual(selected["stories"], [])
         source = (ROOT / "generate_debrief.py").read_text(encoding="utf-8")
         self.assertNotIn("get_personal_today", source)
-        self.assertNotIn('"news_status": "unavailable"', source)
-        self.assertIn("if len(stories) < 4:", source)
-        self.assertIn('"instruction": "Search the web for current news and verified direct sources."', source)
+        self.assertIn("status = 'ready' if stories else 'unavailable'", source)
+        self.assertIn("personal, health = collect_personal(now)", source)
+        self.assertIn("Search the web for current news and verified direct sources.", source)
 
     def test_unreachable_source_links_are_removed_before_display(self):
         good = personalization.normalize_candidate(candidate("Verified jazz release", "music", url="https://pitchfork.com/good"))

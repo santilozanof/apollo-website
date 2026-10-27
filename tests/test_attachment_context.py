@@ -438,6 +438,7 @@ class AttachmentContextTests(unittest.TestCase):
         audit = []
         namespace = {
             "app_state_get": lambda key, default=None: state.get(key, default),
+            "app_state_set": lambda key, value: state.update({key: value}),
             "app_state_delete": lambda key: (deleted.append(key), state.pop(key, None)),
             "google_oauth_audit": lambda *args, **kwargs: audit.append((args, kwargs)),
         }
@@ -452,6 +453,7 @@ class AttachmentContextTests(unittest.TestCase):
 
         self.assertNotIn("google_access_token", state)
         self.assertNotIn("google_refresh_token", state)
+        self.assertEqual(state["google_reconnect_required"], "1")
         self.assertEqual(
             audit,
             [(("refresh_token_invalid_or_revoked", "test", True, True, 400, "invalid_grant"), {})],

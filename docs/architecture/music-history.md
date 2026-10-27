@@ -1,0 +1,21 @@
+# Apollo Music history and recaps
+
+Apollo stores listening events in the existing SQLite database. `music_history.init_schema()` adds tables and indexes during the existing startup migration; it does not reset the database or alter chats, routines, tasks, or Studio projects. Release operators should run this additive migration on a backup copy first and follow the prepared-release gate in `production-deployment.md`.
+
+The background worker reads the [Spotify recently played API](https://developer.spotify.com/documentation/web-api/reference/get-recently-played) every 15 minutes through the existing server-side Spotipy OAuth client. That endpoint returns at most 50 records per request and no milliseconds listened. Apollo records its cursor and last success, respects `Retry-After`, and flags a full window as a possible coverage gap. Playback-state polls are excluded. A disconnected or unavailable account leaves stored history intact. Optional track metadata enrichment uses Spotify's [Get Several Tracks endpoint](https://developer.spotify.com/documentation/web-api/reference/get-several-tracks) when the connected app is allowed to call it; historical exports without IDs cannot always gain artwork. Tokens and exports are not returned by these APIs.
+
+In Music → Insights, import one or more JSON files from Spotify's official [account data or extended streaming history export](https://support.spotify.com/mt/article/understanding-your-data/). Files are limited to 16 MB each. The backend validates the schema and entries, inserts a file transactionally, records its hash, and ignores re-imports. The older `endTime` format is interpreted as minute-precision UTC; `ts` in extended history is UTC with millisecond precision. Nonmusic rows are skipped. An invalid entry rolls the entire file back. Overlapping API/export records are merged when identity and timing align, with export milliseconds used for verified listening time.
+
+Monthly boundaries use the selected IANA time zone, including DST. Play counts represent distinct stored events; total listening time sums only export `ms_played`. The API supplies neither complete historical coverage nor exact listening duration. Indistinguishable repeated plays in the older minute-precision format may be merged conservatively. Insight screens display last sync and coverage notices so an empty month is not claimed to be complete.
+
+After a local month ends, the worker archives a recap if it has events. The browser can also regenerate a completed month. Archive rows are unique by month and time zone, with a dataset fingerprint and design version. Three editorial slides each export directly to 1080 × 1920 or 1080 × 1080 PNG; the same canvas is previewed. Download all creates a ZIP. Artwork is placed at its natural aspect ratio without cropping only when a matching Spotify album link is known, with typography based on recorded artists otherwise. Insights rows use direct Spotify links when IDs are known and Spotify search links otherwise. The official full Spotify logos in `vendor/spotify/` come from [Spotify's design assets](https://developer.spotify.com/documentation/design); recap graphics include the logo and a printed Spotify URL, while the preview supplies a clickable source link when album artwork is shown. Static images cannot preserve a clickable hyperlink after posting, so public redistribution should still be checked against the provider's current policy.
+
+The app continues using its private Tailscale network boundary. Music write routes additionally require a same-origin custom request header, preventing ordinary cross-origin forms. They are not a substitute for a standalone account-login system; do not expose these endpoints publicly. The official export is parsed in memory and is never written to a server file.
+
+For iPhone Shortcuts, use **Open URL** with Apollo's private HTTPS origin and one of these paths while Tailscale is connected:
+
+- `/?tab=music&view=insights` opens Music Insights.
+- `/?tab=music&view=recaps` opens the last completed month's recap.
+- `/?tab=home&view=debrief` opens the Daily Debrief area.
+
+These are web deep links. No personal token needs to be embedded in a Shortcut, and no unsupported native Shortcuts action is implied.

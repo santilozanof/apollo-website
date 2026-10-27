@@ -113,6 +113,7 @@
     return node;
   };
   const safeUrl = (value, image = false) => {
+    if (!String(value || "").trim()) return "";
     try {
       const url = new URL(String(value || ""), location.href);
       if (image && /\.(?:html?|php|aspx?)$/i.test(url.pathname)) return "";
@@ -495,14 +496,18 @@
 
   function appendInline(parent, value, citations = new Map()) {
     const source = String(value || "");
-    const pattern = /(`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)]+\)|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\.|[^$\\])+?\$(?!\d)|\*\*[^*]+\*\*|\*[^*\n]+\*|\[(\d+)\])/g;
+    const pattern = /(!\[[^\]]*\]\((?:https?:\/\/|\/(?!\/))[^\s)]+\)|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)]+\)|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\.|[^$\\])+?\$(?!\d)|\*\*[^*]+\*\*|\*[^*\n]+\*|\[(\d+)\])/g;
     let cursor = 0;
     let match;
     while ((match = pattern.exec(source))) {
       if (match.index > cursor) parent.appendChild(document.createTextNode(source.slice(cursor, match.index)));
       const token = match[0];
       let node;
-      if (token.startsWith("[")) {
+      if (token.startsWith("![")) {
+        const match = token.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+        const url = safeUrl(match?.[2], true);
+        node = url ? imageNode({url, alt: match[1]}) : document.createTextNode("Image URL is unavailable.");
+      } else if (token.startsWith("[")) {
         const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
         const citation = token.match(/^\[(\d+)\]$/);
         if (link) {
@@ -568,7 +573,120 @@
     return {node: wrap, next: index};
   }
 
+  function richMarkdown(value, citations) {
+    if (!window.markdownit || !window.DOMPurify?.sanitize) return null;
+    const math = [];
+    const source = String(value || "").split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g)
+      .map((part, index) => {
+        if (index % 2) return part;
+        return part.replace(/\\\[[\s\S]+?\\\]|\$\$[\s\S]+?\$\$|\\\([^\n]+?\\\)|\$(?!\s)(?:\\.|[^$\\\n])+?\$(?!\d)/g, token => {
+          const display = token.startsWith("\\[") || token.startsWith("$$");
+          math.push({value: token.slice(2, -2), display});
+          return `APOLLOMATHTOKEN${math.length - 1}END`;
+        });
+      }).join("");
+    const markdown = window.markdownit({
+      html: false, linkify: true, typographer: true, breaks: false,
+      highlight(code, language) {
+        if (!language || !window.hljs?.getLanguage?.(language)) return "";
+        try { return window.hljs.highlight(code, {language, ignoreIllegals: true}).value; }
+        catch (_) { return ""; }
+      }
+    });
+    markdown.enable("table");
+    const fragment = window.DOMPurify.sanitize(markdown.render(source), {
+      USE_PROFILES: {html: true},
+      FORBID_TAGS: ["style", "iframe", "form", "input", "button"],
+      RETURN_DOM_FRAGMENT: true
+    });
+    const root = el("div", "apollo-rich-text apollo-markdown");
+    root.appendChild(fragment);
+    root.querySelectorAll("a").forEach(link => {
+      const target = safeUrl(link.getAttribute("href"));
+      if (!target) { link.replaceWith(document.createTextNode(link.textContent)); return; }
+      link.href = target;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    });
+    root.querySelectorAll("img").forEach(img => {
+      const raw = img.getAttribute("src") || "";
+      const safe = /^data:/i.test(raw)
+        ? (/^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(raw) ? raw : "")
+        : safeUrl(raw, true);
+      img.replaceWith(safe ? imageNode({url: safe, alt: img.alt || "Image"})
+        : document.createTextNode("Image URL is unavailable."));
+    });
+    root.querySelectorAll("pre").forEach(pre => {
+      const code = pre.querySelector("code");
+      if (!code) return;
+      pre.classList.add("apollo-ui-code");
+      const language = (code.className.match(/(?:^|\s)language-([\w-]+)/) || [])[1] || "Code";
+      const button = el("button", "apollo-code-copy", "Copy");
+      button.type = "button";
+      button.setAttribute("aria-label", `Copy ${language} code`);
+      button.addEventListener("click", async () => {
+        try {
+          if (navigator.clipboard?.writeText && window.isSecureContext) {
+            await navigator.clipboard.writeText(code.textContent);
+          } else {
+            const area = el("textarea");
+            area.value = code.textContent;
+            area.style.position = "fixed";
+            area.style.opacity = "0";
+            document.body.appendChild(area);
+            area.select();
+            const copied = document.execCommand("copy");
+            area.remove();
+            if (!copied) throw new Error("Clipboard unavailable");
+          }
+          button.textContent = "Copied";
+          setTimeout(() => { button.textContent = "Copy"; }, 1800);
+        } catch (_) { button.textContent = "Copy failed"; }
+      });
+      pre.appendChild(button);
+    });
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+    textNodes.forEach(node => {
+      if (node.parentElement?.closest("code, pre, a, .apollo-math")) return;
+      const pattern = /APOLLOMATHTOKEN(\d+)END|\[(\d+)\]/g;
+      const content = node.textContent;
+      let match;
+      let cursor = 0;
+      const replacement = document.createDocumentFragment();
+      while ((match = pattern.exec(content))) {
+        if (match.index > cursor) replacement.appendChild(document.createTextNode(content.slice(cursor, match.index)));
+        if (match[1] !== undefined && math[Number(match[1])]) {
+          const item = math[Number(match[1])];
+          replacement.appendChild(renderMath(item.value, item.display));
+        } else if (match[2] !== undefined) {
+          const citation = el("a", "apollo-citation-ref", `[${match[2]}]`);
+          citation.dataset.citationNumber = match[2];
+          if (citations.has(match[2])) citation.href = `#${citations.get(match[2])}`;
+          citation.setAttribute("aria-label", `Source ${match[2]}`);
+          replacement.appendChild(citation);
+        } else replacement.appendChild(document.createTextNode(match[0]));
+        cursor = pattern.lastIndex;
+      }
+      if (!cursor) return;
+      if (cursor < content.length) replacement.appendChild(document.createTextNode(content.slice(cursor)));
+      node.replaceWith(replacement);
+    });
+    root.querySelectorAll("table").forEach(table => {
+      table.classList.add("apollo-ui-table", "apollo-rich-table");
+      const wrap = el("div", "apollo-ui-table-wrap apollo-rich-table-wrap");
+      table.replaceWith(wrap);
+      wrap.appendChild(table);
+    });
+    return root;
+  }
+
   function richText(value, citations = new Map()) {
+    let rendered = null;
+    try { rendered = richMarkdown(value, citations); }
+    catch (error) { console.warn("Apollo rich Markdown unavailable; using safe fallback", error); }
+    if (rendered) return rendered;
     const root = el("div", "apollo-rich-text");
     const lines = String(value || "").replace(/\r/g, "").split("\n");
     let index = 0;
@@ -747,6 +865,7 @@
   }
 
   function openImage(source, alt) {
+    const previousFocus = document.activeElement;
     const box = el("div", "apollo-ui-lightbox");
     const image = el("img");
     const close = el("button", null, "×");
@@ -755,10 +874,16 @@
     box.setAttribute("aria-label", alt || "Image preview");
     image.src = source;
     image.alt = alt || "";
+    image.addEventListener("error", () => box.appendChild(el("p", "apollo-ui-media-unavailable", "The full image could not load. Close and retry when connected.")));
     close.type = "button";
     close.setAttribute("aria-label", "Close image preview");
-    const dismiss = () => { box.remove(); document.removeEventListener("keydown", onKey); };
-    const onKey = event => { if (event.key === "Escape") dismiss(); };
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const dismiss = () => { box.remove(); document.body.style.overflow = overflow; document.removeEventListener("keydown", onKey); previousFocus?.focus(); };
+    const onKey = event => {
+      if (event.key === "Escape") dismiss();
+      if (event.key === "Tab") { event.preventDefault(); close.focus(); }
+    };
     close.addEventListener("click", dismiss);
     box.addEventListener("click", event => { if (event.target === box) dismiss(); });
     document.addEventListener("keydown", onKey);
@@ -769,25 +894,43 @@
   function imageNode(item) {
     const figure = el("figure", "apollo-ui-figure");
     const image = el("img", "apollo-ui-image");
-    image.alt = item.alt || item.title || "";
+    const status = el("span", "apollo-image-status", "Loading image…");
+    const retry = el("button", "apollo-image-retry", "Retry image");
+    retry.type = "button";
+    retry.hidden = true;
+    status.setAttribute("role", "status");
+    image.alt = item.alt || item.title || "Attached image";
     image.loading = "lazy";
-    image.src = item.url;
-    image.addEventListener("load", () => figure.classList.add("is-loaded"));
-    image.addEventListener("error", () => {
-      const container = figure.parentElement;
-      figure.remove();
-      if (container?.classList.contains("apollo-ui-card")) {
-        container.classList.add("apollo-ui-card-text-only");
-      } else if (container?.classList.contains("apollo-ui-gallery")) {
-        const remaining = container.querySelectorAll(".apollo-ui-figure").length;
-        container.classList.toggle("one", remaining === 1);
-        if (!remaining) container.appendChild(el("p", "apollo-ui-media-unavailable", "These images could not be loaded. Use the source links below to view them directly."));
-      }
+    image.tabIndex = 0;
+    image.setAttribute("role", "button");
+    image.setAttribute("aria-label", "Open " + image.alt);
+    image.addEventListener("load", () => {
+      figure.classList.add("is-loaded"); figure.classList.remove("has-error");
+      status.hidden = true; retry.hidden = true;
     });
-    image.addEventListener("click", () => openImage(image.src, image.alt));
-    figure.appendChild(image);
+    image.addEventListener("error", () => {
+      // A preview is optional; the durable original is still usable.
+      if (item.original && image.getAttribute("src") !== item.original) { image.src = item.original; return; }
+      figure.classList.add("has-error");
+      status.hidden = false; status.textContent = "Image unavailable. Check your connection and retry.";
+      retry.hidden = false;
+    });
+    retry.addEventListener("click", () => {
+      retry.hidden = true; status.textContent = "Loading image…";
+      image.src = item.url;
+    });
+    image.addEventListener("click", () => openImage(image.currentSrc || image.src, image.alt));
+    image.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); image.click(); }
+    });
+    image.src = item.url;
+    figure.append(image, status, retry);
     if (item.caption) figure.appendChild(el("figcaption", null, item.caption));
     return figure;
+  }
+  if (typeof window !== "undefined") {
+    window.apolloImageNode = imageNode;
+    window.apolloOpenImage = openImage;
   }
 
   async function reconcileChecklist(block, items, state, apply) {

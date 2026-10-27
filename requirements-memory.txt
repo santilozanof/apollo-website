@@ -1,0 +1,4 @@
+# Optional local semantic retrieval. Install on Python >=3.10, provision a model
+# directory separately, and set APOLLO_EMBEDDING_MODEL to that directory.
+# Apollo never downloads model files or sends history to an embedding service.
+sentence-transformers>=3.4,<6

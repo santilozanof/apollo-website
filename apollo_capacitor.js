@@ -26,9 +26,8 @@
     };
     try { localStorage.removeItem("apollo.setting.accent"); } catch (_) {}
 
-    const sunMark = '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7"/>';
-    const aMark = '<rect x="1" y="1" width="30" height="30" rx="8" fill="#0d0d0d"/><path d="M5 25 L14.5 6 L27 25" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.5 20 C11 15.5 18 14.5 27 19" fill="none" stroke="currentColor" stroke-width="1.35"/>';
-    const assistantAMark = '<rect x="1" y="1" width="30" height="30" rx="8" fill="#0d0d0d"/><path d="M5 25 L14.5 6 L27 25" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.5 20 C11 15.5 18 14.5 27 19" fill="none" stroke="#fff" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>';
+    const aMark = '<path d="M5 25 L14.5 6 L27 25" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6.5 20 C11 15.5 18 14.5 27 19" fill="none" stroke="currentColor" stroke-width="1.35"/>';
+    const assistantAMark = aMark;
     function applyApolloMark() {
         document.querySelectorAll(
             ".apollo-boot-logo svg, .brand-mark svg, .os-wordmark-mark svg, .os-command-mark svg"
@@ -45,13 +44,13 @@
             ".apollo-welcome-mark svg, .apollo-mobile-chat-mark svg, .apollo-image-generating-mark svg"
         ).forEach(svg => {
             if (svg.dataset.apolloSun === "true") return;
-            svg.setAttribute("viewBox", "0 0 24 24");
+            svg.setAttribute("viewBox", "0 0 32 32");
             svg.setAttribute("fill", "none");
             svg.setAttribute("stroke", "currentColor");
             svg.setAttribute("stroke-width", "1.65");
             svg.setAttribute("stroke-linecap", "round");
             svg.setAttribute("stroke-linejoin", "round");
-            svg.innerHTML = sunMark;
+            svg.innerHTML = aMark;
             svg.dataset.apolloSun = "true";
         });
         document.querySelectorAll(".apollo-message-mark svg").forEach(svg => {
