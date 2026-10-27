@@ -29,6 +29,18 @@ def normalized(value):
     return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
 
 
+def entity_title_matches(requested, actual):
+    """Allow official release-edition suffixes, never unrelated covers/remixes."""
+    if normalized(requested) == normalized(actual):
+        return True
+    base = re.sub(
+        r"\s*[\(\[](?:(?:original|deluxe|expanded|special|anniversary|remastered)"
+        r"(?:\s+(?:edition|version|release|\d{4}))?)[\)\]]\s*$",
+        "", str(actual or ""), flags=re.I,
+    )
+    return base != str(actual or "") and normalized(requested) == normalized(base)
+
+
 def candidate_score(track, wanted_title, wanted_artist):
     title_score = SequenceMatcher(None, normalized(wanted_title), normalized(track.get("name"))).ratio()
     artist_names = [normalized(item.get("name")) for item in track.get("artists") or []]
@@ -690,7 +702,7 @@ def entity_search(spotify, kind, name, artist=None):
     query = f'{lookup[kind]}:"{str(name).replace(chr(34), "")}"'
     payload = spotify_read(lambda: spotify.search(q=query, type=lookup[kind], limit=10)) or {}
     candidates = (payload.get(lookup[kind] + "s") or {}).get("items") or []
-    exact = [item for item in candidates if normalized(item.get("name")) == normalized(name)]
+    exact = [item for item in candidates if entity_title_matches(name, item.get("name"))]
     if artist:
         exact = [item for item in exact if any(
             normalized(person.get("name")) == normalized(artist)
@@ -698,6 +710,7 @@ def entity_search(spotify, kind, name, artist=None):
         )]
     if not exact:
         return None
+    exact.sort(key=lambda item: normalized(item.get("name")) != normalized(name))
     if kind != "artist" and not artist:
         credits = {tuple(normalized(person.get("name")) for person in item.get("artists") or [])
                    for item in exact}

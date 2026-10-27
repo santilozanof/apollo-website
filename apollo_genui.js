@@ -1049,6 +1049,9 @@
         const payload = await response.json();
         if (!payload.entity || !safeUrl(payload.entity.source_url)) throw new Error("Invalid entity source");
         return payload.entity;
+      }).catch(error => {
+        if (entityCache.get(key)?.promise === promise) entityCache.delete(key);
+        throw error;
       });
     entityCache.set(key, {at: Date.now(), promise});
     return promise;
@@ -1065,8 +1068,9 @@
     copy.appendChild(hint);
     card.append(artwork, copy, el("span", "apollo-entity-arrow", "↗"));
     let details = null;
-    entityLookup(block).then(entity => {
+    const showEntity = entity => {
       details = entity;
+      card.classList.remove("is-unavailable");
       hint.textContent = entity.description || entity.provider || "Verified details";
       if (entity.image_url && safeUrl(entity.image_url, true)) {
         const image = el("img");
@@ -1076,11 +1080,21 @@
         image.addEventListener("error", () => artwork.replaceChildren(document.createTextNode(block.name.slice(0, 1).toUpperCase())));
         artwork.replaceChildren(image);
       }
-    }).catch(() => { hint.textContent = "Details unavailable"; card.classList.add("is-unavailable"); });
+    };
+    entityLookup(block).then(showEntity).catch(() => { hint.textContent = "Details unavailable · tap to retry"; card.classList.add("is-unavailable"); });
     card.addEventListener("click", () => {
-      if (details) openDetail(details, card);
-      else openDetail({title: block.name, kind: block.kind,
-        description: hint.textContent === "Checking source…" ? "Checking a verified source…" : "Verified details are unavailable."}, card);
+      if (details) { openDetail(details, card); return; }
+      openDetail({title: block.name, kind: block.kind,
+        description: "Checking a verified source…"}, card);
+      entityLookup(block).then(entity => {
+        showEntity(entity);
+        if (activeDetail?.trigger === card) openDetail(entity, card);
+      }).catch(() => {
+        hint.textContent = "Details unavailable · tap to retry";
+        card.classList.add("is-unavailable");
+        if (activeDetail?.trigger === card) openDetail({title: block.name, kind: block.kind,
+          description: "Verified details are temporarily unavailable. Close and tap the card to retry."}, card);
+      });
     });
     return card;
   }

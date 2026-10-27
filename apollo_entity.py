@@ -25,6 +25,17 @@ def _normal(value):
     return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
 
 
+def _music_title_matches(requested, actual):
+    if _normal(requested) == _normal(actual):
+        return True
+    base = re.sub(
+        r"\s*[\(\[](?:(?:original|deluxe|expanded|special|anniversary|remastered)"
+        r"(?:\s+(?:edition|version|release|\d{4}))?)[\)\]]\s*$",
+        "", str(actual or ""), flags=re.I,
+    )
+    return base != str(actual or "") and _normal(requested) == _normal(base)
+
+
 def _safe_image(value):
     parsed = urllib.parse.urlparse(str(value or ""))
     return (parsed.scheme == "https" and parsed.hostname in {
@@ -83,7 +94,7 @@ def resolve(kind, name, artist=None, spotify_lookup=None, public_fetch=None,
         if spotify_lookup is None:
             return None
         result = spotify_lookup(kind, name, artist)
-        if not isinstance(result, dict) or _normal(result.get("name")) != _normal(name):
+        if not isinstance(result, dict) or not _music_title_matches(name, result.get("name")):
             return None
         entity = result
     else:

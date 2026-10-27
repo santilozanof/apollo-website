@@ -2,7 +2,7 @@ import json
 import unittest
 
 import apollo_entity
-from spotify_curator_tool import entity_search
+from spotify_curator_tool import entity_search, entity_title_matches
 
 
 class EntityResolutionTests(unittest.TestCase):
@@ -46,6 +46,27 @@ class EntityResolutionTests(unittest.TestCase):
             apollo_entity.resolve("unknown", "A Person")
         with self.assertRaises(ValueError):
             apollo_entity.resolve("person", "<script>")
+
+    def test_official_release_suffix_resolves_without_accepting_unrelated_versions(self):
+        self.assertTrue(entity_title_matches("House of Balloons", "House Of Balloons (Original)"))
+        self.assertFalse(entity_title_matches("House of Balloons", "House Of Balloons (Instrumental)"))
+        self.assertFalse(entity_title_matches("House of Balloons", "House Of Balloons x Another Song"))
+
+        class Spotify:
+            def search(self, **_kwargs):
+                return {"albums": {"items": [
+                    {"id": "cover", "name": "House Of Balloons (Instrumental)",
+                     "artists": [{"name": "Another Artist"}]},
+                    {"id": "original", "name": "House Of Balloons (Original)",
+                     "artists": [{"name": "The Weeknd"}],
+                     "images": [{"url": "https://i.scdn.co/image/official", "width": 300}],
+                     "external_urls": {"spotify": "https://open.spotify.com/album/original"}},
+                ]}}
+        found = entity_search(Spotify(), "album", "House of Balloons", "The Weeknd")
+        self.assertEqual(found["provider_id"], "original")
+        resolved = apollo_entity.resolve("album", "House of Balloons", "The Weeknd",
+            spotify_lookup=lambda *_args: found, image_check=lambda _url: True)
+        self.assertEqual(resolved["name"], "House Of Balloons (Original)")
 
 
 if __name__ == "__main__":

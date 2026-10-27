@@ -99,6 +99,20 @@ class ChatIntentPlannerTests(unittest.TestCase):
         self.assertIn('"type":"sources"', answer)
         self.assertFalse(candidate("Tell me the whole story of my family"))
 
+    def test_substantial_story_gets_bounded_editorial_title(self):
+        namespace = {"re": re, "json": json}
+        namespace["apollo_story_visual_candidate"] = load_function("apollo_story_visual_candidate", namespace)
+        title = load_function("apollo_story_title", namespace)
+        answer = "A public artist made a notable album. " * 75
+        question = "Tell me the full story of this public artist and album"
+        self.assertEqual(title(answer, question, lambda *_a, **_k:
+            json.dumps({"title": "The Artist Before the Album"})),
+            "The Artist Before the Album")
+        self.assertIsNone(title("# Existing Title\n\n" + answer, question,
+            lambda *_a, **_k: json.dumps({"title": "An Unneeded New Title"})))
+        self.assertIsNone(title(answer, "Tell me the full story of my family",
+            lambda *_a, **_k: json.dumps({"title": "A Private Family History"})))
+
     def test_story_timeline_uses_only_sentences_already_in_answer(self):
         namespace = {"re": re, "json": json}
         namespace["apollo_story_visual_candidate"] = load_function("apollo_story_visual_candidate", namespace)
@@ -129,6 +143,7 @@ class ChatIntentPlannerTests(unittest.TestCase):
     def test_story_entity_card_requires_exact_mention_and_provider_kind(self):
         namespace = {"re": re, "json": json, "apollo_entity": apollo_entity}
         namespace["apollo_story_visual_candidate"] = load_function("apollo_story_visual_candidate", namespace)
+        namespace["apollo_story_entity_refs"] = load_function("apollo_story_entity_refs", namespace)
         select = load_function("apollo_select_story_entities", namespace)
         insert = load_function("apollo_insert_story_entities", namespace)
         source = ("A public artist made A Public Album. " * 65).strip()
@@ -142,6 +157,22 @@ class ChatIntentPlannerTests(unittest.TestCase):
         self.assertTrue(added)
         self.assertIn('"schema":"apollo.rich","version":3', rendered)
         self.assertIn('"name":"A Public Album"', rendered)
+
+        # An existing artist card must not suppress a central album reference.
+        source_with_artist = (source + "\n\n```apollo-ui\n" + json.dumps({
+            "schema": "apollo.rich", "version": 3, "blocks": [
+                {"type": "entity", "id": "artist", "kind": "artist", "name": "A public artist"}
+            ]}) + "\n```")
+        selected = select(source_with_artist, "Tell me the whole story of this album",
+            lambda *_a, **_k: json.dumps({"entities": [
+                {"kind": "artist", "name": "A public artist"},
+                {"kind": "album", "name": "A Public Album", "artist": "A public artist"},
+            ]}))
+        self.assertEqual([item["kind"] for item in selected], ["album"])
+        rendered, added = insert(source_with_artist, selected)
+        self.assertTrue(added)
+        self.assertEqual(rendered.count('"type":"entity"'), 1)
+        self.assertEqual(len(namespace["apollo_story_entity_refs"](rendered)), 2)
 
     def test_semantic_plan_normalizes_domain_action_and_sources(self):
         captured = []
