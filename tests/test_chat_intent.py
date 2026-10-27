@@ -96,7 +96,11 @@ class ChatIntentPlannerTests(unittest.TestCase):
         self.assertTrue(added)
         self.assertIn("## Background\n\nThe facts remain intact.", answer)
         self.assertIn('"type":"image"', answer)
-        self.assertIn('"type":"sources"', answer)
+        self.assertIn('"source_url":"https://commons.wikimedia.org/wiki/File:Example.jpg"', answer)
+        self.assertNotIn('"type":"sources"', answer)
+        titled, added = insert("# A Public Story\n\nA direct opening.\n\n## Background\n\nThe facts remain intact.", found)
+        self.assertTrue(added)
+        self.assertLess(titled.index("A direct opening."), titled.index('"type":"image"'))
         self.assertFalse(candidate("Tell me the whole story of my family"))
 
     def test_substantial_story_gets_bounded_editorial_title(self):
@@ -173,6 +177,13 @@ class ChatIntentPlannerTests(unittest.TestCase):
         self.assertTrue(added)
         self.assertEqual(rendered.count('"type":"entity"'), 1)
         self.assertEqual(len(namespace["apollo_story_entity_refs"](rendered)), 2)
+
+        source_with_album = (source + "\n\n```apollo-ui\n" + json.dumps({
+            "schema": "apollo.rich", "version": 3, "blocks": [
+                {"type": "entity", "id": "album", "kind": "album", "name": "A Public Album"}
+            ]}) + "\n```")
+        self.assertEqual(select(source_with_album, "Tell me the whole story of this album",
+            lambda *_a, **_k: self.fail("a central work already has a card")), [])
 
     def test_semantic_plan_normalizes_domain_action_and_sources(self):
         captured = []

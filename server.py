@@ -1747,19 +1747,22 @@ def apollo_insert_story_visual(content, image):
         return source, False
     if not all(image.get(key) for key in ("url", "alt", "source_url", "source_title")):
         return source, False
-    block = {"blocks": [
-        {"type": "image", "id": "verified-story-image", "url": image["url"],
-         "alt": image["alt"], "caption": image.get("caption") or "Wikimedia Commons",
-         "source_url": image["source_url"], "source_title": image["source_title"],
-         "publisher": image.get("publisher") or "Wikimedia Commons"},
-        {"type": "sources", "id": "verified-story-image-source", "title": "Image source", "items": [
-            {"url": image["source_url"], "title": image["source_title"],
-             "publisher": image.get("publisher") or "Wikimedia Commons"},
-        ]},
-    ]}
-    introduction, separator, remainder = source.partition("\n\n")
+    # The image has its own attributed detail link. A second sources block
+    # would shift numeric prose citations onto the image instead of the
+    # research source the model actually referenced.
+    block = {"blocks": [{
+        "type": "image", "id": "verified-story-image", "url": image["url"],
+        "alt": image["alt"], "caption": image.get("caption") or "Wikimedia Commons",
+        "source_url": image["source_url"], "source_title": image["source_title"],
+        "publisher": image.get("publisher") or "Wikimedia Commons",
+    }]}
     embed = "```apollo-ui\n" + json.dumps(block, ensure_ascii=False, separators=(",", ":")) + "\n```"
-    return introduction + "\n\n" + embed + ("\n\n" + remainder if separator else ""), True
+    paragraphs = re.split(r"\n\s*\n", source)
+    for index, paragraph in enumerate(paragraphs):
+        if paragraph and not paragraph.lstrip().startswith(("#", "```apollo-ui")):
+            paragraphs.insert(index + 1, embed)
+            return "\n\n".join(paragraphs), True
+    return source + "\n\n" + embed, True
 
 
 def apollo_insert_story_timeline(content, block):
@@ -1827,7 +1830,8 @@ def apollo_select_story_entities(content, message, entity_planner=None):
     prose = re.sub(r"```apollo-ui[\s\S]*?```", "", source)
     existing = apollo_story_entity_refs(source)
     if (not apollo_story_visual_candidate(message) or len(prose.split()) < 450
-            or len(existing) >= 2):
+            or len(existing) >= 2
+            or any(kind in {"album", "song", "book", "movie"} for kind, _name in existing)):
         return []
     try:
         planner = entity_planner or ask_hermes
@@ -1886,7 +1890,8 @@ def apollo_insert_story_entities(content, entities):
                 or (kind, name.casefold()) in existing):
             continue
         for index, paragraph in enumerate(paragraphs):
-            if paragraph.startswith("```apollo-ui") or name.casefold() not in paragraph.casefold():
+            if (paragraph.lstrip().startswith(("#", "```apollo-ui"))
+                    or name.casefold() not in paragraph.casefold()):
                 continue
             block = {"schema": "apollo.rich", "version": 3, "blocks": [{
                 "type": "entity", "id": f"story-entity-{inserted + 1}",

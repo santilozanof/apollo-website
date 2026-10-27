@@ -1,11 +1,13 @@
 .apollo-rich-message {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--apollo-space-3, 12px);
     width: min(100%, 680px);
     min-width: 0;
 }
 
 .apollo-rich-text {
+    min-width: 0;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
     line-height: 1.58;
@@ -412,6 +414,7 @@ html[data-theme="light"] .apollo-ui-segment.active { background: rgba(0,0,0,.08)
   object-fit: contain; border-radius: 12px;
 }
 .apollo-ui-figure { position: relative; }
+.apollo-rich-message > .apollo-ui-figure .apollo-ui-image { max-height: 420px; }
 .apollo-image-status { display: block; padding: 12px; font-size: 12px; opacity: .65; }
 .apollo-image-status[hidden], .apollo-image-retry[hidden] { display: none; }
 .apollo-ui-figure.has-error { min-height: 100px; border: 1px solid rgba(127,127,127,.25); border-radius: 12px; }
@@ -489,6 +492,7 @@ html.apollo-jarvis-mode #apolloView .apollo-message.assistant .apollo-ui-timelin
     align-items: center;
     gap: 14px;
     width: min(100%, 520px);
+    min-width: 0;
     padding: 9px 13px 9px 9px;
     border: 1px solid rgba(127,127,127,.18);
     border-radius: 14px;
@@ -516,6 +520,7 @@ html.apollo-jarvis-mode #apolloView .apollo-message.assistant .apollo-entity-car
 .apollo-ui-media-details,
 .apollo-ui-source-preview { border: 0; background: transparent; color: inherit; font: inherit; font-size: 11px; text-decoration: underline; text-underline-offset: 3px; opacity: .65; cursor: pointer; }
 .apollo-ui-media-details { margin: 0 2px 5px; }
+.apollo-ui-sources { min-width: 0; }
 .apollo-ui-source-preview { margin-left: 9px; }
 .apollo-detail-overlay { position: fixed; z-index: 10020; inset: 0; pointer-events: none; }
 .apollo-detail-backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(0,0,0,.32); pointer-events: auto; }
@@ -545,6 +550,7 @@ html[data-theme="light"] .apollo-detail-panel { background: #fafafa; color: #171
 .apollo-detail-source { color: inherit; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
 @keyframes apollo-detail-in { from { opacity: .5; transform: translateX(12px); } to { opacity: 1; transform: none; } }
 @media (max-width: 760px) {
+    .apollo-rich-message > .apollo-ui-figure .apollo-ui-image { max-height: 340px; }
     .apollo-detail-panel { top: auto; right: 0; bottom: max(78px, env(safe-area-inset-bottom)); left: 0; width: 100%; max-height: min(72dvh, 660px); padding: 20px 20px 30px; border: 1px solid rgba(127,127,127,.22); border-bottom: 0; border-radius: 20px 20px 0 0; animation-name: apollo-detail-mobile-in; }
     .apollo-detail-image { max-height: 210px; }
     .apollo-entity-card { grid-template-columns: 54px minmax(0,1fr) auto; gap: 11px; }
