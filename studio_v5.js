@@ -19,6 +19,12 @@
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
+    const safeMediaHref = item => {
+        try {
+            const url = new URL(item.external_url || item.file_url || "", location.href);
+            return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password ? url.href : "";
+        } catch (_) { return ""; }
+    };
 
     const fmtType = value => {
         const v = String(value || "single").toLowerCase();
@@ -403,20 +409,24 @@
     }
 
     function mediaThumb(item) {
-        const target = item.external_url || item.file_url || "#";
+        const target = safeMediaHref(item) || "#";
+        const download = item.media_type === "fl_studio_project" && item.file_url
+            ? `download="${esc(item.file_name || "project.flp")}"` : "";
         if (item.media_type === "image" && item.file_url) {
             return `<a class="studio5-media-thumb is-image" href="${esc(target)}" target="_blank" rel="noopener"><img src="${esc(item.file_url)}" alt=""><span>${esc(item.title || item.file_name || "Image")}</span></a>`;
         }
-        return `<a class="studio5-media-thumb" href="${esc(target)}" target="_blank" rel="noopener"><div>${item.media_type === "link" ? icon("link") : icon("file")}</div><span>${esc(item.title || item.file_name || "Reference")}</span></a>`;
+        return `<a class="studio5-media-thumb" href="${esc(target)}" ${download} ${download ? "" : 'target="_blank"'} rel="noopener"><div>${item.media_type === "link" ? icon("link") : icon("file")}</div><span>${esc(item.title || item.file_name || "Reference")}</span></a>`;
     }
 
     function mediaCard(item, index) {
-        const target = item.external_url || item.file_url || "#";
+        const target = safeMediaHref(item) || "#";
         const isImage = item.media_type === "image" && item.file_url;
+        const download = item.media_type === "fl_studio_project" && item.file_url
+            ? `download="${esc(item.file_name || "project.flp")}"` : "";
 
         const visual = isImage
             ? `<div class="studio5-media-visual"><img src="${esc(item.file_url)}" alt=""></div>`
-            : `<div class="studio5-media-visual studio5-media-glyph">${item.media_type === "link" ? icon("link") : icon("file")}<span>${esc(String(item.media_type || "file").toUpperCase())}</span></div>`;
+            : `<div class="studio5-media-visual studio5-media-glyph">${item.media_type === "link" ? icon("link") : icon("file")}<span>${item.media_type === "fl_studio_project" ? "FL STUDIO" : esc(String(item.media_type || "file").toUpperCase())}</span></div>`;
 
         if (isImage) {
             return `
@@ -434,7 +444,7 @@
 
         return `
             <article class="studio5-media-card" style="--i:${index}">
-                <a href="${esc(target)}" target="_blank" rel="noopener">${visual}</a>
+                <a href="${esc(target)}" ${download} ${download ? "" : 'target="_blank"'} rel="noopener">${visual}</a>
                 <div class="studio5-media-body">
                     <div>
                         <strong>${esc(item.title || item.file_name || "Untitled")}</strong>

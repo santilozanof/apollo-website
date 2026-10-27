@@ -1,6 +1,6 @@
 # Apollo intelligence and memory upgrade — 2026-10-21
 
-Implemented in the existing Python/SQLite application. **Not deployed.** The candidate has now been exercised on the deployment host against the existing Hermes gateway and real connected accounts. See [the October 21 live readiness report](../qa/intelligence-live-2026-10-21.md) and its redacted request ledger for current results, defects fixed, limitations, and deployment requirements. The investigation and original benchmarks below document the earlier implementation stage; they are not the current production-readiness verdict. Existing uncommitted UI, media, research, connection-health and Daily Debrief work was retained.
+Implemented in the existing Python/SQLite application and **deployed as `ad2f5da8390e251a311656692f8ad3ebaa05700f`**. The [October 21 live readiness report](../qa/intelligence-live-2026-10-21.md) and investigation below document previous stages; the running revision and release gate must be checked separately for a later deployment. Existing UI, media, research, connection-health and Daily Debrief work was retained.
 
 ## Diagnosed causes and audit evidence
 

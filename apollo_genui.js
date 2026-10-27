@@ -573,7 +573,120 @@
     return {node: wrap, next: index};
   }
 
+  function richMarkdown(value, citations) {
+    if (!window.markdownit || !window.DOMPurify?.sanitize) return null;
+    const math = [];
+    const source = String(value || "").split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g)
+      .map((part, index) => {
+        if (index % 2) return part;
+        return part.replace(/\\\[[\s\S]+?\\\]|\$\$[\s\S]+?\$\$|\\\([^\n]+?\\\)|\$(?!\s)(?:\\.|[^$\\\n])+?\$(?!\d)/g, token => {
+          const display = token.startsWith("\\[") || token.startsWith("$$");
+          math.push({value: token.slice(2, -2), display});
+          return `APOLLOMATHTOKEN${math.length - 1}END`;
+        });
+      }).join("");
+    const markdown = window.markdownit({
+      html: false, linkify: true, typographer: true, breaks: false,
+      highlight(code, language) {
+        if (!language || !window.hljs?.getLanguage?.(language)) return "";
+        try { return window.hljs.highlight(code, {language, ignoreIllegals: true}).value; }
+        catch (_) { return ""; }
+      }
+    });
+    markdown.enable("table");
+    const fragment = window.DOMPurify.sanitize(markdown.render(source), {
+      USE_PROFILES: {html: true},
+      FORBID_TAGS: ["style", "iframe", "form", "input", "button"],
+      RETURN_DOM_FRAGMENT: true
+    });
+    const root = el("div", "apollo-rich-text apollo-markdown");
+    root.appendChild(fragment);
+    root.querySelectorAll("a").forEach(link => {
+      const target = safeUrl(link.getAttribute("href"));
+      if (!target) { link.replaceWith(document.createTextNode(link.textContent)); return; }
+      link.href = target;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    });
+    root.querySelectorAll("img").forEach(img => {
+      const raw = img.getAttribute("src") || "";
+      const safe = /^data:/i.test(raw)
+        ? (/^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(raw) ? raw : "")
+        : safeUrl(raw, true);
+      img.replaceWith(safe ? imageNode({url: safe, alt: img.alt || "Image"})
+        : document.createTextNode("Image URL is unavailable."));
+    });
+    root.querySelectorAll("pre").forEach(pre => {
+      const code = pre.querySelector("code");
+      if (!code) return;
+      pre.classList.add("apollo-ui-code");
+      const language = (code.className.match(/(?:^|\s)language-([\w-]+)/) || [])[1] || "Code";
+      const button = el("button", "apollo-code-copy", "Copy");
+      button.type = "button";
+      button.setAttribute("aria-label", `Copy ${language} code`);
+      button.addEventListener("click", async () => {
+        try {
+          if (navigator.clipboard?.writeText && window.isSecureContext) {
+            await navigator.clipboard.writeText(code.textContent);
+          } else {
+            const area = el("textarea");
+            area.value = code.textContent;
+            area.style.position = "fixed";
+            area.style.opacity = "0";
+            document.body.appendChild(area);
+            area.select();
+            const copied = document.execCommand("copy");
+            area.remove();
+            if (!copied) throw new Error("Clipboard unavailable");
+          }
+          button.textContent = "Copied";
+          setTimeout(() => { button.textContent = "Copy"; }, 1800);
+        } catch (_) { button.textContent = "Copy failed"; }
+      });
+      pre.appendChild(button);
+    });
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+    textNodes.forEach(node => {
+      if (node.parentElement?.closest("code, pre, a, .apollo-math")) return;
+      const pattern = /APOLLOMATHTOKEN(\d+)END|\[(\d+)\]/g;
+      const content = node.textContent;
+      let match;
+      let cursor = 0;
+      const replacement = document.createDocumentFragment();
+      while ((match = pattern.exec(content))) {
+        if (match.index > cursor) replacement.appendChild(document.createTextNode(content.slice(cursor, match.index)));
+        if (match[1] !== undefined && math[Number(match[1])]) {
+          const item = math[Number(match[1])];
+          replacement.appendChild(renderMath(item.value, item.display));
+        } else if (match[2] !== undefined) {
+          const citation = el("a", "apollo-citation-ref", `[${match[2]}]`);
+          citation.dataset.citationNumber = match[2];
+          if (citations.has(match[2])) citation.href = `#${citations.get(match[2])}`;
+          citation.setAttribute("aria-label", `Source ${match[2]}`);
+          replacement.appendChild(citation);
+        } else replacement.appendChild(document.createTextNode(match[0]));
+        cursor = pattern.lastIndex;
+      }
+      if (!cursor) return;
+      if (cursor < content.length) replacement.appendChild(document.createTextNode(content.slice(cursor)));
+      node.replaceWith(replacement);
+    });
+    root.querySelectorAll("table").forEach(table => {
+      table.classList.add("apollo-ui-table", "apollo-rich-table");
+      const wrap = el("div", "apollo-ui-table-wrap apollo-rich-table-wrap");
+      table.replaceWith(wrap);
+      wrap.appendChild(table);
+    });
+    return root;
+  }
+
   function richText(value, citations = new Map()) {
+    let rendered = null;
+    try { rendered = richMarkdown(value, citations); }
+    catch (error) { console.warn("Apollo rich Markdown unavailable; using safe fallback", error); }
+    if (rendered) return rendered;
     const root = el("div", "apollo-rich-text");
     const lines = String(value || "").replace(/\r/g, "").split("\n");
     let index = 0;

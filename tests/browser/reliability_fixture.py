@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from urllib.parse import urlparse, parse_qs
@@ -35,7 +36,20 @@ server.apollo_connections_registry(force=True, wait=True)
 server.get_now_playing = lambda **kwargs: {'playing': False, 'connection_state': 'connected', 'playback_state': 'idle'}
 server.apollo_calendar_events = lambda *args, **kwargs: ([], {})
 server.ask_hermes = lambda *args, **kwargs: 'Attached photographs show a blue test rectangle.'
-server.stream_hermes = lambda *args, **kwargs: iter(['Here is the supported image.\n\n![Saved test image](/fixture-image.png)'])
+def fixture_stream(messages):
+    if any("slow fixture" in str(item.get("content", "")).lower()
+           for item in messages if isinstance(item, dict)):
+        yield "First complete sentence.\n\n"
+        time.sleep(10)
+        yield "This arrives after the stop control is pressed."
+        return
+    yield (
+        '# Fixture answer\n\nA **bold** detail with a [source](https://example.com/source) and \\(x^2\\).\n\n'
+        '| Item | Value |\n|---|---:|\n| A | 42 |\n\n'
+        '```python\nprint("safe")\n```\n\n'
+        'Here is the supported image.\n\n![Saved test image](/fixture-image.png)'
+    )
+server.stream_hermes = fixture_stream
 server.generate_chat_title = lambda *args: 'Image persistence test'
 server.apollo_extract_attachment_context = lambda attachments: 'The image is a blue rectangle.'
 now = datetime.now(ZoneInfo('Europe/Zurich'))

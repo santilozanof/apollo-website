@@ -1,0 +1,31 @@
+{
+  "name": "apollo-ios",
+  "version": "1.6.0",
+  "private": true,
+  "description": "Private Capacitor iOS container for Apollo",
+  "scripts": {
+    "build": "node scripts/prepare-ios-assets.mjs",
+    "ios:add": "npm run build && cap add ios --packagemanager SPM",
+    "ios:artwork": "swift -module-cache-path /private/tmp/apollo-swift-module-cache scripts/generate-ios-artwork.swift",
+    "ios:sync": "npm run build && cap sync ios",
+    "ios:open": "cap open ios",
+    "ios:build": "npm run ios:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build",
+    "test:ios-config": "node --test tests/ios/*.test.mjs"
+  },
+  "dependencies": {
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/browser": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/haptics": "^8.0.0",
+    "@capacitor/keyboard": "^8.0.0",
+    "@capacitor/status-bar": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0",
+    "@capacitor/ios": "^8.0.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

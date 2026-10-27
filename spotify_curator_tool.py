@@ -633,6 +633,45 @@ def listening_context(spotify):
     }
 
 
+def recent_history(spotify, after_ms=None):
+    """Return the provider's bounded recent-play window without a duration guess."""
+    kwargs = {"limit": 50}
+    if after_ms is not None:
+        kwargs["after"] = max(0, int(after_ms) - 1)
+    response = spotify_read(lambda: spotify.current_user_recently_played(**kwargs), attempts=2) or {}
+    items = response.get("items") or []
+    timestamps = []
+    for item in items:
+        try:
+            from datetime import datetime
+            timestamps.append(int(datetime.fromisoformat(item["played_at"].replace("Z", "+00:00")).timestamp() * 1000))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return {"items": items, "cursor_ms": max(timestamps, default=after_ms),
+            "window_full": len(items) >= 50}
+
+
+def track_metadata(spotify, ids):
+    """Best-effort catalogue enrichment; endpoint access varies by app."""
+    cleaned = [value for value in ids if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9]{22}", value)][:50]
+    if not cleaned:
+        return {"tracks": []}
+    response = spotify_read(lambda: spotify.tracks(cleaned), attempts=2) or {}
+    result = []
+    for item in response.get("tracks") or []:
+        if not isinstance(item, dict) or item.get("id") not in cleaned:
+            continue
+        album = item.get("album") or {}
+        images = album.get("images") or []
+        result.append({
+            "id": item["id"], "album_id": album.get("id"),
+            "album_name": album.get("name"),
+            "artwork_url": images[0].get("url") if images else None,
+            "artist_id": ((item.get("artists") or [{}])[0] or {}).get("id"),
+        })
+    return {"tracks": result}
+
+
 def run(payload, play=False):
     spotify = spotify_client()
     queued_ids, existing_queue_uris = existing_queue_state(spotify)
@@ -665,17 +704,23 @@ def main():
     if command not in {
         "context", "resolve", "play-queue", "start-curation", "restore-queue", "build-curation",
         "playback-state", "playback-control", "recent-contexts", "queue",
-        "queue-add", "track-search", "shuffle",
+        "queue-add", "track-search", "shuffle", "history", "track-metadata",
     }:
         raise SystemExit(
             "Usage: spotify_curator_tool.py "
             "context|resolve|play-queue|start-curation|restore-queue|build-curation|"
             "playback-state|playback-control|recent-contexts|queue|"
-            "queue-add|track-search|shuffle [JSON]"
+            "queue-add|track-search|shuffle|history|track-metadata [JSON]"
         )
     try:
         if command == "context":
             result = listening_context(spotify_client())
+        elif command == "history":
+            payload = json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
+            result = recent_history(spotify_client(), payload.get("after_ms"))
+        elif command == "track-metadata":
+            payload = json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
+            result = track_metadata(spotify_client(), payload.get("ids") or [])
         elif command in {"resolve", "play-queue"}:
             if len(sys.argv) < 3:
                 raise ValueError("Missing music request")

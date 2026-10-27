@@ -54,6 +54,11 @@ class RuntimeTests(unittest.TestCase):
         agent = AgentRuntime([Tool('read','',{},lambda: {'error':'disconnected'})], lambda *_: {'done':True})
         result = agent.run([], [('read',{})])
         self.assertEqual(result['results'][0]['status'], 'failed')
+        for response in ({'ok': False}, {'success': False}, {'status': 'failed'}):
+            with self.subTest(response=response):
+                agent = AgentRuntime([Tool('write', '', {}, lambda: response,
+                                           mutation=True, approval=lambda _: True)], lambda *_: {'done': True})
+                self.assertEqual(agent.call('write', {})['status'], 'failed')
 
     def test_empty_search_can_be_reformulated(self):
         queries = []

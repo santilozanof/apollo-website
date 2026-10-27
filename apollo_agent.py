@@ -85,7 +85,11 @@ class AgentRuntime:
                     for attempt in range(2 if not tool.mutation else 1):
                         try:
                             value = tool.execute(**arguments)
-                            if isinstance(value, dict) and (value.get('error') or value.get('success') is False):
+                            if isinstance(value, dict) and (
+                                value.get('error') or value.get('success') is False
+                                or value.get('ok') is False
+                                or value.get('status') in {'failed', 'error'}
+                            ):
                                 result.update(status='failed', data=value)
                             else:
                                 status = 'empty' if value == [] else 'succeeded'

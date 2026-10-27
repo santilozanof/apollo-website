@@ -1694,6 +1694,15 @@
         white-space: nowrap !important;
     }
 
+    /* An idle player needs room for its message, not a full album-art stage. */
+    .apollo-music-stage:has(.apollo-now-empty.active) {
+        height: 270px !important;
+    }
+    .apollo-music-stage:has(.apollo-now-empty.active) .apollo-now-playing {
+        min-height: 270px !important;
+        padding: 22px !important;
+    }
+
     /* Apollo, Music, Calendar | Home | Tasks, Studio, Settings */
     .sidebar .nav .nav-button:nth-child(1) { order: 4; }
     .sidebar .nav .nav-button:nth-child(2) { order: 1; }
@@ -3506,8 +3515,8 @@ and (
         ) !important;
 
         display: grid !important;
-        /* Home, Apollo, Calendar, Tasks, Studio, Routines, Settings. */
-        grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+        /* Home, Apollo, Music, Calendar, Tasks, Studio, Routines, Settings. */
+        grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
         align-items: center !important;
         overflow: visible !important;
 
@@ -3538,11 +3547,6 @@ and (
     .sidebar .nav .nav-button:nth-child(n),
     .sidebar .sidebar-bottom .nav-button {
         order: initial !important;
-    }
-
-    /* Music remains available by direct navigation; it is not a phone tab. */
-    .sidebar .nav .nav-button:nth-child(3) {
-        display: none !important;
     }
 
     .sidebar .nav-button {

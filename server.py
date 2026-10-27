@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import routines
 import debrief_personalization
 import music_curator
+import music_history
 import apollo_live_research
 from connection_health import HealthMonitor
 from apollo_media import visual_request, visual_response, image_mime, image_preview, persist_supported_images
@@ -837,6 +838,7 @@ def init_db():
     routines.init_schema(conn)
     debrief_personalization.init_schema(conn)
     apollo_intelligence.initialize(conn)
+    music_history.init_schema(conn)
 
     conn.commit()
     conn.close()
@@ -9751,6 +9753,7 @@ WHOOP_AUTH_URI = (
 WHOOP_TOKEN_URI = (
     "https://api.prod.whoop.com/oauth/oauth2/token"
 )
+WHOOP_TOKEN_REFRESH_LOCK = threading.RLock()
 
 WHOOP_SCOPES = " ".join([
     "read:recovery",
@@ -9971,6 +9974,13 @@ def whoop_exchange_code(
 
 
 def whoop_get_access_token():
+    # WHOOP rotates refresh credentials. Serialize the read/refresh/write
+    # sequence so simultaneous cards and health probes cannot reuse one token.
+    with WHOOP_TOKEN_REFRESH_LOCK:
+        return _whoop_get_access_token_locked()
+
+
+def _whoop_get_access_token_locked():
 
     access_token = app_state_get(
         "whoop_access_token"
@@ -10047,18 +10057,9 @@ def whoop_get_access_token():
             )
 
     except urllib.error.HTTPError as exc:
-
-        body = exc.read().decode(
-            "utf-8",
-            errors="replace"
-        )
-
-        raise RuntimeError(
-            "WHOOP token refresh failed: "
-            + str(exc.code)
-            + " "
-            + body
-        )
+        # Provider response bodies can contain account details or credentials.
+        # The status is enough for health and reconnection handling.
+        raise RuntimeError(f"WHOOP token refresh failed (HTTP {exc.code})")
 
     whoop_save_token_data(
         token_data
@@ -10078,49 +10079,28 @@ WHOOP_API_BASE = (
 def whoop_api_get(
     endpoint
 ):
-
-    token = whoop_get_access_token()
-
-    request = urllib.request.Request(
-        WHOOP_API_BASE + endpoint,
-        headers={
-            "Authorization":
-                f"Bearer {token}",
-
-            "Accept":
-                "application/json",
-
-            "User-Agent":
-                "Apollo/1.0",
-        }
-    )
-
-    try:
-
-        with urllib.request.urlopen(
-            request,
-            timeout=30
-        ) as response:
-
-            return json.loads(
-                response.read().decode(
-                    "utf-8"
-                )
-            )
-
-    except urllib.error.HTTPError as exc:
-
-        body = exc.read().decode(
-            "utf-8",
-            errors="replace"
+    for attempt in range(2):
+        token = whoop_get_access_token()
+        request = urllib.request.Request(
+            WHOOP_API_BASE + endpoint,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+                "User-Agent": "Apollo/1.0",
+            },
         )
-
-        raise RuntimeError(
-            "WHOOP API request failed: "
-            + str(exc.code)
-            + " "
-            + body
-        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code == 401 and attempt == 0:
+                # Only clear the rejected access token; keep the rotating
+                # refresh credential and retry the read once.
+                with WHOOP_TOKEN_REFRESH_LOCK:
+                    if app_state_get("whoop_access_token") == token:
+                        app_state_delete("whoop_access_token")
+                continue
+            raise RuntimeError(f"WHOOP API request failed (HTTP {exc.code})")
 
 
 def whoop_millis_hours(
@@ -10295,6 +10275,12 @@ def whoop_current_summary():
     )
 
 
+    has_sleep_stages = sleep.get("score_state") == "SCORED" and any(
+        stage_summary.get(name) is not None for name in (
+            "total_light_sleep_time_milli", "total_slow_wave_sleep_time_milli",
+            "total_rem_sleep_time_milli",
+        )
+    )
     total_sleep_milli = (
         float(
             stage_summary.get(
@@ -10317,9 +10303,15 @@ def whoop_current_summary():
             )
             or 0
         )
+    ) if has_sleep_stages else None
+
+
+    has_sleep_need = sleep.get("score_state") == "SCORED" and any(
+        sleep_needed.get(name) is not None for name in (
+            "baseline_milli", "need_from_sleep_debt_milli",
+            "need_from_recent_strain_milli", "need_from_recent_nap_milli",
+        )
     )
-
-
     total_sleep_need_milli = (
         float(
             sleep_needed.get(
@@ -10349,7 +10341,7 @@ def whoop_current_summary():
             )
             or 0
         )
-    )
+    ) if has_sleep_need else None
 
     app_state_set(
         "whoop_last_successful_sync_at",
@@ -20327,6 +20319,151 @@ Silence is a valid and desirable response when the interaction is clearly comple
 
 
 
+MUSIC_HISTORY_SYNC_LOCK = threading.Lock()
+
+
+def music_history_sync_once():
+    """Collect the bounded provider window; commit events and cursor together."""
+    conn = db()
+    try:
+        state = conn.execute("SELECT cursor_ms, retry_after_at FROM music_sync_state WHERE provider = 'spotify'").fetchone()
+        if state and state["retry_after_at"]:
+            if datetime.fromisoformat(state["retry_after_at"]) > datetime.now(timezone.utc):
+                return False
+        runner = SPOTIFY_PYTHON if Path(SPOTIFY_PYTHON).exists() else sys.executable
+        if not SPOTIFY_CURATOR_TOOL.exists():
+            return False
+        payload = {"after_ms": state["cursor_ms"] if state else None}
+        result = subprocess.run(
+            [runner, str(SPOTIFY_CURATOR_TOOL), "history", json.dumps(payload)],
+            capture_output=True, text=True, timeout=25,
+        )
+        if result.returncode:
+            try:
+                failure = json.loads(result.stderr.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                failure = {}
+            retry = failure.get("retry_after")
+            try:
+                retry_seconds = max(1, min(3600, int(retry))) if retry is not None else 0
+            except (ValueError, TypeError):
+                retry_seconds = 0
+            retry_at = (datetime.now(timezone.utc) + timedelta(seconds=retry_seconds)).isoformat() if retry_seconds else None
+            status = failure.get("status")
+            message = "Spotify needs reconnection" if status in (401, 403) else "Spotify history is temporarily unavailable"
+            conn.execute("UPDATE music_sync_state SET last_error = ?, retry_after_at = ? WHERE provider = 'spotify'", (message, retry_at))
+            conn.commit()
+            return False
+        response = json.loads(result.stdout)
+        items = response.get("items") or []
+        conn.execute("BEGIN IMMEDIATE")
+        music_history.insert_records(conn, items)
+        cursor = response.get("cursor_ms")
+        conn.execute("""
+            UPDATE music_sync_state SET cursor_ms = ?, last_success_at = ?, last_error = NULL, retry_after_at = NULL,
+              coverage_warning = CASE WHEN ? THEN 'Recent-play window was full; older activity may be missing. Import your Spotify export to fill gaps.' ELSE coverage_warning END
+            WHERE provider = 'spotify'
+        """, (max(int(cursor or 0), int(state["cursor_ms"] or 0) if state else 0),
+              datetime.now(timezone.utc).isoformat(), bool(response.get("window_full"))))
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        conn.execute("UPDATE music_sync_state SET last_error = ? WHERE provider = 'spotify'",
+                     ("Spotify history is temporarily unavailable",))
+        conn.commit()
+        return False
+    finally:
+        conn.close()
+
+
+def start_music_history_sync():
+    if not SPOTIFY_CURATOR_TOOL.exists() or not MUSIC_HISTORY_SYNC_LOCK.acquire(False):
+        return False
+    def run():
+        try:
+            music_history_sync_once()
+        finally:
+            MUSIC_HISTORY_SYNC_LOCK.release()
+    threading.Thread(target=run, name="apollo-music-history-sync", daemon=True).start()
+    return True
+
+
+def music_history_enrich_artwork():
+    """Fill optional artwork for exported Spotify track IDs when accessible."""
+    if not SPOTIFY_CURATOR_TOOL.exists():
+        return
+    conn = db()
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        ids = [row[0] for row in conn.execute("""
+            SELECT DISTINCT l.track_id FROM music_listens l
+            LEFT JOIN music_metadata_attempts m ON m.track_id = l.track_id
+            WHERE l.artwork_url IS NULL AND LENGTH(l.track_id) = 22
+              AND (m.track_id IS NULL OR m.last_attempt_at < ?)
+            LIMIT 50
+        """, (cutoff,)).fetchall()]
+        if not ids:
+            return
+        runner = SPOTIFY_PYTHON if Path(SPOTIFY_PYTHON).exists() else sys.executable
+        result = subprocess.run(
+            [runner, str(SPOTIFY_CURATOR_TOOL), "track-metadata", json.dumps({"ids": ids})],
+            capture_output=True, text=True, timeout=25,
+        )
+        if result.returncode:
+            return
+        records = json.loads(result.stdout).get("tracks") or []
+        conn.execute("BEGIN IMMEDIATE")
+        for item in records:
+            if item.get("id") not in ids:
+                continue
+            art = item.get("artwork_url")
+            art = art if isinstance(art, str) and art.startswith("https://i.scdn.co/image/") else None
+            conn.execute("""
+                UPDATE music_listens SET album_id = COALESCE(album_id, ?),
+                  album_name = COALESCE(album_name, ?), artist_id = COALESCE(artist_id, ?),
+                  artwork_url = COALESCE(artwork_url, ?)
+                WHERE track_id = ?
+            """, (item.get("album_id"), item.get("album_name"), item.get("artist_id"),
+                  art,
+                  item["id"]))
+            conn.execute("UPDATE music_tracks SET artwork_url=COALESCE(artwork_url, ?) WHERE spotify_id=?",
+                         (art, item["id"]))
+        now = datetime.now(timezone.utc).isoformat()
+        conn.executemany("""
+            INSERT INTO music_metadata_attempts(track_id, last_attempt_at) VALUES (?, ?)
+            ON CONFLICT(track_id) DO UPDATE SET last_attempt_at=excluded.last_attempt_at, attempts=attempts+1
+        """, [(track_id, now) for track_id in ids])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+def music_history_worker():
+    # The existing systemd-managed backend owns this worker; it survives a
+    # closed browser and never polls Spotify on every page view.
+    while True:
+        start_music_history_sync()
+        music_history_enrich_artwork()
+        try:
+            zone = apollo_automation_timezone()
+            local_now = datetime.now(ZoneInfo(zone))
+            previous_day = local_now.replace(day=1) - timedelta(days=1)
+            month = previous_day.strftime("%Y-%m")
+            conn = db()
+            try:
+                if music_history.monthly_summary(conn, month, zone)["events"]:
+                    music_history.archive_recap(conn, month, zone)
+                    conn.commit()
+            finally:
+                conn.close()
+        except Exception as error:
+            print(f"[Apollo Music Recap] {type(error).__name__}")
+        time.sleep(900)
+
+
 class ApolloHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
@@ -20350,6 +20487,48 @@ class ApolloHandler(BaseHTTPRequestHandler):
         )
 
         route = parsed_url.path
+
+        if route == "/api/music/insights":
+            query = urllib.parse.parse_qs(parsed_url.query)
+            month = query.get("month", [datetime.now().strftime("%Y-%m")])[0]
+            zone = query.get("timezone", ["UTC"])[0]
+            conn = db()
+            try:
+                json_response(self, music_history.monthly_summary(conn, month, zone))
+            except ValueError as error:
+                json_response(self, {"error": str(error)}, 400)
+            finally:
+                conn.close()
+            return
+
+        if route == "/api/music/imports":
+            conn = db()
+            try:
+                rows = conn.execute("""
+                    SELECT file_name, format, imported_count, duplicate_count, created_at
+                    FROM music_import_jobs ORDER BY id DESC LIMIT 10
+                """).fetchall()
+                json_response(self, {"imports": [dict(row) for row in rows]})
+            finally:
+                conn.close()
+            return
+
+        if route == "/api/music/recaps":
+            conn = db()
+            try:
+                query = urllib.parse.parse_qs(parsed_url.query)
+                if query.get("month"):
+                    row = conn.execute(
+                        "SELECT summary_json FROM music_recaps WHERE month = ? AND timezone = ?",
+                        (query["month"][0], query.get("timezone", ["UTC"])[0]),
+                    ).fetchone()
+                    json_response(self, {"summary": json.loads(row["summary_json"])} if row else {"error": "Recap not found"}, 200 if row else 404)
+                    return
+                rows = conn.execute("SELECT month, timezone, generated_at FROM music_recaps ORDER BY month DESC LIMIT 36").fetchall()
+                json_response(self, {"recaps": [dict(row) for row in rows]})
+            finally:
+                conn.close()
+            return
 
         # ─────────────────────────────
         # ROUTINES + HYDRATION
@@ -21678,6 +21857,71 @@ class ApolloHandler(BaseHTTPRequestHandler):
     def do_POST(self):
 
         if apollo_intelligence.handle_api(sys.modules[__name__], self, "POST"):
+            return
+
+        music_route = urllib.parse.urlparse(canonical_api_request_path(self.path)).path
+        if music_route in {"/api/music/history/import", "/api/music/history/sync", "/api/music/recaps"}:
+            # Same-origin requests carry this header. A cross-origin form or
+            # simple fetch cannot issue these private writes without preflight.
+            if self.headers.get("X-Apollo-Request") != "music":
+                json_response(self, {"error": "Request origin could not be verified"}, 403)
+                return
+        if music_route == "/api/music/history/import":
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if size <= 0 or size > 16 * 1024 * 1024:
+                    raise ValueError("Spotify export must be at most 16 MB")
+                content = self.rfile.read(size)
+                name = urllib.parse.unquote(self.headers.get("X-File-Name", "StreamingHistory.json"))
+                conn = db()
+                try:
+                    conn.execute("BEGIN IMMEDIATE")
+                    result = music_history.import_export(conn, name, content)
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+                finally:
+                    conn.close()
+                json_response(self, result)
+            except ValueError as error:
+                json_response(self, {"error": str(error)}, 400)
+            except Exception as error:
+                print(f"[Apollo Music Import] {type(error).__name__}")
+                json_response(self, {"error": "Listening history could not be imported"}, 500)
+            return
+
+        if music_route == "/api/music/history/sync":
+            started = start_music_history_sync()
+            json_response(self, {"started": started}, 202 if started else 409)
+            return
+
+        if music_route == "/api/music/recaps":
+            try:
+                if int(self.headers.get("Content-Length", "0")) > 4096:
+                    raise ValueError("Recap request is too large")
+                data = read_json(self)
+                month = data.get("month")
+                zone = data.get("timezone") or "UTC"
+                # Only archive a month once its local month has ended.
+                _, end = music_history.month_bounds(month, zone)
+                if datetime.fromisoformat(end) > datetime.now(timezone.utc):
+                    raise ValueError("The month has not ended yet")
+                conn = db()
+                try:
+                    conn.execute("BEGIN IMMEDIATE")
+                    summary = music_history.archive_recap(conn, month, zone, bool(data.get("regenerate")))
+                    if not summary["events"]:
+                        raise ValueError("No recorded listening activity for this month")
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+                finally:
+                    conn.close()
+                json_response(self, {"summary": summary})
+            except (ValueError, TypeError) as error:
+                json_response(self, {"error": str(error)}, 400)
             return
 
         routine_route = urllib.parse.urlparse(
@@ -25596,6 +25840,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
 
     init_db()
+    threading.Thread(target=music_history_worker, name="apollo-music-history", daemon=True).start()
     apollo_music_recover_job_status()
     MEMORY_WORKER_STOP = apollo_intelligence.start_worker(sys.modules[__name__])
 
