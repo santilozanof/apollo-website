@@ -67,6 +67,7 @@ class PipelineTests(unittest.TestCase):
             stream_hermes=stream,
             apollo_should_reply_semantically=lambda *_: True,
             generate_chat_title=lambda *_:'Memory fixture',
+            apollo_schedule_chat_title=lambda *_: None,
             ask_hermes=coordinator or (lambda *_a, **_k: '{"calls":[],"done":true}')):
             status, raw = request('POST', f'/api/chats/{chat_id}/messages', {'content':prompt, 'client_context':{'time_zone':'Europe/Zurich'}})
         self.assertEqual(status, 200)
