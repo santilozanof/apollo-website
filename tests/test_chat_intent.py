@@ -3,6 +3,7 @@ import json
 import re
 import unittest
 import apollo_entity
+from types import SimpleNamespace
 from pathlib import Path
 
 
@@ -41,6 +42,24 @@ class ChatIntentPlannerTests(unittest.TestCase):
             "Tell me the whole story of an artist before the first album."}]), ["web"])
         self.assertEqual(choose([{"role": "user", "content":
             "Tell me the whole story of my family."}]), [])
+
+    def test_stream_passes_only_selected_read_only_web_capability(self):
+        routed = []
+        class Response:
+            def __iter__(self):
+                return iter([b'data: {"choices":[{"delta":{"content":"Ready."}}]}\n', b'data: [DONE]\n'])
+            def close(self):
+                pass
+        namespace = {
+            "json": json, "HERMES_URL": "http://local.invalid", "get_api_key": lambda: "test",
+            "_apollo_choose_hermes_toolsets": lambda _messages: ["web"],
+            "_apollo_build_hermes_payload": lambda _messages, **kwargs: routed.append(kwargs) or {},
+            "urllib": SimpleNamespace(request=SimpleNamespace(
+                Request=lambda *_a, **_k: object(), urlopen=lambda *_a, **_k: Response())),
+        }
+        stream = load_function("stream_hermes", namespace)
+        self.assertEqual("".join(stream([{"role": "user", "content": "Public history"}])), "Ready.")
+        self.assertEqual(routed[0]["enabled_toolsets"], ["web"])
 
     def test_long_unstructured_reply_gets_headings_without_rewriting_prose(self):
         structure = load_function("apollo_structure_long_response", {"re": re, "json": json})

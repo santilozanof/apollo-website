@@ -4948,10 +4948,15 @@ def apollo_fetch_planned_context(
 
 
 def stream_hermes(messages):
+    requested_toolsets = _apollo_choose_hermes_toolsets(messages)
+    # Chat actions remain in Apollo's authenticated handlers. The only Hermes
+    # capability this stream can receive is read-only web research.
+    web_toolsets = ["web"] if requested_toolsets is None or "web" in requested_toolsets else []
     payload = json.dumps(
         _apollo_build_hermes_payload(
             messages,
-            stream=True
+            stream=True,
+            enabled_toolsets=web_toolsets,
         )
     ).encode("utf-8")
 
