@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" class="apollo-jarvis-mode" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Apollo Chat presentation fixture</title>
+  <link rel="stylesheet" href="/apollo_genui.css">
+  <style>
+    :root { color-scheme: dark; background: #080d13; color: #dce9f6; }
+    body { margin: 0; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    #apolloView { max-width: 820px; margin: auto; }
+    .apollo-message { padding: 18px; border: 1px solid #23384c; border-radius: 20px; background: #101b28; }
+    .apollo-message-text { font-family: "IBM Plex Mono", monospace; font-size: 14px; }
+    @media(max-width: 500px) { body { padding: 10px; } .apollo-message { padding: 14px; } }
+  </style>
+  <script src="/vendor/chat/markdown-it.min.js"></script>
+  <script src="/vendor/chat/purify.min.js"></script>
+  <script src="/apollo_genui.js"></script>
+</head>
+<body>
+  <main id="apolloView"><article class="apollo-message assistant"><div class="apollo-message-body"><div class="apollo-message-text" id="rendered"></div></div></article></main>
+  <script>
+    const sample = `A complete history needs a clear path through the turning points, with the evidence and dates kept in view.
+
+## The early years
+
+The first phase established the subject's influences and working habits. A useful account explains **what changed**, why it mattered, and which details are supported.
+
+## A decisive period
+
+The next phase introduced a new direction. Separating the chronology into sections makes the story easier to follow without removing nuance.
+
+\`\`\`apollo-ui
+{"blocks":[{"type":"timeline","id":"history-timeline","title":"Key moments","items":[{"time":"Phase one","title":"Early work","text":"Initial development"},{"time":"Phase two","title":"A new direction","text":"The project took shape"}]}]}
+\`\`\`
+
+## What followed
+
+The concluding phase connects the earlier context to the outcome. It should state any uncertainty plainly rather than filling gaps with invented facts.`;
+    document.getElementById('rendered').appendChild(window.ApolloGenUI.render(sample));
+  </script>
+</body>
+</html>

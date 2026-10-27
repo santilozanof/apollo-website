@@ -199,6 +199,27 @@ def _commons_images(subject):
     return [item for item, passed in zip(candidates, valid) if passed][:4]
 
 
+def public_subject_image(subject):
+    """Return one independently loadable Commons image matching a public name.
+
+    The upstream search result alone is not enough: its file title must include
+    the subject's identifying words, so an ambiguous query never decorates an
+    unrelated answer with a plausible-looking portrait.
+    """
+    name = re.sub(r"\s+", " ", str(subject or "")).strip()
+    if not 3 <= len(name) <= 80 or not re.fullmatch(r"[\w .,'-]+", name):
+        return None
+    words = [word.casefold() for word in re.findall(r"[\w'-]+", name)
+             if word.casefold() not in {"the", "a", "an"} and len(word) > 2]
+    if not words:
+        return None
+    for item in _commons_images(name):
+        title = str(item.get("source_title") or "").casefold()
+        if all(word in title for word in words):
+            return item
+    return None
+
+
 def visual_response(subject):
     if subject.startswith("fl-studio"):
         images = _official_fl_images(subject)

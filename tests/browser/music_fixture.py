@@ -50,7 +50,8 @@ class Handler(server.ApolloHandler):
         if path == "/api/connections":
             server.json_response(self, {"integrations": []})
             return
-        if path in ("/api/music/insights", "/api/music/imports", "/api/music/recaps"):
+        if path in ("/api/music/insights", "/api/music/analytics", "/api/music/rankings",
+                    "/api/music/history", "/api/music/detail", "/api/music/imports", "/api/music/recaps"):
             super().do_GET()
             return
         if path.startswith("/api/"):

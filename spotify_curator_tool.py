@@ -651,6 +651,49 @@ def recent_history(spotify, after_ms=None):
             "window_full": len(items) >= 50}
 
 
+def select_image(images, minimum=160):
+    """Prefer a small Spotify CDN image that is still sharp at UI size."""
+    valid = [item for item in images or [] if isinstance(item, dict)
+             and isinstance(item.get("url"), str)
+             and item["url"].startswith("https://i.scdn.co/image/")]
+    suitable = [item for item in valid if isinstance(item.get("width"), int) and item["width"] >= minimum]
+    if suitable:
+        return min(suitable, key=lambda item: item["width"])["url"]
+    return max(valid, key=lambda item: item.get("width") or 0)["url"] if valid else None
+
+
+def artist_metadata(spotify, ids):
+    """Use Spotify's ID-based artist endpoint; never guess by artist name."""
+    cleaned = list(dict.fromkeys(value for value in ids
+                                 if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9]{22}", value)))[:8]
+    result = []
+    for artist_id in cleaned:
+        try:
+            item = spotify_read(lambda artist_id=artist_id: spotify.artist(artist_id), attempts=1)
+        except Exception as error:
+            if getattr(error, "http_status", None) == 404:
+                result.append({"id": artist_id, "image_url": None, "unavailable": True})
+                continue
+            raise
+        if not isinstance(item, dict) or item.get("id") != artist_id:
+            continue
+        result.append({"id": artist_id, "name": item.get("name"),
+                       "image_url": select_image(item.get("images"))})
+    return {"artists": result}
+
+
+def playback_observation(spotify):
+    state = spotify_read(spotify.current_playback, attempts=1) or {}
+    item = state.get("item") if isinstance(state.get("item"), dict) else {}
+    device = state.get("device") if isinstance(state.get("device"), dict) else {}
+    return {"track_id": item.get("id") if item.get("type") == "track" else None,
+            "playing": state.get("is_playing") is True,
+            "progress_ms": state.get("progress_ms"),
+            "duration_ms": item.get("duration_ms"),
+            "state_timestamp_ms": state.get("timestamp"),
+            "private_session": device.get("is_private_session") is True}
+
+
 def track_metadata(spotify, ids):
     """Best-effort catalogue enrichment; endpoint access varies by app."""
     cleaned = [value for value in ids if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9]{22}", value)][:50]
@@ -662,12 +705,15 @@ def track_metadata(spotify, ids):
         if not isinstance(item, dict) or item.get("id") not in cleaned:
             continue
         album = item.get("album") or {}
-        images = album.get("images") or []
+        artists = item.get("artists") or []
         result.append({
             "id": item["id"], "album_id": album.get("id"),
             "album_name": album.get("name"),
-            "artwork_url": images[0].get("url") if images else None,
-            "artist_id": ((item.get("artists") or [{}])[0] or {}).get("id"),
+            "artwork_url": select_image(album.get("images")),
+            "artist_id": (artists[0] or {}).get("id") if artists else None,
+            "duration_ms": item.get("duration_ms"),
+            "artists": [{"id": artist.get("id"), "name": artist.get("name")}
+                        for artist in artists if isinstance(artist, dict)],
         })
     return {"tracks": result}
 
@@ -704,13 +750,13 @@ def main():
     if command not in {
         "context", "resolve", "play-queue", "start-curation", "restore-queue", "build-curation",
         "playback-state", "playback-control", "recent-contexts", "queue",
-        "queue-add", "track-search", "shuffle", "history", "track-metadata",
+        "queue-add", "track-search", "shuffle", "history", "track-metadata", "artist-metadata", "playback-observe",
     }:
         raise SystemExit(
             "Usage: spotify_curator_tool.py "
             "context|resolve|play-queue|start-curation|restore-queue|build-curation|"
             "playback-state|playback-control|recent-contexts|queue|"
-            "queue-add|track-search|shuffle|history|track-metadata [JSON]"
+            "queue-add|track-search|shuffle|history|track-metadata|artist-metadata|playback-observe [JSON]"
         )
     try:
         if command == "context":
@@ -721,6 +767,11 @@ def main():
         elif command == "track-metadata":
             payload = json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
             result = track_metadata(spotify_client(), payload.get("ids") or [])
+        elif command == "artist-metadata":
+            payload = json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
+            result = artist_metadata(spotify_client(), payload.get("ids") or [])
+        elif command == "playback-observe":
+            result = playback_observation(spotify_client())
         elif command in {"resolve", "play-queue"}:
             if len(sys.argv) < 3:
                 raise ValueError("Missing music request")

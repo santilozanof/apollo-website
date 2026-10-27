@@ -1,0 +1,85 @@
+import sqlite3
+import unittest
+from datetime import datetime, timezone
+
+import music_analytics
+import music_history
+
+
+TRACK_A = "A" * 22
+TRACK_B = "B" * 22
+ARTIST_A = "C" * 22
+ARTIST_B = "D" * 22
+ALBUM_A = "E" * 22
+
+
+def play(at, track=TRACK_A, name="Blue Hour", artists=None):
+    return {"played_at": at, "track": {
+        "id": track, "name": name, "duration_ms": 180000,
+        "artists": artists or [{"id": ARTIST_A, "name": "Aster"}],
+        "album": {"id": ALBUM_A, "name": "Night", "images": [{"url": "https://i.scdn.co/image/test"}]},
+    }}
+
+
+class MusicAnalyticsTests(unittest.TestCase):
+    def setUp(self):
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.row_factory = sqlite3.Row
+        music_history.init_schema(self.conn)
+
+    def tearDown(self):
+        self.conn.close()
+
+    def test_timezone_week_and_year_bounds(self):
+        p = music_analytics.period("daily", "2026-03-29", "Europe/Zurich")
+        self.assertEqual(p["start"], "2026-03-28T23:00:00+00:00")
+        self.assertEqual(p["end"], "2026-03-29T22:00:00+00:00")
+        self.assertEqual(music_analytics.period("weekly", "2026-10-27")["first_date"], "2026-10-26")
+        self.assertEqual(music_analytics.period("yearly", "2026-10-27")["end_date"], "2027-01-01")
+        with self.assertRaises(ValueError):
+            music_analytics.period("daily", "2099-01-01")
+
+    def test_rankings_period_search_pagination_and_detail(self):
+        artists = [{"id": ARTIST_A, "name": "Aster"}, {"id": ARTIST_B, "name": "Beryl"}]
+        music_history.insert_records(self.conn, [
+            play("2026-10-27T12:00:00Z", artists=artists),
+            play("2026-10-27T13:00:00Z", TRACK_B, "Night Drive"),
+            play("2026-10-26T13:00:00Z", TRACK_B, "Night Drive"),
+        ])
+        daily = music_analytics.summary(self.conn, "daily", "2026-10-27", "UTC")
+        self.assertEqual(daily["events"], 2)
+        self.assertEqual(daily["unique_artists"], 2)
+        self.assertEqual(daily["duration_unknown_events"], 2)
+        self.assertEqual(daily["top"]["artists"][0]["plays"], 2)
+        week = music_analytics.summary(self.conn, "weekly", "2026-10-27", "UTC")
+        self.assertEqual(week["events"], 3)
+        page = music_analytics.rankings(self.conn, "daily", "2026-10-27", "UTC", "tracks", limit=1)
+        self.assertEqual(page["total"], 2)
+        self.assertEqual(len(page["items"]), 1)
+        second = music_analytics.rankings(self.conn, "daily", "2026-10-27", "UTC", "tracks", limit=1, offset=1)
+        self.assertEqual(second["items"][0]["rank"], 2)
+        match = music_analytics.rankings(self.conn, "daily", "2026-10-27", "UTC", "tracks", search="drive")
+        self.assertEqual(match["total"], 1)
+        recent = music_analytics.history(self.conn, "daily", "2026-10-27", "UTC", limit=1)
+        self.assertEqual(recent["total"], 2)
+        self.assertEqual(len(recent["items"]), 1)
+        detail = music_analytics.detail(self.conn, "daily", "2026-10-27", "UTC", "artists", "spotify:" + ARTIST_A)
+        self.assertEqual(detail["item"]["plays"], 2)
+        self.assertEqual(detail["lifetime"]["plays"], 3)
+        self.assertEqual(len(detail["songs"]), 2)
+
+    def test_observed_estimate_never_becomes_verified_time(self):
+        music_history.insert_records(self.conn, [play("2026-10-27T12:00:00Z")])
+        first = {"track_id": TRACK_A, "state_timestamp_ms": 1000, "progress_ms": 1000,
+                 "duration_ms": 180000, "playing": True}
+        next_sample = dict(first, progress_ms=61000)
+        music_history.record_playback_observation(self.conn, first, datetime(2026, 10, 27, 12, 1, tzinfo=timezone.utc))
+        music_history.record_playback_observation(self.conn, next_sample, datetime(2026, 10, 27, 12, 2, tzinfo=timezone.utc))
+        report = music_analytics.summary(self.conn, "daily", "2026-10-27", "UTC")
+        self.assertEqual(report["verified_ms"], 0)
+        self.assertEqual(report["estimated_ms"], 60000)
+        self.assertEqual(music_analytics.rankings(self.conn, "daily", "2026-10-27", "UTC", "tracks", "estimated")["items"][0]["estimated_ms"], 60000)
+
+
+if __name__ == "__main__":
+    unittest.main()

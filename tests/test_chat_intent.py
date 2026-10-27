@@ -19,6 +19,93 @@ def load_function(name, namespace):
 
 
 class ChatIntentPlannerTests(unittest.TestCase):
+    def test_full_historical_story_uses_smart_model_without_upgrading_casual_chat(self):
+        namespace = {}
+        namespace["_apollo_router_text"] = load_function("_apollo_router_text", {})
+        namespace["_apollo_latest_user_text"] = load_function("_apollo_latest_user_text", namespace)
+        namespace["_apollo_turn_has_image"] = load_function("_apollo_turn_has_image", namespace)
+        choose = load_function("_apollo_choose_model", namespace)
+        self.assertEqual(choose([{"role": "user", "content":
+            "Tell me the whole story of the project before and during its launch."}])["tier"], "SMART")
+        self.assertEqual(choose([{"role": "user", "content": "Hey, how's it going?"}])["tier"], "FAST")
+
+    def test_public_history_enables_read_only_research_without_searching_personal_history(self):
+        namespace = {"re": re}
+        namespace["_apollo_router_text"] = load_function("_apollo_router_text", namespace)
+        namespace["_apollo_latest_user_text"] = load_function("_apollo_latest_user_text", namespace)
+        namespace["_apollo_turn_has_image"] = load_function("_apollo_turn_has_image", namespace)
+        namespace["apollo_story_visual_candidate"] = load_function("apollo_story_visual_candidate", namespace)
+        choose = load_function("_apollo_choose_hermes_toolsets", namespace)
+        self.assertEqual(choose([{"role": "user", "content":
+            "Tell me the whole story of an artist before the first album."}]), ["web"])
+        self.assertEqual(choose([{"role": "user", "content":
+            "Tell me the whole story of my family."}]), [])
+
+    def test_long_unstructured_reply_gets_headings_without_rewriting_prose(self):
+        structure = load_function("apollo_structure_long_response", {"re": re, "json": json})
+        paragraphs = [f"Paragraph {i}. " + ("A factual sentence. " * 35) for i in range(14)]
+        original = "\n\n".join(paragraphs)
+        planning = lambda *_a, **_k: json.dumps({"sections": [
+            {"before": 1, "title": "The beginning"},
+            {"before": 6, "title": "The middle"},
+            {"before": 10, "title": "The outcome"},
+        ]})
+        changed, used = structure(original, planning)
+        self.assertTrue(used)
+        self.assertEqual(re.sub(r"(?m)^## .+\n\n", "", changed), "\n\n".join(part.strip() for part in paragraphs))
+        already_structured, used = structure("## Existing section\n\n" + original, planning)
+        self.assertFalse(used)
+        self.assertIn("## Existing section", already_structured)
+
+    def test_public_story_visual_requires_verified_image_and_preserves_text(self):
+        namespace = {"re": re, "json": json}
+        candidate = load_function("apollo_story_visual_candidate", namespace)
+        namespace["apollo_story_visual_candidate"] = candidate
+        resolve = load_function("apollo_verified_story_visual", namespace)
+        insert = load_function("apollo_insert_story_visual", namespace)
+        image = {"url": "https://thumb.wikimedia.org/example.jpg", "alt": "Public figure portrait",
+                 "source_url": "https://commons.wikimedia.org/wiki/File:Example.jpg",
+                 "source_title": "Example.jpg", "publisher": "Wikimedia Commons"}
+        prompt = "Tell me the whole story of a public figure before their first major release."
+        seen = []
+        found = resolve(prompt,
+            lambda *_a, **_k: json.dumps({"public": True, "subject": "Public Figure"}),
+            lambda subject: seen.append(subject) or image)
+        self.assertEqual(seen, ["Public Figure"])
+        answer, added = insert("A direct opening.\n\n## Background\n\nThe facts remain intact.", found)
+        self.assertTrue(added)
+        self.assertIn("## Background\n\nThe facts remain intact.", answer)
+        self.assertIn('"type":"image"', answer)
+        self.assertIn('"type":"sources"', answer)
+        self.assertFalse(candidate("Tell me the whole story of my family"))
+
+    def test_story_timeline_uses_only_sentences_already_in_answer(self):
+        namespace = {"re": re, "json": json}
+        namespace["apollo_story_visual_candidate"] = load_function("apollo_story_visual_candidate", namespace)
+        namespace["apollo_insert_story_timeline"] = load_function("apollo_insert_story_timeline", namespace)
+        timeline = load_function("apollo_add_story_timeline", namespace)
+        facts = [
+            "In 2008, the group started working together.",
+            "By 2010, the project had adopted a new direction.",
+            "In 2012, the finished work reached a wider audience.",
+        ]
+        content = ("A chronological account can be divided into phases.\n\n## Early work\n\n"
+                   + facts[0] + " " + "Background detail. " * 80
+                   + "\n\n## Later work\n\n" + facts[1] + " " + "More context. " * 80
+                   + "\n\n" + facts[2] + " " + "The outcome followed. " * 80)
+        events = {"events": [{"time": year, "evidence": fact}
+                             for year, fact in zip(("2008", "2010", "2012"), facts)]}
+        changed, added = timeline(content, "Tell me the whole story of this project",
+                                  lambda *_a, **_k: json.dumps(events))
+        self.assertTrue(added)
+        self.assertIn('"type":"timeline"', changed)
+        self.assertTrue(all(fact in changed for fact in facts))
+        events["events"][0]["evidence"] = "In 2008, a different event happened."
+        unchanged, added = timeline(content, "Tell me the whole story of this project",
+                                    lambda *_a, **_k: json.dumps(events))
+        self.assertFalse(added)
+        self.assertEqual(unchanged, content.strip())
+
     def test_semantic_plan_normalizes_domain_action_and_sources(self):
         captured = []
         planner = load_function("apollo_context_planner", {

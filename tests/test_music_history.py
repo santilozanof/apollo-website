@@ -3,6 +3,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -110,6 +111,62 @@ class MusicHistoryTests(unittest.TestCase):
         self.assertEqual(len(response["items"]), 1)
         self.assertFalse(response["window_full"])
         self.assertIsNone(music_history.normalize_record(response["items"][0])["ms_played"])
+
+    def test_official_artist_image_uses_exact_id_and_suitable_resolution(self):
+        artist_id = "A" * 22
+        class Spotify:
+            def artist(self, requested):
+                self.requested = requested
+                return {"id": requested, "name": "Aster", "images": [
+                    {"url": "https://i.scdn.co/image/large", "width": 640},
+                    {"url": "https://i.scdn.co/image/medium", "width": 320},
+                    {"url": "https://i.scdn.co/image/tiny", "width": 64},
+                ]}
+        spotify = Spotify()
+        result = spotify_curator_tool.artist_metadata(spotify, [artist_id, artist_id, "not-an-id"])
+        self.assertEqual(spotify.requested, artist_id)
+        self.assertEqual(len(result["artists"]), 1)
+        self.assertEqual(result["artists"][0]["image_url"], "https://i.scdn.co/image/medium")
+
+    def test_schema_upgrade_twice_preserves_existing_listens_and_imports(self):
+        legacy = sqlite3.connect(":memory:")
+        legacy.row_factory = sqlite3.Row
+        legacy.executescript("""
+            CREATE TABLE music_artists(artist_key TEXT PRIMARY KEY, spotify_id TEXT, name TEXT NOT NULL);
+            CREATE TABLE music_import_jobs(id INTEGER PRIMARY KEY, file_name TEXT NOT NULL,
+              content_sha256 TEXT NOT NULL UNIQUE, format TEXT NOT NULL, imported_count INTEGER NOT NULL,
+              duplicate_count INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE music_sync_state(provider TEXT PRIMARY KEY, cursor_ms INTEGER,
+              last_success_at TEXT, last_error TEXT, retry_after_at TEXT, coverage_warning TEXT);
+            INSERT INTO music_artists VALUES ('name:legacy', NULL, 'Aster');
+            INSERT INTO music_import_jobs(file_name,content_sha256,format,imported_count,duplicate_count)
+              VALUES ('old.json','old-sha','extended',1,0);
+        """)
+        music_history.init_schema(legacy)
+        music_history.insert_records(legacy, [api_play()])
+        music_history.init_schema(legacy)
+        self.assertEqual(legacy.execute("SELECT name FROM music_artists WHERE artist_key='name:legacy'").fetchone()[0], "Aster")
+        self.assertEqual(legacy.execute("SELECT COUNT(*) FROM music_listens").fetchone()[0], 1)
+        self.assertEqual(legacy.execute("SELECT COUNT(*) FROM music_import_jobs").fetchone()[0], 1)
+        self.assertEqual(legacy.execute("SELECT COUNT(*) FROM music_listen_artists").fetchone()[0], 1)
+        legacy.close()
+
+    def test_playback_observation_rejects_pauses_and_export_overlap(self):
+        track_id = "A" * 22
+        first = {"track_id": track_id, "state_timestamp_ms": 1000,
+                 "progress_ms": 1000, "duration_ms": 180000, "playing": True}
+        base = datetime(2026, 3, 12, 12, 0, tzinfo=timezone.utc)
+        self.assertEqual(music_history.record_playback_observation(self.conn, first, base), 0)
+        self.assertEqual(music_history.record_playback_observation(
+            self.conn, dict(first, progress_ms=61000), base + timedelta(minutes=1)), 60000)
+        self.assertEqual(music_history.record_playback_observation(
+            self.conn, dict(first, progress_ms=61000, playing=False), base + timedelta(minutes=2)), 0)
+        start, end = music_history.month_bounds("2026-03", "UTC")
+        self.assertEqual(music_history.estimated_by_track(self.conn, start, end)[track_id], 60000)
+        self.conn.execute("""INSERT INTO music_listens(source,source_key,source_timestamp,event_at,track_key,track_id,
+                          track_name,artist_name,ms_played) VALUES ('spotify_extended','verified',?,?,?,?,'Song','Aster',30000)""",
+                          ("2026-03-12T12:00:30+00:00", "2026-03-12T12:00:30+00:00", "spotify:" + track_id, track_id))
+        self.assertEqual(music_history.estimated_by_track(self.conn, start, end)[track_id], 30000)
 
     def test_background_sync_commits_cursor_with_events_and_records_backoff(self):
         with tempfile.TemporaryDirectory() as directory:

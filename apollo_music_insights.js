@@ -63,173 +63,226 @@
     const minutes = Math.round(ms / 60000);
     return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes} min`;
   }
-  function rankPanel(title, rows) {
-    const panel = text('section', '', 'panel');
-    panel.append(text('h3', title));
-    const list = text('div', '', 'ranked');
-    if (!rows.length) list.append(text('p', 'No recorded activity for this month.', 'muted'));
-    rows.forEach((row, index) => {
-      const item = text('div', '', 'ranked-row');
-      item.append(text('span', String(index + 1).padStart(2, '0'), 'number'));
-      if (title !== 'Top artists' && safeArt(row.artwork_url) && safeSpotify(row.spotify_url)) {
-        const img = document.createElement('img');
-        img.src = row.artwork_url;
-        img.alt = '';
-        img.loading = 'lazy';
-        item.append(img);
-      } else item.append(text('span', '', 'art-placeholder'));
-      item.append(text('span', row.name, 'name'), text('span', `${row.plays} ${row.plays === 1 ? 'play' : 'plays'}`, 'plays'));
-      const direct = safeSpotify(row.spotify_url);
-      const link = text('a', direct ? 'Spotify' : 'Find on Spotify');
-      link.href = direct ? row.spotify_url : `https://open.spotify.com/search/${encodeURIComponent(row.name)}`;
-      link.target = '_blank'; link.rel = 'noopener noreferrer';
-      link.setAttribute('aria-label', `${direct ? 'Open' : 'Find'} ${row.name} on Spotify`);
-      item.append(link);
-      list.append(item);
-    });
-    panel.append(list);
-    return panel;
+  function initialDay() {
+    return new Intl.DateTimeFormat('sv-SE', {timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date());
   }
-  function heading(title, month) {
-    const top = text('div', '', 'topline');
-    const left = text('div', '');
-    left.append(text('div', 'APOLLO MUSIC', 'eyebrow'), text('h2', title));
-    const input = document.createElement('input');
-    input.type = 'month';
-    input.value = month;
-    input.max = localMonth();
-    input.setAttribute('aria-label', 'Listening month');
-    input.addEventListener('change', () => {
-      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.value)) return;
-      state.month = input.value;
-      state.recap = null;
-      state.tab === 'recaps' ? loadRecap() : loadInsights();
-    });
-    top.append(left, input);
+  state.period = 'monthly';
+  state.anchor = initialDay();
+  state.expanded = null;
+  state.metric = 'plays';
+  state.search = '';
+  state.offset = 0;
+  function params(extra = {}) {
+    return new URLSearchParams({period: state.period, anchor: state.anchor, timezone: zone, ...extra});
+  }
+  function periodStep(direction) {
+    const [y, m, d] = state.anchor.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    if (state.period === 'daily') date.setUTCDate(date.getUTCDate() + direction);
+    if (state.period === 'weekly') date.setUTCDate(date.getUTCDate() + direction * 7);
+    if (state.period === 'monthly') { date.setUTCDate(1); date.setUTCMonth(date.getUTCMonth() + direction); }
+    if (state.period === 'yearly') { date.setUTCMonth(0, 1); date.setUTCFullYear(date.getUTCFullYear() + direction); }
+    const next = date.toISOString().slice(0, 10);
+    if (next <= initialDay()) state.anchor = next;
+  }
+  function imageOrMonogram(row, entity) {
+    const wrapper = text('span', '', `music-art music-art-${entity}`);
+    if (safeArt(row.image_url || row.artwork_url)) {
+      const img = document.createElement('img'); img.src = row.image_url || row.artwork_url;
+      img.alt = entity === 'artists' ? `${row.name} artist portrait` : `${row.name || row.track_name} album artwork`;
+      img.loading = 'lazy';
+      img.onerror = () => { img.remove(); wrapper.textContent = (row.name || row.track_name || '♪').slice(0, 1).toUpperCase(); };
+      wrapper.append(img);
+    } else wrapper.textContent = (row.name || row.track_name || '♪').slice(0, 1).toUpperCase();
+    return wrapper;
+  }
+  function timeLabel(row) {
+    if (row.verified_events) return `${duration(row.verified_ms)} verified`;
+    if (row.estimated_ms) return `${duration(row.estimated_ms)} estimated`;
+    return 'Time unavailable';
+  }
+  function spotifyLink(row, label = 'Open on Spotify') {
+    if (!safeSpotify(row.spotify_url)) return null;
+    const link = text('a', label, 'spotify-source-link');
+    link.href = row.spotify_url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    return link;
+  }
+  function musicRow(row, entity, index, onOpen) {
+    const line = text('div', '', 'ranked-row music-explorer-row');
+    if (index != null) line.append(text('span', String(index).padStart(2, '0'), 'number'));
+    line.append(imageOrMonogram(row, entity));
+    const body = text('div', '', 'music-row-body');
+    const title = text('button', row.name || row.track_name, 'music-row-title'); title.type = 'button';
+    title.addEventListener('click', onOpen); body.append(title);
+    if (row.artist_name && entity !== 'artists') body.append(text('small', row.artist_name));
+    line.append(body);
+    const measure = text('div', '', 'music-row-measure');
+    measure.append(text('strong', `${row.plays} ${row.plays === 1 ? 'play' : 'plays'}`), text('small', timeLabel(row)));
+    line.append(measure);
+    const source = spotifyLink(row, '↗'); if (source) { source.setAttribute('aria-label', `Open ${row.name} on Spotify`); line.append(source); }
+    return line;
+  }
+  function heading(title, month, recap = false) {
+    const top = text('header', '', 'topline music-heading');
+    const left = text('div', '', 'music-heading-copy');
+    left.append(text('div', 'APOLLO / MUSIC', 'eyebrow'), text('h2', title));
+    top.append(left);
+    if (recap) {
+      const nav = text('div', '', 'music-period-nav');
+      const back = text('button', '‹', 'music-period-arrow'); back.type = 'button'; back.setAttribute('aria-label', 'Previous month');
+      back.onclick = () => { state.month = previousMonth(state.month); loadRecap(); };
+      const picker = text('button', monthLabel(month), 'music-period-label'); picker.type = 'button';
+      picker.setAttribute('aria-label', 'Choose recap month');
+      picker.onclick = () => showMonthPicker(nav, picker, true);
+      const next = text('button', '›', 'music-period-arrow'); next.type = 'button'; next.setAttribute('aria-label', 'Next month');
+      next.disabled = month >= previousMonth(localMonth());
+      next.onclick = () => { const [y, m] = state.month.split('-').map(Number); state.month = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`; loadRecap(); };
+      nav.append(back, picker, next); top.append(nav);
+    }
     return top;
   }
+  function showMonthPicker(container, trigger, recap = false) {
+    container.querySelector('.music-month-popover')?.remove();
+    const pop = text('div', '', 'music-month-popover');
+    const year = recap ? Number(state.month.slice(0, 4)) : Number(state.anchor.slice(0, 4));
+    const yearNav = text('div', '', 'music-picker-year');
+    const previous = text('button', '‹'); previous.setAttribute('aria-label', 'Previous year'); previous.onclick = () => { if (recap) state.month = `${year - 1}-${state.month.slice(5)}`; else state.anchor = `${year - 1}${state.anchor.slice(4)}`; showMonthPicker(container, trigger, recap); };
+    const current = text('strong', String(year));
+    const next = text('button', '›'); next.setAttribute('aria-label', 'Next year'); next.disabled = year >= Number(initialDay().slice(0, 4)); next.onclick = () => { if (recap) state.month = `${year + 1}-${state.month.slice(5)}`; else state.anchor = `${year + 1}${state.anchor.slice(4)}`; showMonthPicker(container, trigger, recap); };
+    yearNav.append(previous, current, next); pop.append(yearNav);
+    const grid = text('div', '', 'music-picker-grid');
+    for (let m = 1; m <= 12; m++) {
+      const month = `${year}-${String(m).padStart(2, '0')}`;
+      const button = text('button', new Intl.DateTimeFormat('en', {month: 'short'}).format(new Date(year, m - 1, 1)));
+      button.disabled = month > (recap ? previousMonth(localMonth()) : localMonth());
+      button.setAttribute('aria-current', String(month === (recap ? state.month : state.anchor.slice(0, 7))));
+      button.onclick = () => { if (recap) { state.month = month; loadRecap(); } else { state.anchor = `${month}-01`; loadInsights(); } };
+      grid.append(button);
+    }
+    pop.append(grid); container.append(pop); pop.querySelector('button')?.focus();
+    pop.addEventListener('keydown', event => { if (event.key === 'Escape') { pop.remove(); trigger.focus(); } });
+  }
+  function selector(summary) {
+    const wrapper = text('div', '', 'music-period-controls');
+    const tabs = text('div', '', 'music-period-tabs'); tabs.setAttribute('role', 'group'); tabs.setAttribute('aria-label', 'Listening time frame');
+    for (const kind of ['daily', 'weekly', 'monthly', 'yearly', 'lifetime']) {
+      const button = text('button', kind[0].toUpperCase() + kind.slice(1)); button.type = 'button';
+      button.setAttribute('aria-pressed', String(state.period === kind));
+      button.onclick = () => { state.period = kind; state.expanded = null; loadInsights(); };
+      tabs.append(button);
+    }
+    wrapper.append(tabs);
+    if (state.period !== 'lifetime') {
+      const nav = text('div', '', 'music-period-nav');
+      const back = text('button', '‹', 'music-period-arrow'); back.type = 'button'; back.setAttribute('aria-label', 'Previous period'); back.onclick = () => { periodStep(-1); loadInsights(); };
+      const label = text('button', summary.period.label, 'music-period-label'); label.type = 'button';
+      label.setAttribute('aria-label', 'Choose listening period');
+      label.onclick = () => {
+        if (state.period === 'monthly') showMonthPicker(nav, label);
+        else if (state.period === 'daily' || state.period === 'weekly') { const input = nav.querySelector('input') || document.createElement('input'); input.type = 'date'; input.max = initialDay(); input.value = state.anchor; input.setAttribute('aria-label', 'Choose date'); input.onchange = () => { if (input.value && input.value <= initialDay()) { state.anchor = input.value; loadInsights(); } }; nav.append(input); input.showPicker?.(); input.focus(); }
+        else { const input = nav.querySelector('input') || document.createElement('input'); input.type = 'number'; input.min = '1970'; input.max = initialDay().slice(0, 4); input.value = state.anchor.slice(0, 4); input.setAttribute('aria-label', 'Choose year'); input.onchange = () => { const year = Number(input.value); if (year >= 1970 && year <= Number(input.max)) { state.anchor = `${year}-01-01`; loadInsights(); } }; nav.append(input); input.focus(); }
+      };
+      const next = text('button', '›', 'music-period-arrow'); next.type = 'button'; next.setAttribute('aria-label', 'Next period'); next.disabled = !summary.period.can_next; next.onclick = () => { periodStep(1); loadInsights(); };
+      nav.append(back, label, next); wrapper.append(nav);
+    } else wrapper.append(text('div', summary.coverage.earliest_event ? `Available history since ${new Date(summary.coverage.earliest_event).toLocaleDateString()}` : 'No recorded history yet', 'music-period-coverage'));
+    return wrapper;
+  }
+  function stat(label, value, note) {
+    const card = text('div', '', 'stat'); card.append(text('div', label, 'eyebrow'), text('strong', value), text('span', note)); return card;
+  }
+  function rankPanel(title, entity, rows) {
+    const panel = text('section', '', 'panel music-ranking');
+    const header = text('div', '', 'music-panel-head'); header.append(text('h3', title));
+    const all = text('button', `View all ${entity}`, 'music-text-action'); all.type = 'button'; all.onclick = () => { state.returnScroll = view.scrollTop; state.expanded = entity; state.search = ''; state.offset = 0; loadExpanded(); view.scrollTop = 0; }; header.append(all); panel.append(header);
+    const list = text('div', '', 'ranked');
+    if (!rows.length) list.append(text('p', 'No recorded activity in this period.', 'muted'));
+    rows.forEach((row, index) => list.append(musicRow(row, entity, index + 1, () => loadDetail(entity, row.entity_key))));
+    panel.append(list); return panel;
+  }
+  function chart(summary) {
+    const panel = text('section', '', 'panel music-chart-panel');
+    panel.append(text('h3', summary.period.kind === 'daily' ? 'By hour' : summary.period.kind === 'weekly' ? 'This week' : summary.period.kind === 'monthly' ? 'By day' : summary.period.kind === 'yearly' ? 'By month' : 'Across the years'));
+    const bars = text('div', '', 'music-chart'); bars.setAttribute('role', 'img');
+    bars.setAttribute('aria-label', summary.chart.map(item => `${item.label}: ${item.plays} plays`).join(', '));
+    const peak = Math.max(1, ...summary.chart.map(item => item.plays));
+    summary.chart.forEach((item, index) => { const bar = text('span', '', item.plays === peak && item.plays ? 'peak' : ''); bar.style.height = `${Math.max(2, item.plays / peak * 100)}%`; bar.title = `${item.label}: ${item.plays} plays`; if (index % Math.max(1, Math.ceil(summary.chart.length / 7)) === 0) bar.dataset.label = item.label; bars.append(bar); });
+    panel.append(bars);
+    if (summary.insights?.length) summary.insights.slice(0, 3).forEach(finding => panel.append(text('p', finding, 'muted method')));
+    return panel;
+  }
   async function loadInsights() {
-    pane.replaceChildren(heading('Listening insights', state.month), text('p', 'Loading your listening history…', 'muted'));
+    state.expanded = null;
+    if (state.period === 'monthly') state.month = state.anchor.slice(0, 7);
+    pane.replaceChildren(heading('Listening insights'), text('p', 'Loading listening history…', 'muted'));
     try {
-      const params = new URLSearchParams({month: state.month, timezone: zone});
-      const [summary, previous] = await Promise.all([
-        request(`/api/music/insights?${params}`),
-        request(`/api/music/insights?${new URLSearchParams({month: previousMonth(state.month), timezone: zone})}`)
-      ]);
-      if (state.tab !== 'insights' || summary.month !== state.month) return;
+      const summary = await request(`/api/music/analytics?${params()}`);
+      if (state.tab !== 'insights' || summary.period.kind !== state.period || summary.period.anchor !== state.anchor) return;
       state.summary = summary;
-      pane.replaceChildren(heading('Listening insights', state.month));
-      const status = text('div', '', 'statusline');
-      status.append(text('span', summary.last_sync_at ? `Spotify synced ${new Date(summary.last_sync_at).toLocaleString()}` : 'No successful Spotify sync yet. Historical coverage may be limited.'));
-      if (summary.sync_error) status.append(text('span', summary.sync_error));
-      if (summary.coverage_warning) status.append(text('span', summary.coverage_warning));
+      pane.replaceChildren(heading('Listening insights'), selector(summary));
+      const coverage = summary.coverage;
+      const status = text('div', '', 'statusline music-status');
+      status.append(text('span', coverage.syncing ? 'Spotify syncing…' : coverage.last_sync_at ? `Spotify updated ${new Date(coverage.last_sync_at).toLocaleString()}` : 'Spotify history not yet synchronized'));
+      if (coverage.sync_error || coverage.coverage_warning) status.append(text('span', coverage.sync_error || coverage.coverage_warning, 'music-status-warning'));
       status.append(spotifyAttribution());
-      const refresh = text('button', 'Sync Spotify');
-      refresh.type = 'button';
-      refresh.addEventListener('click', async () => {
-        refresh.disabled = true;
-        try {
-          await request('/api/music/history/sync', {method: 'POST', headers: {'X-Apollo-Request': 'music'}});
-          status.append(text('span', 'Sync started. Refresh shortly.'));
-          setTimeout(() => { if (state.tab === 'insights') loadInsights(); }, 12000);
-        } catch (error) { status.append(text('span', error.message)); }
-        finally { refresh.disabled = false; }
-      });
-      status.append(refresh);
-      pane.append(status);
+      const menu = text('details', '', 'music-sync-menu'); const summaryButton = text('summary', '···'); summaryButton.setAttribute('aria-label', 'Music history options'); menu.append(summaryButton);
+      const sync = text('button', 'Sync now'); sync.type = 'button'; sync.onclick = async () => { sync.disabled = true; try { await request('/api/music/history/sync', {method: 'POST', headers: {'X-Apollo-Request': 'music'}}); status.append(text('span', 'Sync started')); } catch (error) { status.append(text('span', error.message)); } finally { sync.disabled = false; menu.open = false; } }; menu.append(sync); status.append(menu); pane.append(status);
       const stats = text('div', '', 'stats');
-      [
-        ['Verified listening', duration(summary.verified_ms), `${summary.duration_unknown_events} events have unknown duration`],
-        ['Recorded plays', summary.events.toLocaleString(), 'Distinct listening events'],
-        ['Artists', summary.unique_artists.toLocaleString(), 'Observed in Apollo history']
-      ].forEach(([label, value, note]) => {
-        const card = text('div', '', 'stat');
-        card.append(text('div', label, 'eyebrow'), text('strong', value), text('span', note));
-        stats.append(card);
-      });
+      const timeValue = summary.verified_ms ? duration(summary.verified_ms) : summary.estimated_ms ? duration(summary.estimated_ms) : 'Unavailable';
+      const timeNote = summary.verified_ms ? `${summary.estimated_ms ? `+ ${duration(summary.estimated_ms)} estimated · ` : ''}${summary.duration_unknown_events} plays without verified duration` : summary.estimated_ms ? 'Estimated from observed playback; verified time available after import' : 'Import official history for verified listening time';
+      stats.append(stat(summary.verified_ms ? 'Verified listening' : summary.estimated_ms ? 'Estimated listening' : 'Listening time', timeValue, timeNote), stat('Recorded plays', summary.events.toLocaleString(), 'Events in available history'), stat('Artists', summary.unique_artists.toLocaleString(), 'Credited in recorded plays'));
       pane.append(stats);
-      if (!summary.events) {
-        pane.append(text('p', 'No listening events are recorded for this month yet. Sync Spotify or import your official history below.', 'empty'));
-      } else {
-      const grid = text('div', '', 'grid');
-      grid.append(rankPanel('Top artists', summary.top_artists), rankPanel('Top songs', summary.top_tracks), rankPanel('Top albums', summary.top_albums));
-      const patterns = text('section', '', 'panel');
-      patterns.append(text('h3', 'Listening pattern'));
-      if (summary.events) {
-        const chart = text('div', '', 'pattern');
-        const counts = Array.from({length: 24}, (_, hour) => Number(summary.hours[String(hour)] || 0));
-        const max = Math.max(1, ...counts);
-        counts.forEach((count, hour) => {
-          const bar = text('span', '');
-          bar.style.height = `${Math.max(2, count / max * 100)}%`;
-          bar.title = `${hour}:00 · ${count} plays`;
-          if (count === max && count) bar.className = 'peak';
-          chart.append(bar);
-        });
-        patterns.append(chart);
-        const axis = text('div', '', 'pattern-axis');
-        ['00:00', '06:00', '12:00', '18:00', '23:00'].forEach(label => axis.append(text('span', label)));
-        patterns.append(axis);
-      } else patterns.append(text('p', 'No listening pattern is available for this month.', 'muted'));
-      const change = previous.events ? Math.round((summary.events - previous.events) / previous.events * 100) : null;
-      patterns.append(text('p', !summary.events ? 'No recorded activity this month; comparison is unavailable.' : change === null ? 'No recorded plays in the previous month for comparison.' : `${Math.abs(change)}% ${change >= 0 ? 'more' : 'fewer'} recorded plays than ${monthLabel(previous.month)}. Coverage may differ.`, 'muted method'));
-      grid.append(patterns);
-      pane.append(grid);
-      const discovery = text('section', '', 'panel method');
-      discovery.append(text('h3', 'First seen in Apollo history'));
-      discovery.append(text('p', summary.first_seen_artists.length ? summary.first_seen_artists.join(' · ') : 'No first-seen artists this month.', 'muted'));
-      pane.append(discovery);
-      const recent = text('section', '', 'panel method');
-      recent.append(text('h3', 'Recent listening'));
-      const recentList = text('div', '', 'recent-list');
-      const recentItems = Array.isArray(summary.recent) ? summary.recent : [];
-      if (!recentItems.length) recentList.append(text('p', 'No recorded listening activity for this month.', 'muted'));
-      recentItems.forEach(item => {
-        const row = text('div', '', 'recent-row');
-        row.append(text('span', '', 'art-placeholder'));
-        const identity = text('div', '', 'recent-identity');
-        identity.append(text('strong', item.track_name), text('span', item.artist_name));
-        row.append(identity);
-        const search = text('a', 'Spotify', 'recent-spotify-link');
-        search.href = `https://open.spotify.com/search/${encodeURIComponent(item.track_name + ' ' + item.artist_name)}`;
-        search.target = '_blank'; search.rel = 'noopener noreferrer';
-        search.setAttribute('aria-label', `Find ${item.track_name} on Spotify`);
-        row.append(search);
-        const played = new Date(item.event_at);
-        row.append(text('time', Number.isNaN(played.valueOf()) ? 'Date unavailable' : played.toLocaleString(undefined, {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}), 'muted'));
-        recentList.append(row);
-      });
-      recent.append(recentList);
-      pane.append(recent);
-      }
-      const importBox = text('section', '', 'panel method');
-      importBox.append(text('h3', 'Import Spotify history'), text('p', 'Use the JSON files from your official Spotify account or extended streaming-history export. Each file is imported once; overlapping records are merged where identifiable.', 'muted'));
-      const row = text('div', '', 'import');
-      const input = document.createElement('input');
-      input.type = 'file'; input.accept = '.json,application/json'; input.multiple = true;
-      input.setAttribute('aria-label', 'Spotify listening history JSON files');
-      const progress = text('span', '', 'muted import-progress');
-      input.addEventListener('change', async () => {
-        for (const file of input.files || []) {
-          if (file.size > 16 * 1024 * 1024) { progress.textContent = `${file.name}: file exceeds 16 MB`; continue; }
-          progress.textContent = `Importing ${file.name}…`;
-          try {
-            const result = await upload(file, fraction => { progress.textContent = `Importing ${file.name}: ${Math.round(fraction * 100)}%`; });
-            progress.textContent = `${file.name}: ${result.imported} new, ${result.duplicates} duplicates, ${result.skipped} nonmusic rows skipped.`;
-          } catch (error) { progress.textContent = `${file.name}: ${error.message}`; break; }
-        }
-        input.value = '';
-        setTimeout(() => { if (state.tab === 'insights') loadInsights(); }, 2400);
-      });
+      if (!summary.events) pane.append(text('p', 'No recorded plays in this period. Choose another period or import your Spotify history below.', 'empty'));
+      else { const grid = text('div', '', 'grid'); grid.append(rankPanel('Top artists', 'artists', summary.top.artists), rankPanel('Top songs', 'tracks', summary.top.tracks), rankPanel('Top albums', 'albums', summary.top.albums), chart(summary)); pane.append(grid); }
+      const recent = text('section', '', 'panel music-recent');
+      const recentHead = text('div', '', 'music-panel-head'); recentHead.append(text('h3', 'Recently played'));
+      const allRecent = text('button', 'View all history', 'music-text-action'); allRecent.type = 'button'; allRecent.onclick = () => { state.returnScroll = view.scrollTop; state.expanded = 'history'; state.search = ''; state.offset = 0; loadExpanded(); view.scrollTop = 0; }; recentHead.append(allRecent); recent.append(recentHead);
+      const history = await request(`/api/music/history?${params({limit: 6})}`);
+      const list = text('div', '', 'recent-list');
+      history.items.forEach(item => { const row = text('div', '', 'recent-row'); row.append(imageOrMonogram({...item, name: item.track_name}, 'tracks')); const body = text('div', '', 'recent-identity'); const title = text('button', item.track_name, 'music-row-title'); title.onclick = () => loadDetail('tracks', item.track_key); body.append(title, text('span', item.artist_name)); row.append(body); const link = spotifyLink(item, '↗'); if (link) row.append(link); const date = new Date(item.event_at); row.append(text('time', date.toLocaleString(undefined, {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}), 'muted')); list.append(row); });
+      if (!history.items.length) list.append(text('p', 'Nothing recorded in this period.', 'muted')); recent.append(list); pane.append(recent);
+      const importBox = text('section', '', 'panel music-import'); importBox.append(text('h3', 'Complete your listening history'), text('p', 'Import official Spotify StreamingHistory or Extended Streaming History JSON files. Files stay on Apollo; duplicates are skipped. Extended exports can add verified listening time.', 'muted'));
+      const row = text('div', '', 'import'); const input = document.createElement('input'); input.type = 'file'; input.accept = '.json,application/json'; input.multiple = true; input.setAttribute('aria-label', 'Select Spotify listening history JSON files');
+      const progress = text('div', '', 'muted import-progress'); progress.setAttribute('role', 'status');
+      input.onchange = async () => { const results = []; for (const file of input.files || []) { if (file.size > 16 * 1024 * 1024) { results.push(`${file.name}: exceeds 16 MB`); continue; } progress.textContent = `Importing ${file.name}…`; try { const result = await upload(file, fraction => { progress.textContent = `Importing ${file.name}: ${Math.round(fraction * 100)}%`; }); const range = result.first_event_at && result.last_event_at ? ` · ${new Date(result.first_event_at).toLocaleDateString()}–${new Date(result.last_event_at).toLocaleDateString()}` : ''; results.push(`${file.name}: ${result.imported} new, ${result.duplicates} duplicates${range}`); } catch (error) { results.push(`${file.name}: ${error.message}`); } } progress.textContent = results.join('\n'); input.value = ''; setTimeout(() => { if (state.tab === 'insights') loadInsights(); }, 3500); };
       row.append(input, progress); importBox.append(row);
-      const importHistory = await request('/api/music/imports').catch(() => ({imports: []}));
-      if (Array.isArray(importHistory.imports) && importHistory.imports.length) {
-        const latest = importHistory.imports[0];
-        importBox.append(text('p', `Last import: ${latest.file_name} · ${latest.imported_count} new events · ${new Date(latest.created_at + 'Z').toLocaleDateString()}`, 'muted method'));
-      }
-      importBox.append(text('p', summary.methodology, 'muted method'));
+      const imports = await request('/api/music/imports').catch(() => ({imports: []}));
+      if (imports.imports?.length) importBox.append(text('p', `${imports.imports.length} recent import file${imports.imports.length === 1 ? '' : 's'} · earliest imported ${imports.imports.at(-1).first_event_at ? new Date(imports.imports.at(-1).first_event_at).toLocaleDateString() : 'unknown'}`, 'muted method'));
+      importBox.append(text('p', `Coverage: ${coverage.earliest_event ? new Date(coverage.earliest_event).toLocaleDateString() : 'no events'} to ${coverage.latest_event ? new Date(coverage.latest_event).toLocaleDateString() : 'now'} · ${coverage.import_files} official import files. ${summary.methodology}`, 'muted method'));
       pane.append(importBox);
-    } catch (error) { pane.replaceChildren(heading('Listening insights', state.month), text('p', error.message || 'Music history could not load.', 'empty')); }
+    } catch (error) { pane.replaceChildren(heading('Listening insights'), text('p', error.message || 'Music history could not load.', 'empty')); }
+  }
+  async function loadExpanded() {
+    const entity = state.expanded; const offset = state.offset; const query = entity === 'history' ? `/api/music/history?${params({search: state.search, offset, limit: 30})}` : `/api/music/rankings?${params({entity, metric: state.metric, search: state.search, offset, limit: 30})}`;
+    pane.replaceChildren();
+    const header = heading(entity === 'history' ? 'Listening history' : `All ${entity}`);
+    const back = text('button', '← Insights', 'music-text-action'); back.type = 'button'; back.onclick = () => { state.expanded = null; loadInsights().then(() => { view.scrollTop = state.returnScroll || 0; }); }; header.append(back); pane.append(header);
+    const controls = text('div', '', 'music-explorer-controls');
+    const search = document.createElement('input'); search.type = 'search'; search.value = state.search; search.placeholder = 'Search your history'; search.setAttribute('aria-label', 'Search recorded music');
+    let timer; search.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { state.search = search.value; state.offset = 0; loadExpanded().then(() => pane.querySelector('input[type=search]')?.focus()); }, 350); }; controls.append(search);
+    if (entity !== 'history') { const metric = document.createElement('select'); metric.setAttribute('aria-label', 'Ranking metric'); [['plays','Recorded plays'],['verified','Verified time'],['estimated','Estimated time']].forEach(([value,label]) => { const option = new Option(label, value); metric.append(option); }); metric.value = state.metric; metric.onchange = () => { state.metric = metric.value; state.offset = 0; loadExpanded(); }; controls.append(metric); } pane.append(controls);
+    try { const data = await request(query); if (state.expanded !== entity || state.offset !== offset) return;
+      const status = text('p', `${data.total} ${entity === 'history' ? 'recorded events' : `ranked ${entity}`} · ${data.period.label}`, 'muted method'); pane.append(status);
+      if (entity !== 'history' && !data.metric_available) pane.append(text('p', `No ${state.metric} listening measurements are available in this period. Entries remain ordered by recorded plays.`, 'muted method'));
+      const list = text('div', '', 'music-expanded-list');
+      if (entity === 'history') data.items.forEach(item => { const row = text('div', '', 'recent-row'); row.append(imageOrMonogram({...item,name:item.track_name}, 'tracks')); const body = text('div', '', 'recent-identity'); const title = text('button', item.track_name, 'music-row-title'); title.onclick = () => loadDetail('tracks', item.track_key); body.append(title,text('span',item.artist_name)); row.append(body); const source = spotifyLink(item, '↗'); if (source) row.append(source); row.append(text('time', new Date(item.event_at).toLocaleString(), 'muted')); list.append(row); });
+      else data.items.forEach(item => list.append(musicRow(item, entity, item.rank, () => loadDetail(entity, item.entity_key))));
+      if (!data.items.length) list.append(text('p', 'No matches in this period.', 'empty')); pane.append(list);
+      const pager = text('div', '', 'music-pager'); const previous = text('button', 'Previous'); previous.disabled = offset === 0; previous.onclick = () => { state.offset = Math.max(0, offset - 30); loadExpanded(); }; const next = text('button', 'Next'); next.disabled = offset + data.items.length >= data.total; next.onclick = () => { state.offset = offset + 30; loadExpanded(); }; pager.append(previous, text('span', `${Math.min(offset + 1, data.total)}–${Math.min(offset + data.items.length, data.total)} of ${data.total}`, 'muted'), next); pane.append(pager);
+    } catch (error) { pane.append(text('p', error.message, 'empty')); }
+  }
+  async function loadDetail(entity, key) {
+    if (!state.expanded) state.returnScroll = view.scrollTop;
+    const prior = state.expanded; state.expanded = 'detail';
+    pane.replaceChildren(heading('Listening detail'), text('p', 'Loading detail…', 'muted'));
+    try { const data = await request(`/api/music/detail?${params({entity, key})}`); if (state.expanded !== 'detail') return;
+      const back = text('button', prior && prior !== 'detail' ? `← All ${prior}` : '← Insights', 'music-text-action'); back.onclick = () => { state.expanded = prior && prior !== 'detail' ? prior : null; if (state.expanded) loadExpanded(); else loadInsights().then(() => { view.scrollTop = state.returnScroll || 0; }); };
+      pane.replaceChildren(back); const hero = text('section', '', 'panel music-detail-hero'); hero.append(imageOrMonogram(data.item, entity)); const copy = text('div', '', 'music-detail-copy'); copy.append(text('div', entity.slice(0,-1).toUpperCase(), 'eyebrow'), text('h2', data.item.name)); if (data.item.artist_name) copy.append(text('p', data.item.artist_name, 'muted')); const link = spotifyLink(data.item); if (link) copy.append(link); hero.append(copy); pane.append(hero);
+      const stats = text('div', '', 'stats'); stats.append(stat('Recorded plays', data.item.plays, `#${data.item.rank} in selected period`), stat('Verified listening', data.item.verified_events ? duration(data.item.verified_ms) : 'Unavailable', `${data.item.verified_events} plays with measured duration`), stat('Estimated listening', data.item.estimated_ms ? duration(data.item.estimated_ms) : 'Unavailable', 'Observed intervals, excluding verified overlap')); pane.append(stats);
+      const info = text('section', '', 'panel'); info.append(text('h3', 'In your history'), text('p', `First recorded: ${new Date(data.item.first_at).toLocaleString()} · Most recent: ${new Date(data.item.last_at).toLocaleString()}. Lifetime available history: ${data.lifetime?.plays || 0} recorded plays.`, 'muted'));
+      if (data.songs.length && entity !== 'tracks') { info.append(text('h3', 'Top songs')); data.songs.forEach(song => info.append(text('p', `${song.name} · ${song.plays} plays`, 'music-detail-line'))); }
+      if (data.albums.length && entity === 'artists') { info.append(text('h3', 'Albums in your history')); data.albums.forEach(album => info.append(text('p', `${album.name} · ${album.plays} plays`, 'music-detail-line'))); }
+      info.append(text('h3', 'Listening activity')); const activity = text('div', '', 'music-detail-activity'); data.activity.forEach(day => { const item = text('span', '', ''); item.title = `${day.day}: ${day.plays} plays`; item.style.opacity = String(Math.min(1, .2 + day.plays / 5)); activity.append(item); }); info.append(activity); pane.append(info);
+    } catch (error) { pane.replaceChildren(text('p', error.message, 'empty')); }
   }
   function upload(file, onProgress) {
     return new Promise((resolve, reject) => {
@@ -559,11 +612,15 @@
     } catch (error) { pane.replaceChildren(heading('Monthly recap', state.month), text('p', error.message || 'Recap could not load.', 'empty')); }
   }
   function activate(tab) {
+    const previousTab = state.tab;
     state.tab = tab;
     tabs.querySelectorAll('button').forEach(button => button.setAttribute('aria-selected', String(button.dataset.tab === tab)));
     player.hidden = tab !== 'player';
     pane.hidden = tab === 'player';
-    if (tab === 'insights') loadInsights();
+    if (tab === 'insights') {
+      if (previousTab === 'recaps' && state.period === 'monthly') state.anchor = `${state.month}-01`;
+      loadInsights();
+    }
     if (tab === 'recaps') {
       if (state.month === localMonth()) state.month = previousMonth(state.month);
       loadRecap();

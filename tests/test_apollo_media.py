@@ -3,7 +3,7 @@ import re
 import unittest
 from unittest.mock import patch
 
-from apollo_media import visual_request, visual_response
+from apollo_media import visual_request, visual_response, public_subject_image
 
 
 class ApolloMediaTests(unittest.TestCase):
@@ -35,6 +35,16 @@ class ApolloMediaTests(unittest.TestCase):
             content = visual_response("fl-studio")
         self.assertIn("couldn’t verify loadable images", content)
         self.assertNotIn("image_gallery", content)
+
+    def test_story_portrait_requires_matching_public_file_title(self):
+        images = [
+            {"source_title": "Another Performer.jpg", "url": "https://thumb.wikimedia.org/wrong.jpg"},
+            {"source_title": "The Weeknd portrait.jpg", "url": "https://thumb.wikimedia.org/right.jpg"},
+        ]
+        with patch("apollo_media._commons_images", return_value=images) as find:
+            self.assertEqual(public_subject_image("The Weeknd"), images[1])
+            find.assert_called_once_with("The Weeknd")
+        self.assertIsNone(public_subject_image("https://private.example/name"))
 
 
 if __name__ == "__main__":
