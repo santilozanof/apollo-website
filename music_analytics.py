@@ -170,6 +170,35 @@ def rankings(conn, kind, anchor, tz_name, entity, metric="plays", search="", lim
             "metric_available": any(row["verified_events"] if metric == "verified" else row["estimated_ms"] if metric == "estimated" else row["plays"] for row in ordered)}
 
 
+def range_rankings(conn, start_date, end_date, tz_name, entity="artists", metric="plays", limit=10):
+    """Inclusive local-date range, using the same aggregate as Music Insights."""
+    if entity not in ENTITIES or metric not in METRICS or not 1 <= limit <= 50:
+        raise ValueError("Unknown ranking or metric")
+    try:
+        zone = ZoneInfo(tz_name)
+        first, last = date.fromisoformat(start_date), date.fromisoformat(end_date)
+    except (TypeError, ValueError, KeyError) as error:
+        raise ValueError("Invalid listening date range or time zone") from error
+    if first > last or (last - first).days > 366 or last > datetime.now(zone).date():
+        raise ValueError("Listening date range must be past dates within one year")
+    start = datetime.combine(first, datetime.min.time(), zone).astimezone(timezone.utc).isoformat()
+    end = datetime.combine(last + timedelta(days=1), datetime.min.time(), zone).astimezone(timezone.utc).isoformat()
+    p = {"kind": "range", "first_date": first.isoformat(), "end_date": (last + timedelta(days=1)).isoformat(),
+         "start": start, "end": end, "timezone": tz_name,
+         "label": f"{first.isoformat()} through {last.isoformat()}"}
+    rows = _rank(_source(conn, p, entity)[entity], metric)
+    for index, row in enumerate(rows, 1):
+        row["rank"] = index
+    basic = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(ms_played),0), "
+        "COALESCE(SUM(ms_played IS NOT NULL),0) FROM music_listens "
+        "WHERE event_at >= ? AND event_at < ?", (start, end)
+    ).fetchone()
+    return {"period": p, "entity": entity, "metric": metric, "total": len(rows),
+            "items": rows[:limit], "events": basic[0], "verified_ms": basic[1],
+            "verified_events": basic[2], "duration_unknown_events": basic[0] - basic[2]}
+
+
 def summary(conn, kind, anchor=None, tz_name="UTC"):
     p = period(kind, anchor, tz_name)
     where, values = _where(p)

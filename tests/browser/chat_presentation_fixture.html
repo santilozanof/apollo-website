@@ -43,7 +43,20 @@ The record also mentions A Public Album as a central work.
 ## What followed
 
 The concluding phase connects the earlier context to the outcome. It should state any uncertainty plainly rather than filling gaps with invented facts.`;
-    const content = new URLSearchParams(location.search).has('missing')
+    const comparison = `## Analog and digital audio
+
+An analog signal varies continuously; a digital signal represents measured samples.
+
+| Property | Analog audio | Digital audio |
+| --- | --- | --- |
+| Representation | Continuous electrical variation following the sound wave | Samples stored as numbers at regular intervals |
+| Editing | Changes are made to physical media or circuitry | Samples can be copied and processed in software |
+
+\`\`\`apollo-ui
+{"schema":"apollo.rich","version":3,"blocks":[{"type":"diagram","id":"audio-flow","title":"Two signal paths","lanes":[{"label":"Analog","steps":[{"label":"Sound wave"},{"label":"Microphone voltage"},{"label":"Continuous recording"}]},{"label":"Digital","steps":[{"label":"Sound wave"},{"label":"Sample at intervals"},{"label":"Store numbers"}]}]}]}
+\`\`\``;
+    const params = new URLSearchParams(location.search);
+    const content = params.has('comparison') ? comparison : params.has('missing')
       ? sample.replaceAll('A Public Album', 'A Missing Image Album') : sample;
     document.getElementById('rendered').appendChild(window.ApolloGenUI.render(content));
   </script>

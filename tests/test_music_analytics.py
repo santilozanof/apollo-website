@@ -80,6 +80,19 @@ class MusicAnalyticsTests(unittest.TestCase):
         self.assertEqual(report["estimated_ms"], 60000)
         self.assertEqual(music_analytics.rankings(self.conn, "daily", "2026-10-27", "UTC", "tracks", "estimated")["items"][0]["estimated_ms"], 60000)
 
+    def test_custom_range_reuses_real_listening_rankings(self):
+        music_history.insert_records(self.conn, [
+            play("2026-10-25T12:00:00Z"),
+            play("2026-10-26T12:00:00Z"),
+            play("2026-10-27T12:00:00Z"),
+        ])
+        result = music_analytics.range_rankings(self.conn, "2026-10-26", "2026-10-27", "UTC")
+        self.assertEqual(result["events"], 2)
+        self.assertEqual(result["items"][0]["plays"], 2)
+        self.assertEqual(result["duration_unknown_events"], 2)
+        with self.assertRaises(ValueError):
+            music_analytics.range_rankings(self.conn, "2026-10-28", "2026-10-27", "UTC")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1497,7 +1497,7 @@ component is complete instead of holding several components for one giant fence.
 
 The renderer accepts these block types:
 text, image, image_gallery, card, carousel, quiz, checklist, chart, table,
-progress, form, button_group, date_picker, slider, media, location, code,
+diagram, progress, form, button_group, date_picker, slider, media, location, code,
 expandable, status, timeline, calculator, selector, function_explorer, metric_trend,
 sources.
 
@@ -1541,6 +1541,12 @@ not imply unsupported precision or chart claims without enough data. Table uses
 columns:[{key,label}] and rows:[{...}]. Timeline uses
 items:[{time,title,text?}]. Carousel uses compact
 items:[{title,text,url?,alt?,action?}].
+For a requested conceptual flow or comparison diagram, prefer a declarative
+diagram block to ASCII art in a code fence. Diagram uses
+{type:"diagram",id,title?,lanes:[{label,steps:[{label,detail?}]}]}.
+Use one or two lanes with 2–6 factual steps each; the renderer draws the
+connections. Never fill missing facts with generic steps. Code fences remain
+appropriate for actual code or an explicitly requested text diagram.
 
 Calculator: {type,id,title?,subtitle?,fields:[{id,label,value,min,max,step,unit?,
 type:"number"|"slider"|"segmented"|"select",options?:[{label,value}]}],
@@ -1681,7 +1687,7 @@ Do not mention this format, its JSON, or the renderer to the user.
 
 def apollo_story_visual_candidate(message):
     text = str(message or "").strip().lower()
-    return (bool(re.search(r"\b(?:whole story|full story|history of|biography of|background of|origin story|evolution of)\b", text))
+    return (bool(re.search(r"\b(?:whole story|full story|entire story|complete story|history of|biography of|background of|origin story|evolution of)\b", text))
             and not bool(re.search(r"\b(?:my|our)\b", text)))
 
 
@@ -1930,7 +1936,7 @@ APOLLO_PRESENTATION_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix=
 
 _APOLLO_UI_TYPES = {
     "text", "image", "image_gallery", "card", "carousel", "quiz", "entity",
-    "checklist", "chart", "table", "progress", "form", "button_group",
+    "checklist", "chart", "table", "diagram", "progress", "form", "button_group",
     "date_picker", "slider", "media", "location", "code", "expandable",
     "status", "timeline", "calculator", "selector", "function_explorer",
     "metric_trend", "sources",
@@ -2037,6 +2043,7 @@ def _apollo_extract_ui_requirements(message):
     ):
         selector = False
     comparison = bool(re.search(r"\b(compare|comparison|versus|vs\.?)\b", lower))
+    diagram = bool(re.search(r"\b(diagram|flowchart)\b", lower))
     interactive_demo = bool(re.search(
         r"\binteractive\b.{0,50}\b(demo(?:nstration)?|simulation|explorer|example)\b",
         lower,
@@ -2201,6 +2208,7 @@ def _apollo_extract_ui_requirements(message):
         "calculator": calculator,
         "selector": selector,
         "comparison": comparison,
+        "diagram": diagram,
         "interactive_demo": interactive_demo,
         "calculator_field_count": min(max(
             numeric_control_count, len(calculator_controls), 1 if calculator else 0
@@ -2227,7 +2235,7 @@ def _apollo_extract_ui_requirements(message):
 
 def _apollo_ui_requirement_prompt(requirements):
     required = []
-    for name in ("calculator", "selector", "comparison", "interactive_demo", "quiz"):
+    for name in ("calculator", "selector", "comparison", "diagram", "interactive_demo", "quiz"):
         if requirements.get(name):
             required.append(name)
     if not required:
@@ -2241,6 +2249,7 @@ def _apollo_ui_requirement_prompt(requirements):
         "a valid expression. A selector must contain real local options and "
         "details. A quiz must be answerable and correctly keyed. A comparison "
         "needs a table or selector with comparable details."
+        " A diagram needs a factual, subject-specific diagram block."
         " A quiz and interactive demonstration must match the current topic."
         " A numeric demonstration must expose at least interactive_control_count"
         " adjustable controls when that count is nonzero."
@@ -2747,12 +2756,27 @@ def _apollo_validate_ui_requirements(content, requirements):
             for block in blocks
         ):
             missing.append("selector")
-    if requirements.get("comparison") and not any(
+    # A complete Markdown comparison table is already a real rendered
+    # comparison. Do not ask a recovery model to append a second, fabricated
+    # "Option 1 / Option 2" widget just to satisfy a schema-only check.
+    markdown_table = bool(re.search(
+        r"(?m)^\s*\|[^\n]+\|\s*\n\s*\|?\s*:?-{3,}[^\n]*\|[^\n]*\n\s*\|[^\n]+\|",
+        str(content or ""),
+    ))
+    if requirements.get("comparison") and not markdown_table and not any(
         block.get("type") == "table"
         or (block.get("type") == "selector" and len(block.get("options") or []) >= 2)
         for block in blocks
     ):
         missing.append("comparison")
+    if requirements.get("diagram") and not any(
+        block.get("type") == "diagram" and isinstance(block.get("lanes"), list)
+        and 1 <= len(block["lanes"]) <= 2
+        and all(isinstance(lane, dict) and isinstance(lane.get("steps"), list)
+                and 2 <= len(lane["steps"]) <= 6 for lane in block["lanes"])
+        for block in blocks
+    ):
+        missing.append("diagram")
     if requirements.get("interactive_demo"):
         minimum_controls = max(
             1, int(requirements.get("interactive_control_count") or 1)
@@ -3032,6 +3056,43 @@ def _apollo_normalize_ui_block(block):
         if not images:
             return None
         normalized["items"] = images
+
+    if kind == "table":
+        columns, rows = block.get("columns"), block.get("rows")
+        if (not isinstance(columns, list) or not isinstance(rows, list)
+                or not 1 <= len(columns) <= 12 or not 1 <= len(rows) <= 100):
+            return None
+        if any(not isinstance(row, dict) for row in rows):
+            return None
+        placeholder = re.compile(
+            r"^(?:option|choice|item)\s+[1-9]\d*|^(?:first|second|third)\s+(?:approach|option)$",
+            re.I,
+        )
+        if any(
+            placeholder.fullmatch(str(value or "").strip())
+            for row in rows for value in row.values()
+        ):
+            return None
+
+    if kind == "diagram":
+        lanes = block.get("lanes")
+        if not isinstance(lanes, list) or not 1 <= len(lanes) <= 2:
+            return None
+        clean_lanes = []
+        for lane in lanes:
+            if not isinstance(lane, dict) or not isinstance(lane.get("steps"), list) or not 2 <= len(lane["steps"]) <= 6:
+                return None
+            label = str(lane.get("label") or "").strip()[:80]
+            steps = []
+            for step in lane["steps"]:
+                if not isinstance(step, dict):
+                    return None
+                step_label = str(step.get("label") or "").strip()[:120]
+                if not step_label or re.fullmatch(r"(?:step|option|item)\s+\d+", step_label, re.I):
+                    return None
+                steps.append({"label": step_label, "detail": str(step.get("detail") or "").strip()[:240]})
+            clean_lanes.append({"label": label, "steps": steps})
+        normalized["lanes"] = clean_lanes
 
     if kind == "chart":
         if block.get("kind") not in ("line", "bar", "donut"):
@@ -3648,6 +3709,8 @@ def _apollo_choose_model(messages):
         "chart",
         "whole story",
         "full story",
+        "entire story",
+        "complete story",
         "history of",
         "background of",
         "origin story",
@@ -3847,7 +3910,8 @@ def _apollo_choose_hermes_toolsets(messages):
 
     public_history = (
         any(signal in lower for signal in (
-            "whole story", "full story", "history of", "biography of",
+            "whole story", "full story", "entire story", "complete story",
+            "history of", "biography of",
             "background of", "origin story", "evolution of",
         ))
         and not any(marker in f" {lower} " for marker in (" my ", " our "))
@@ -4260,7 +4324,7 @@ def apollo_context_planner(
                 "unfinished work, deadlines and completed tasks.\n"
                 "- whoop: the user's current WHOOP recovery, sleep, "
                 "strain and latest workout data.\n"
-                "- spotify: the user's current Spotify playback state.\n\n"
+                "- spotify: the user's current Spotify playback state and Apollo's recorded Music Insights listening history, rankings, play counts, known duration, and coverage.\n\n"
                 "- connections: live integration connection status and supported capabilities; "
                 "select it when asked which services/accounts are connected or accessible.\n\n"
                 "Also classify the CURRENT request by meaning. The valid "
@@ -4639,6 +4703,20 @@ def apollo_fast_context_plan(messages, user_message):
             r"\b(whoop|recovery|strain|hrv)\b",
         )
     ]
+    # Explicitly named personal reads need no speculative web search or extra
+    # classifier round trip. This grants no write authority.
+    if sum(source_signals) > 1 and re.search(r"\b(my|mine|for me)\b", lower):
+        return {
+            **base,
+            "intent": "personal_query",
+            "primary_domain": "multi",
+            "tasks": source_signals[0],
+            "calendar": source_signals[1],
+            "spotify": source_signals[2],
+            "whoop": source_signals[3],
+            "calendar_days": 2 if "tomorrow" in lower else 7,
+            "reason": "explicit named read-only personal sources",
+        }
     if sum(source_signals) > 1 or re.search(r"\b(connected|connections|integrations?|services)\b", lower):
         return None
     if any(source_signals) and not re.search(r"\b(my|mine|do i have|have i)\b", lower):
@@ -4748,7 +4826,7 @@ def apollo_intent_routes_to(plan, *domains):
 
 
 def apollo_context_calendar(
-    days, time_zone=None
+    days, time_zone=None, include_status=False
 ):
     # Include whole local days. A rolling 24-hour window at 09:00 omitted
     # tomorrow's afternoon classes and incorrectly made them look like free time.
@@ -4759,7 +4837,7 @@ def apollo_context_calendar(
         end_date=(today + timedelta(days=days + 1)).isoformat(),
         time_zone=zone_name,
     )
-    if errors:
+    if errors and not include_status:
         raise RuntimeError("Calendar context incomplete: " + ", ".join(errors))
 
 
@@ -4822,6 +4900,24 @@ def apollo_context_calendar(
         })
 
 
+    if include_status:
+        try:
+            google_status = google_calendar_connection_status()
+        except Exception as error:
+            google_status = {"connected": False, "can_read": False,
+                             "error": str(error)}
+            errors["google_status"] = str(error)
+        try:
+            canvas_status = calendar_subscription_status("canvas")
+        except Exception as error:
+            canvas_status = {"connected": False, "error": str(error)}
+            errors["canvas_status"] = str(error)
+        return {
+            "events": compact,
+            "source_errors": errors,
+            "google": google_status,
+            "canvas": canvas_status,
+        }
     return compact
 
 
@@ -4979,12 +5075,13 @@ def apollo_fetch_planned_context(
         days = max(1, min(int(plan.get("calendar_days", 7) or 7), 30))
     except (TypeError, ValueError):
         days = 7
+    def calendar_context():
+        details = apollo_context_calendar(
+            days, time_zone=plan.get("time_zone"), include_status=True
+        )
+        return {"upcoming_days": days, **details}
     loaders = {
-        "calendar": lambda: {
-            "upcoming_days": days,
-            "events": (apollo_context_calendar(days, time_zone=plan["time_zone"])
-                       if plan.get("time_zone") else apollo_context_calendar(days)),
-        },
+        "calendar": calendar_context,
         "tasks": (lambda: apollo_context_tasks(time_zone=plan["time_zone"])) if plan.get("time_zone") else apollo_context_tasks,
         "whoop": apollo_context_whoop,
         "spotify": apollo_context_spotify,

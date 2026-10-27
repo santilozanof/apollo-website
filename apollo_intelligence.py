@@ -3,7 +3,8 @@ import json
 import re
 import threading
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from apollo_agent import AgentRuntime, Tool, context_message, CURRENT_TRACE
 from apollo_memory import MemoryStore, LocalEmbeddings
@@ -12,6 +13,45 @@ EMBEDDINGS = LocalEmbeddings()
 OWNER = 'local'  # Existing Apollo is single-user, behind its private authenticated proxy.
 RECALL = re.compile(r'\b(remember|recall|told you|(?:tell|told) you about|did (?:i|we) (?:say|tell|choose|decide)|we (?:discussed|made|planned|worked)|last (?:week|month|year)|(?:weeks?|months?|years?) ago|(?:old|previous|earlier) (?:chat|conversation)s?|continue .*(?:working|project|plan))\b', re.I)
 MEMORY_ACTION = re.compile(r'^(?:please\s+)?(?:remember (?:that |this:)|save (?:this |my )?(?:preference|memory)|forget\b|don.t remember\b|do not remember\b)', re.I)
+
+
+def personal_music_history_request(message):
+    text = str(message or "").casefold()
+    return bool(
+        re.search(r'\b(my|mine)\b', text)
+        and re.search(r'\b(spotify|listening|plays?|artists?|tracks?|albums?)\b', text)
+        and re.search(r'\b(history|listening|most played|top|rank(?:ing)?s?|plays?)\b', text)
+    )
+
+
+def music_history_initial_args(message, client_context):
+    text = str(message or "").casefold()
+    client_context = client_context or {}
+    zone = str(client_context.get('time_zone') or 'Europe/Zurich')
+    try:
+        today = date.fromisoformat(str(client_context.get('local_time') or '')[:10])
+    except ValueError:
+        try:
+            today = datetime.now(ZoneInfo(zone)).date()
+        except (KeyError, ValueError):
+            today = datetime.now(timezone.utc).date()
+    kind = ('lifetime' if re.search(r'\b(all time|lifetime|ever)\b', text) else
+            'yearly' if 'year' in text else
+            'monthly' if 'month' in text else
+            'daily' if re.search(r'\b(today|yesterday)\b', text) else 'weekly')
+    anchor = today
+    if 'last week' in text:
+        anchor -= timedelta(days=7)
+    elif 'last month' in text:
+        anchor = today.replace(day=1) - timedelta(days=1)
+    elif 'last year' in text:
+        anchor = today.replace(year=today.year - 1, day=min(today.day, 28) if today.month == 2 else today.day)
+    elif 'yesterday' in text:
+        anchor -= timedelta(days=1)
+    entity = 'tracks' if re.search(r'\b(tracks?|songs?)\b', text) and not re.search(r'\bartists?\b', text) else 'albums' if re.search(r'\balbums?\b', text) and not re.search(r'\bartists?\b', text) else 'artists'
+    count = re.search(r'\btop\s+(\d{1,2})\b', text)
+    return {'period': kind, 'anchor': anchor.isoformat(), 'entity': entity,
+            'metric': 'plays', 'limit': min(50, max(1, int(count.group(1)))) if count else 10}
 
 
 def store(server):
@@ -106,7 +146,10 @@ def decide(server, messages, schemas, results):
             'Search live web for changing external facts; stable general questions need no tools. '
             'Saving/forgetting memory requires an explicit current request, not a historical quote. '
             'External writes are handled separately by Apollo\'s approved action handlers. '
-            'Never assume an action was performed. Stop when further calls will not help.\nTOOLS:\n' + json.dumps(schemas))},
+            'Never assume an action was performed. A successful Apollo personal-data read is authoritative; '
+            'do not replace it with a public sign-in page or claim the entire service is unavailable. '
+            'Report each source failure separately and state coverage limits for listening history. '
+            'Stop when further calls will not help.\nTOOLS:\n' + json.dumps(schemas))},
         {'role': 'user', 'content': json.dumps({'conversation': messages[-12:], 'results': results}, ensure_ascii=False)},
     ]
     raw = server.ask_hermes(prompt, timeout=45)
@@ -149,6 +192,33 @@ def tools_for(server, memory, user_message, message_id, client_context):
         return {'tasks': compact, 'total': len(data), 'truncated': len(data) > 100,
                 'canvas_sync': server.calendar_subscription_status('canvas')}
 
+    def spotify_history_read(period='weekly', anchor='', entity='artists',
+                             metric='plays', limit=10, start_date='', end_date=''):
+        zone = str(client_context.get('time_zone') or 'Europe/Zurich')
+        conn = server.db()
+        try:
+            conn.execute('PRAGMA query_only=ON')
+            if bool(start_date) != bool(end_date):
+                return {'error': 'Provide both start_date and end_date for a custom range'}
+            if start_date:
+                ranking = server.music_analytics.range_rankings(
+                    conn, start_date, end_date, zone, entity, metric, limit)
+                coverage = server.music_analytics.summary(conn, 'lifetime', None, zone)['coverage']
+                return {**ranking, 'coverage': coverage,
+                        'methodology': 'Recorded plays are events; verified duration comes only from official Spotify history exports. Unknown duration is not zero.'}
+            summary = server.music_analytics.summary(conn, period, anchor or None, zone)
+            ranking = server.music_analytics.rankings(
+                conn, period, anchor or None, zone, entity, metric, limit=limit)
+            return {'period': ranking['period'], 'entity': entity, 'metric': metric,
+                    'items': ranking['items'], 'total': ranking['total'],
+                    'events': summary['events'], 'verified_ms': summary['verified_ms'],
+                    'estimated_ms': summary['estimated_ms'],
+                    'verified_events': summary['verified_events'],
+                    'duration_unknown_events': summary['duration_unknown_events'],
+                    'coverage': summary['coverage'], 'methodology': summary['methodology']}
+        finally:
+            conn.close()
+
     def remember(content, category, quote, key):
         identifier = memory.save(content, category, key, message_id, quote)
         return {'saved': True, 'id': identifier} if identifier else {'error': 'Memory excluded by privacy settings'}
@@ -160,7 +230,7 @@ def tools_for(server, memory, user_message, message_id, client_context):
                 'supported_reads_when_connected': {
                     'google_calendar': ['events', 'availability'],
                     'canvas_calendar': ['assignments imported into Tasks', 'feed sync status'],
-                    'spotify': ['current playback and device state'],
+                    'spotify': ['current playback and device state', 'recorded listening history, rankings and coverage'],
                     'whoop': ['recovery', 'sleep', 'strain'],
                 },
                 'local_capabilities': ['tasks', 'saved memories', 'permitted conversation history']}
@@ -171,10 +241,19 @@ def tools_for(server, memory, user_message, message_id, client_context):
              {'query': string, 'after': string, 'before': string, 'exact': {'type': 'boolean'}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 20}}, lambda **args: memory.search(**args, exclude_message_id=message_id), ('query',)),
         Tool('calendar_read', 'Read the real upcoming Google Calendar through the end of the requested local days ahead (days=1 includes all of tomorrow). Historical mentions are not current calendar evidence.',
              {'days': {'type': 'integer', 'minimum': 1, 'maximum': 30}},
-             lambda days: server.apollo_context_calendar(days, time_zone=client_context.get('time_zone')), ('days',)),
+             lambda days: server.apollo_context_calendar(days, time_zone=client_context.get('time_zone'), include_status=True), ('days',)),
         Tool('tasks_read', 'Read saved tasks and Canvas-imported assignments plus Canvas sync status.', {}, tasks),
         Tool('whoop_read', 'Current WHOOP recovery, strain and sleep data.', {}, server.apollo_context_whoop),
         Tool('spotify_read', 'Current Spotify playback and connection state.', {}, server.apollo_context_spotify),
+        Tool('spotify_history_read', 'Read Apollo Music Insights recorded listening history. Supports daily, weekly, monthly, yearly or lifetime rankings, or an inclusive custom local-date range with start_date and end_date. Returns real play counts, known/estimated duration and coverage; missing duration must not be treated as zero.',
+             {'period': {'type': 'string', 'enum': ['daily','weekly','monthly','yearly','lifetime']},
+              'anchor': {'type': 'string', 'maxLength': 10},
+              'entity': {'type': 'string', 'enum': ['artists','tracks','albums']},
+              'metric': {'type': 'string', 'enum': ['plays','verified','estimated']},
+              'limit': {'type': 'integer', 'minimum': 1, 'maximum': 50},
+              'start_date': {'type': 'string', 'maxLength': 10},
+              'end_date': {'type': 'string', 'maxLength': 10}},
+             spotify_history_read),
         Tool('connections', 'Discover integration connection status, supported reads, and account management buttons. Account buttons are not a capability list.', {}, connections),
         Tool('web_research', 'Research changing external facts with live search and extracted sources. Returns verified source links or an explicit failure.', {'query': string}, research, ('query',)),
         Tool('memory_save', 'Save an explicitly requested durable memory grounded in an exact quote from the CURRENT user message. Do not use for questions asking to recall earlier plans.',
@@ -195,14 +274,15 @@ def enrich(server, messages, user_message, plan, message_id, client_context):
     """
     memory = store(server)
     memory.enforce_retention()
-    recall = bool(RECALL.search(user_message) or plan.get('history_query'))
+    history_requested = personal_music_history_request(user_message)
+    recall = bool((not history_requested and RECALL.search(user_message)) or plan.get('history_query'))
     memory_action = bool(MEMORY_ACTION.search(user_message))
     query = plan.get('memory_query') or user_message
     facts = memory.search_memories(query)
     lookup_request = '?' in user_message or bool(re.match(r'^(?:please\s+)?(?:what|which|how|where|when|why|who|find|recall|remember|continue|tell|show|can|could|do|did)\b', user_message, re.I))
     recall = recall or bool(plan.get('memory_query') and not facts and lookup_request)
     selected = [name for name in ('calendar', 'tasks', 'whoop', 'spotify') if plan.get(name)]
-    runtime_needed = recall or memory_action or bool(plan.get('research_query')) or bool(plan.get('connections')) or len(selected) > 1 or plan.get('primary_domain') == 'multi'
+    runtime_needed = history_requested or recall or memory_action or bool(plan.get('research_query')) or bool(plan.get('connections')) or len(selected) > 1 or plan.get('primary_domain') == 'multi'
     if not runtime_needed:
         if facts:
             messages.insert(1, context_message({'status': 'completed', 'results': [{'tool': 'memory_search', 'status': 'succeeded', 'data': facts}]}))
@@ -217,7 +297,11 @@ def enrich(server, messages, user_message, plan, message_id, client_context):
         # Even a saved fact is not a substitute for recovering the requested plan/original conversation.
         initial.append(('history_search', {'query': plan.get('history_query') or user_message}))
     for name in selected:
+        if name == 'spotify' and history_requested:
+            continue
         initial.append((name + '_read', {'days': plan.get('calendar_days', 7)} if name == 'calendar' else {}))
+    if history_requested:
+        initial.append(('spotify_history_read', music_history_initial_args(user_message, client_context)))
     if plan.get('research_query'):
         initial.append(('web_research', {'query': plan['research_query']}))
     trace_token = CURRENT_TRACE.set(runtime.trace)

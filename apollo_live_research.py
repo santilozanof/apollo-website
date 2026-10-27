@@ -24,6 +24,15 @@ def live_query_kind(message, recent_messages=()):
         return None
     if re.search(r"\b(?:my|our)\s+(?:calendar|tasks?|routines?|playlists?|reminders?)\b", text):
         return None
+    # A request to inspect connected personal services must reach Apollo's
+    # authenticated adapters. "Google" in "my Google Calendar" is not an
+    # instruction to perform public web research.
+    if re.search(
+        r"\b(?:my|our)\b.{0,100}\b(?:google calendar|canvas|whoop|"
+        r"spotify (?:listening|history|plays)|calendar|assignments?|recovery|sleep)\b",
+        text,
+    ):
+        return None
     if re.search(r"\b(open (?:now|today|tonight|tomorrow)|opening hours|closing time|restaurants? near|cafes? near|shops? near|near me|near lausanne)\b", text):
         return "local"
     if re.search(r"\b(weather|forecast|temperature|rain|snow)\b", text):

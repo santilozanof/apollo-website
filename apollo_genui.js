@@ -4,7 +4,7 @@
 
   const TYPES = new Set([
     "text", "image", "image_gallery", "card", "carousel", "quiz", "entity",
-    "checklist", "chart", "table", "progress", "form", "button_group",
+    "checklist", "chart", "table", "diagram", "progress", "form", "button_group",
     "date_picker", "slider", "media", "location", "code", "expandable",
     "status", "timeline", "calculator", "selector", "function_explorer",
     "metric_trend", "sources"
@@ -292,6 +292,26 @@
           : null
     ).filter(column => column && column.key);
     block.rows = list(raw.rows).filter(row => row && typeof row === "object");
+    if (block.type === "diagram") {
+      const lanes = Array.isArray(raw.lanes) ? raw.lanes : [];
+      if (lanes.length < 1 || lanes.length > 2) return null;
+      block.lanes = lanes.map(lane => {
+        const steps = Array.isArray(lane?.steps) ? lane.steps : [];
+        if (steps.length < 2 || steps.length > 6) return null;
+        const clean = steps.map(step => ({
+          label: str(step?.label, 120).trim(), detail: str(step?.detail, 240).trim()
+        }));
+        if (clean.some(step => !step.label || /^(?:step|option|item)\s+\d+$/i.test(step.label))) return null;
+        return {label: str(lane?.label, 80).trim(), steps: clean};
+      });
+      if (block.lanes.some(lane => !lane)) return null;
+    }
+    if (block.type === "table" && block.rows.some(row =>
+      Object.values(row).some(value =>
+        /^(?:(?:option|choice|item)\s+[1-9]\d*|(?:first|second|third)\s+(?:approach|option))$/i
+          .test(String(value ?? "").trim())
+      )
+    )) return null;
     block.fields = list(raw.fields, 20).map((field, fieldIndex) => {
       if (!field || typeof field !== "object") return null;
       return {
@@ -1499,6 +1519,27 @@
     root.appendChild(wrap);
     return root;
   }
+  function renderDiagram(block) {
+    const root = el("section", "apollo-ui-block apollo-ui-diagram");
+    if (block.title || block.subtitle) root.appendChild(header(block));
+    const lanes = el("div", "apollo-ui-diagram-lanes");
+    block.lanes.forEach(lane => {
+      const row = el("div", "apollo-ui-diagram-lane");
+      if (lane.label) row.appendChild(el("div", "apollo-ui-diagram-label", lane.label));
+      const steps = el("div", "apollo-ui-diagram-steps");
+      lane.steps.forEach((step, index) => {
+        if (index) steps.appendChild(el("span", "apollo-ui-diagram-arrow", "→"));
+        const node = el("div", "apollo-ui-diagram-node");
+        node.appendChild(el("strong", null, step.label));
+        if (step.detail) node.appendChild(el("span", null, step.detail));
+        steps.appendChild(node);
+      });
+      row.appendChild(steps);
+      lanes.appendChild(row);
+    });
+    root.appendChild(lanes);
+    return root;
+  }
   function renderForm(block) {
     const root = el("form", "apollo-ui-block apollo-ui-pad apollo-ui-stack");
     if (block.title) root.appendChild(el("div", "apollo-ui-title", block.title));
@@ -1973,7 +2014,7 @@
 
   const COMPONENT_REGISTRY = Object.freeze({
     entity: renderEntity, checklist: renderChecklist, quiz: renderQuiz,
-    chart: renderChart, table: renderTable, form: renderForm, card: renderCard,
+    chart: renderChart, table: renderTable, diagram: renderDiagram, form: renderForm, card: renderCard,
     calculator: renderCalculator, selector: renderSelector,
     function_explorer: renderFunctionExplorer, metric_trend: renderMetricTrend,
     sources: renderSources,

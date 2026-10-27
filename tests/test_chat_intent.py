@@ -102,6 +102,7 @@ class ChatIntentPlannerTests(unittest.TestCase):
         self.assertTrue(added)
         self.assertLess(titled.index("A direct opening."), titled.index('"type":"image"'))
         self.assertFalse(candidate("Tell me the whole story of my family"))
+        self.assertTrue(candidate("Tell me the entire story of how a public artist created an album, from sessions to release."))
 
     def test_substantial_story_gets_bounded_editorial_title(self):
         namespace = {"re": re, "json": json}
@@ -377,10 +378,13 @@ class ChatIntentPlannerTests(unittest.TestCase):
             "What colour did we choose for the packaging of that Cedar Atlas project months ago?",
             "What beverage did I say I enjoy with breakfast in that old validation conversation?",
             "What did I tell you about the fictional Zorblax-947 underwater bakery?",
-            "Show my calendar and unfinished assignments.",
         ):
             with self.subTest(prompt=prompt):
                 self.assertIsNone(fast([], prompt))
+        personal = fast([], "Show my calendar and unfinished assignments.")
+        self.assertEqual(personal["primary_domain"], "multi")
+        self.assertTrue(personal["calendar"])
+        self.assertTrue(personal["tasks"])
 
 
 if __name__ == "__main__":

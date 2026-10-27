@@ -80,6 +80,10 @@ class LiveResearchPipelineTests(unittest.TestCase):
                   {'role': 'assistant', 'content': 'Python X, released October 9. [Source](https://python.org)'}]
         self.assertIsNone(live.live_query_kind('When was that version released?', recent))
 
+    def test_connected_personal_sources_never_become_public_google_research(self):
+        prompt = "Check my Google Calendar, Canvas assignments, and WHOOP data. Make me a realistic plan for tomorrow based on my commitments and recovery."
+        self.assertIsNone(live.live_query_kind(prompt))
+
     @classmethod
     def setUpClass(cls):
         cls._previous_base_dir = server.BASE_DIR

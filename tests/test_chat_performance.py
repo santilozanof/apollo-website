@@ -30,7 +30,7 @@ class ChatPerformanceTests(unittest.TestCase):
         fetch = load_function("apollo_fetch_planned_context", {
             "ThreadPoolExecutor": ThreadPoolExecutor,
             "as_completed": as_completed,
-            "apollo_context_calendar": lambda _days: slow([{"title": "Class"}]),
+            "apollo_context_calendar": lambda _days, **_kwargs: slow({"events": [{"title": "Class"}], "source_errors": {}}),
             "apollo_context_tasks": lambda: slow([{"title": "Homework"}]),
             "apollo_context_whoop": lambda: {},
             "apollo_context_spotify": lambda: {},

@@ -40,6 +40,37 @@ def sse_events(raw):
 
 
 class GenerativeUILivePipelineTests(unittest.TestCase):
+    def test_diagram_is_declarative_and_placeholder_table_is_rejected(self):
+        diagram = {"type": "diagram", "id": "signal", "lanes": [
+            {"label": "Analog", "steps": [{"label": "Air pressure"}, {"label": "Continuous voltage"}]},
+            {"label": "Digital", "steps": [{"label": "Sample"}, {"label": "Binary values"}]},
+        ]}
+        self.assertEqual(server._apollo_normalize_ui_block(diagram)["lanes"][0]["steps"][0]["label"], "Air pressure")
+        self.assertIsNone(server._apollo_normalize_ui_block({
+            "type": "diagram", "id": "fake", "lanes": [{"label": "", "steps": [{"label": "Step 1"}, {"label": "Step 2"}]}],
+        }))
+        self.assertIsNone(server._apollo_normalize_ui_block({
+            "type": "table", "id": "fake", "columns": [{"key": "option", "label": "Option"}],
+            "rows": [{"option": "Option 1"}],
+        }))
+        requirements = server._apollo_extract_ui_requirements("Explain analog and digital audio with a comparison table and a simple diagram.")
+        self.assertEqual(server._apollo_validate_ui_requirements(
+            "```apollo-ui\n" + json.dumps({"blocks": [diagram]}) + "\n```", requirements), ["comparison"])
+
+    def test_ordinary_entire_story_retains_verified_media_and_entity(self):
+        prompt = "Tell me the entire story of how a public musician created an album, from sessions to release."
+        source = "The musician made the album Night after several sessions. " * 55
+        image = {"url": "https://upload.wikimedia.org/example.jpg", "alt": "Album cover",
+                 "source_url": "https://commons.wikimedia.org/wiki/File:Example.jpg",
+                 "source_title": "Example cover", "publisher": "Wikimedia Commons"}
+        with mock.patch.object(server, "apollo_verified_story_visual", return_value=image), \
+             mock.patch.object(server, "apollo_select_story_entities", return_value=[
+                 {"kind": "album", "name": "Night", "artist": ""}]):
+            events = self.run_turn(source, prompt, expect_decorated=True)
+        answer = events[-1]["message"]["content"]
+        self.assertIn('"type":"image"', answer)
+        self.assertIn('"type":"entity"', answer)
+
     @classmethod
     def setUpClass(cls):
         server.DB_PATH = server.BASE_DIR / "test.db"
@@ -63,7 +94,7 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         connection.commit()
         connection.close()
 
-    def run_turn(self, response, prompt="Show the appropriate response", recovery=""):
+    def run_turn(self, response, prompt="Show the appropriate response", recovery="", expect_decorated=False):
         status, raw = request("POST", "/api/chats", {})
         self.assertEqual(status, 201)
         chat_id = json.loads(raw)["id"]
@@ -126,12 +157,13 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
                 + ", ".join(missing)
                 + " in this response."
             )
-        self.assertEqual(events[-1]["message"]["content"], expected)
+        if not expect_decorated:
+            self.assertEqual(events[-1]["message"]["content"], expected)
 
         status, raw = request("GET", f"/api/chats/{chat_id}")
         self.assertEqual(status, 200)
         history = json.loads(raw)
-        self.assertEqual(history["messages"][-1]["content"], expected)
+        self.assertEqual(history["messages"][-1]["content"], events[-1]["message"]["content"])
         return events
 
     def create_chat(self):

@@ -159,6 +159,54 @@ class PipelineTests(unittest.TestCase):
         self.assertIn('Class', evidence)
         self.assertIn('+02:00', evidence)
 
+    def test_spotify_history_question_reads_recorded_plays(self):
+        import music_history
+        play = {'played_at': '2026-10-27T12:00:00Z', 'track': {
+            'id': 'A' * 22, 'name': 'Blue Hour', 'duration_ms': 180000,
+            'artists': [{'id': 'C' * 22, 'name': 'Aster'}],
+            'album': {'id': 'E' * 22, 'name': 'Night', 'images': []},
+        }}
+        conn = server.db()
+        try:
+            music_history.insert_records(conn, [play])
+            conn.commit()
+        finally:
+            conn.close()
+        prompt = 'Look at my Spotify listening history and tell me my top 10 artists this week, how many plays each has, and recommend 5 underground artists based on my taste.'
+        self.assertTrue(intelligence.personal_music_history_request(prompt))
+        with mock.patch.object(server, 'apollo_context_spotify', side_effect=AssertionError('playback is not history')):
+            captured, _ = self.turn(prompt, plan={'intent':'personal_query','primary_domain':'spotify','spotify':True})
+        evidence = next(m['content'] for m in captured if 'VERIFIED TOOL CONTEXT' in m['content'])
+        self.assertIn('spotify_history_read', evidence)
+        self.assertIn('Aster', evidence)
+        self.assertIn('"plays": 1', evidence)
+
+    def test_exact_planning_prompt_reads_three_sources_and_tasks(self):
+        prompt = 'Check my Google Calendar, Canvas assignments, and WHOOP data. Make me a realistic plan for tomorrow based on my commitments and recovery.'
+        plan = server.apollo_fast_context_plan([], prompt)
+        self.assertEqual(plan['primary_domain'], 'multi')
+        self.assertTrue(all(plan[key] for key in ('calendar', 'tasks', 'whoop')))
+        self.assertEqual(plan['calendar_days'], 2)
+        with mock.patch.object(server, 'apollo_context_calendar', return_value={'events':[{'summary':'Class'}], 'source_errors':{}, 'google':{'connected':True}}), \
+             mock.patch.object(server, 'get_tasks', return_value=[{'title':'Essay', 'source':'canvas'}]), \
+             mock.patch.object(server, 'calendar_subscription_status', return_value={'connected':True}), \
+             mock.patch.object(server, 'apollo_context_whoop', return_value={'recovery_score': 68}):
+            captured, _ = self.turn(prompt, plan=plan)
+        evidence = next(m['content'] for m in captured if 'VERIFIED TOOL CONTEXT' in m['content'])
+        self.assertTrue(all(item in evidence for item in ('Class', 'Essay', 'recovery_score', 'canvas_sync')))
+
+    def test_saved_chat_history_is_scoped_to_current_thread(self):
+        current, _ = self.historic('We discussed an espresso machine for my kitchen.')
+        other, _ = self.historic('The unrelated account has a secret telescope project.')
+        captured, _ = self.turn('Please continue this conversation.', chat_id=current,
+                                plan={'intent':'general_knowledge','primary_domain':'general'})
+        combined = '\n'.join(message.get('content', '') for message in captured)
+        self.assertIn('espresso machine', combined)
+        self.assertNotIn('secret telescope project', combined)
+        fresh, _ = self.turn('Please continue this conversation.', chat_id=other,
+                             plan={'intent':'general_knowledge','primary_domain':'general'})
+        self.assertNotIn('espresso machine', '\n'.join(message.get('content', '') for message in fresh))
+
     def test_task_reasoning_reaches_synthesis_instead_of_legacy_listing(self):
         with mock.patch.object(server, 'apollo_task_chat', side_effect=AssertionError('read swallowed by action handler')), \
              mock.patch.object(server, 'get_tasks', return_value=[{'id': 1, 'title': 'Essay', 'due_at': '2026-10-22', 'completed': False}]):
@@ -189,6 +237,18 @@ class PipelineTests(unittest.TestCase):
             server.apollo_context_calendar(1, time_zone='Europe/Zurich')
         self.assertEqual(fetch.call_args.kwargs['end_date'], '2026-10-23')
         self.assertEqual(fetch.call_args.kwargs['time_zone'], 'Europe/Zurich')
+
+    def test_calendar_partial_source_failure_keeps_events_and_reports_error(self):
+        with mock.patch.object(server, 'apollo_calendar_events', return_value=([
+                 {'summary': 'Class', 'start': {'dateTime': '2026-10-27T10:00:00+01:00'}}
+             ], {'subscriptions': 'Canvas UID lookup failed'})), \
+             mock.patch.object(server, 'google_calendar_connection_status', return_value={'connected': True, 'can_read': True}), \
+             mock.patch.object(server, 'calendar_subscription_status', return_value={'connected': True, 'last_error': 'Feed stale'}):
+            result = server.apollo_context_calendar(2, include_status=True)
+        self.assertEqual(result['events'][0]['summary'], 'Class')
+        self.assertIn('subscriptions', result['source_errors'])
+        self.assertTrue(result['google']['can_read'])
+        self.assertEqual(result['canvas']['last_error'], 'Feed stale')
 
     def test_tasks_evidence_keeps_all_realistic_rows_without_metadata_truncation(self):
         rows = [{'id': i, 'title': 'Assignment '+str(i), 'due_at': '2026-10-25T22:59:00+02:00',

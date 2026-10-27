@@ -2,7 +2,7 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--apollo-space-3, 12px);
-    width: min(100%, 680px);
+    width: min(100%, 860px);
     min-width: 0;
 }
 
@@ -27,6 +27,7 @@ html[data-theme="light"] .apollo-rich-text .hljs-string, html[data-theme="light"
 html[data-theme="light"] .apollo-rich-text .hljs-number, html[data-theme="light"] .apollo-rich-text .hljs-built_in, html[data-theme="light"] .apollo-rich-text .hljs-type { color: #a44e12; }
 
 .apollo-rich-text p { margin: 0 0 var(--apollo-space-2, 8px); }
+.apollo-rich-text > :not(.apollo-rich-table-wrap) { max-width: 680px; }
 .apollo-rich-text p:last-child { margin-bottom: 0; }
 .apollo-rich-text a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .apollo-rich-text h1,
@@ -263,14 +264,30 @@ html[data-theme="light"] .apollo-ui-button.primary { background: #171717; color:
 .apollo-ui-legend .series-3 i { opacity: .34; }
 .apollo-ui-chart-note { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--ui-border); font-size: 10px; line-height: 1.45; opacity: .5; }
 
-.apollo-ui-table-wrap { max-width: 100%; overflow: auto; }
-.apollo-ui-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.apollo-rich-table { width: auto; min-width: min(100%,420px); }
+.apollo-ui-table-wrap { max-width: 100%; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+.apollo-ui-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.apollo-rich-table { width: 100%; min-width: 0; table-layout: fixed; }
 .apollo-ui-table th,
-.apollo-ui-table td { padding: 10px 12px; border-bottom: 1px solid var(--ui-border); text-align: left; white-space: nowrap; }
-.apollo-ui-table th { font-weight: 600; opacity: .58; }
+.apollo-ui-table td { padding: 13px 16px; border-bottom: 1px solid var(--ui-border); text-align: left; vertical-align: top; white-space: normal; overflow-wrap: break-word; line-height: 1.5; }
+.apollo-ui-table th { font-weight: 620; opacity: .66; }
+.apollo-rich-table th:first-child,
+.apollo-rich-table td:first-child { width: 26%; }
 .apollo-ui-table td.apollo-rich-table-number { text-align: right; font-variant-numeric: tabular-nums; }
 .apollo-ui-table tr:last-child td { border-bottom: 0; }
+.apollo-ui-diagram { padding: 18px; }
+.apollo-ui-diagram-lanes { display: grid; gap: 16px; }
+.apollo-ui-diagram-lane { min-width: 0; }
+.apollo-ui-diagram-label { margin-bottom: 8px; font-size: 12px; font-weight: 650; letter-spacing: .02em; }
+.apollo-ui-diagram-steps { display: flex; align-items: stretch; gap: 7px; min-width: 0; }
+.apollo-ui-diagram-node { display: grid; align-content: center; flex: 1 1 0; min-width: 0; gap: 4px; padding: 12px; border: 1px solid var(--ui-border); border-radius: 12px; line-height: 1.35; overflow-wrap: anywhere; background: rgba(127,127,127,.035); }
+.apollo-ui-diagram-node strong { font-size: 13px; font-weight: 620; }
+.apollo-ui-diagram-node span { font-size: 11px; opacity: .65; }
+.apollo-ui-diagram-arrow { align-self: center; opacity: .45; font-size: 18px; }
+@media (max-width: 600px) {
+    .apollo-rich-table:has(th:nth-child(3)) { min-width: 520px; }
+    .apollo-ui-diagram-steps { flex-direction: column; }
+    .apollo-ui-diagram-arrow { transform: rotate(90deg); line-height: 1; }
+}
 
 .apollo-ui-field { display: grid; gap: 6px; }
 .apollo-ui-field label { font-size: 11px; opacity: .58; }
