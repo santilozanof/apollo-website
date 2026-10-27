@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 from http.server import ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -49,6 +49,15 @@ class Handler(server.ApolloHandler):
             return
         if path == "/api/connections":
             server.json_response(self, {"integrations": []})
+            return
+        if path == "/api/chat/entity":
+            missing = "Missing Image" in parse_qs(urlparse(self.path).query).get("name", [""])[0]
+            server.json_response(self, {"entity": {
+                "kind": "album", "name": "A Missing Image Album" if missing else "A Public Album", "provider": "Synthetic QA fixture",
+                "provider_id": "fixture-album", "description": "A verified-source panel layout fixture.",
+                "image_url": "/tests/browser/no-such-image.jpg" if missing else "/tests/browser/fixture-art.svg",
+                "source_url": "https://example.org/fixture-album", "source_title": "Fixture source",
+            }})
             return
         if path in ("/api/music/insights", "/api/music/analytics", "/api/music/rankings",
                     "/api/music/history", "/api/music/detail", "/api/music/imports", "/api/music/recaps"):

@@ -2,6 +2,7 @@ import ast
 import json
 import re
 import unittest
+import apollo_entity
 from pathlib import Path
 
 
@@ -105,6 +106,23 @@ class ChatIntentPlannerTests(unittest.TestCase):
                                     lambda *_a, **_k: json.dumps(events))
         self.assertFalse(added)
         self.assertEqual(unchanged, content.strip())
+
+    def test_story_entity_card_requires_exact_mention_and_provider_kind(self):
+        namespace = {"re": re, "json": json, "apollo_entity": apollo_entity}
+        namespace["apollo_story_visual_candidate"] = load_function("apollo_story_visual_candidate", namespace)
+        select = load_function("apollo_select_story_entities", namespace)
+        insert = load_function("apollo_insert_story_entities", namespace)
+        source = ("A public artist made A Public Album. " * 65).strip()
+        selected = select(source, "Tell me the whole story of this album",
+            lambda *_a, **_k: json.dumps({"entities": [
+                {"kind": "album", "name": "A Public Album", "artist": "A public artist"},
+                {"kind": "movie", "name": "A nonexistent movie"},
+            ]}))
+        self.assertEqual(selected, [{"kind": "album", "name": "A Public Album", "artist": "A public artist"}])
+        rendered, added = insert(source, selected)
+        self.assertTrue(added)
+        self.assertIn('"schema":"apollo.rich","version":3', rendered)
+        self.assertIn('"name":"A Public Album"', rendered)
 
     def test_semantic_plan_normalizes_domain_action_and_sources(self):
         captured = []

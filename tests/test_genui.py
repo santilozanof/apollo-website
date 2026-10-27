@@ -4,6 +4,7 @@ import math
 import re
 import unittest
 import urllib.parse
+import apollo_entity
 from pathlib import Path
 
 
@@ -66,6 +67,23 @@ class GenerativeUITests(unittest.TestCase):
         result = blocks(sanitize("```apollo-ui\n" + json.dumps(payload) + "\n```"))
         self.assertEqual([block["id"] for block in result], ["valid"])
         self.assertEqual(len(result[0]["items"]), 1)
+
+    def test_v3_entity_schema_keeps_only_verified_reference_fields(self):
+        self.items["apollo_entity"] = apollo_entity
+        sanitize = self.items["apollo_sanitize_genui_content"]
+        raw = {"schema": "apollo.rich", "version": 3, "blocks": [
+            {"type": "entity", "id": "album-1", "kind": "album", "name": "A Public Album",
+             "artist": "Example Artist", "image_url": "https://untrusted.example/fake.jpg"},
+            {"type": "entity", "id": "bad", "kind": "album", "name": "<script>"},
+        ]}
+        result = sanitize("```apollo-ui\n" + json.dumps(raw) + "\n```")
+        payload = json.loads(re.search(r"```apollo-ui\n(.*?)\n```", result, re.S).group(1))
+        self.assertEqual(payload["version"], 3)
+        self.assertEqual(payload["schema"], "apollo.rich")
+        self.assertEqual(payload["blocks"], [{"type": "entity", "id": "album-1",
+            "kind": "album", "name": "A Public Album", "artist": "Example Artist"}])
+        invalid = {"schema": "apollo.rich", "version": 99, "blocks": raw["blocks"]}
+        self.assertNotIn("album-1", sanitize("```apollo-ui\n" + json.dumps(invalid) + "\n```"))
 
     def test_routine_ui_uses_authoritative_ids_and_state(self):
         value = self.items["apollo_routine_genui"]({

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img" aria-label="Synthetic album art fixture">
+  <rect width="400" height="400" fill="#161d26"/>
+  <circle cx="200" cy="200" r="142" fill="none" stroke="#cdd7e1" stroke-width="2"/>
+  <circle cx="200" cy="200" r="74" fill="none" stroke="#7e909f" stroke-width="2"/>
+  <circle cx="200" cy="200" r="12" fill="#cdd7e1"/>
+  <text x="200" y="365" fill="#cdd7e1" font-family="sans-serif" font-size="16" text-anchor="middle">SYNTHETIC QA FIXTURE</text>
+</svg>

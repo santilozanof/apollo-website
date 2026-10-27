@@ -682,6 +682,49 @@ def artist_metadata(spotify, ids):
     return {"artists": result}
 
 
+def entity_search(spotify, kind, name, artist=None):
+    """Resolve an exact-name public entity through Spotify's read-only API."""
+    lookup = {"artist": "artist", "album": "album", "song": "track"}
+    if kind not in lookup or not 2 <= len(str(name or "")) <= 120:
+        return None
+    query = f'{lookup[kind]}:"{str(name).replace(chr(34), "")}"'
+    payload = spotify_read(lambda: spotify.search(q=query, type=lookup[kind], limit=10)) or {}
+    candidates = (payload.get(lookup[kind] + "s") or {}).get("items") or []
+    exact = [item for item in candidates if normalized(item.get("name")) == normalized(name)]
+    if artist:
+        exact = [item for item in exact if any(
+            normalized(person.get("name")) == normalized(artist)
+            for person in item.get("artists") or []
+        )]
+    if not exact:
+        return None
+    if kind != "artist" and not artist:
+        credits = {tuple(normalized(person.get("name")) for person in item.get("artists") or [])
+                   for item in exact}
+        if len(credits) > 1:
+            return None
+    item = exact[0]
+    parent = item.get("album") or {}
+    images = item.get("images") or parent.get("images") or []
+    image_url = select_image(images, minimum=160)
+    source_url = (item.get("external_urls") or {}).get("spotify")
+    if not (item.get("id") and isinstance(source_url, str)
+            and source_url.startswith("https://open.spotify.com/")):
+        return None
+    artists = [str(artist.get("name")) for artist in item.get("artists") or []
+               if artist.get("name")]
+    detail = ", ".join(artists[:3])
+    if kind == "song" and parent.get("name"):
+        detail = f"{detail} · {parent['name']}" if detail else str(parent["name"])
+    return {
+        "kind": kind, "name": str(item.get("name") or name)[:160],
+        "provider": "Spotify", "provider_id": str(item["id"]),
+        "description": detail[:500],
+        "image_url": image_url if isinstance(image_url, str) and image_url.startswith("https://i.scdn.co/image/") else None,
+        "source_url": source_url, "source_title": str(item.get("name") or name)[:160],
+    }
+
+
 def playback_observation(spotify):
     state = spotify_read(spotify.current_playback, attempts=1) or {}
     item = state.get("item") if isinstance(state.get("item"), dict) else {}
@@ -750,7 +793,7 @@ def main():
     if command not in {
         "context", "resolve", "play-queue", "start-curation", "restore-queue", "build-curation",
         "playback-state", "playback-control", "recent-contexts", "queue",
-        "queue-add", "track-search", "shuffle", "history", "track-metadata", "artist-metadata", "playback-observe",
+        "queue-add", "track-search", "shuffle", "history", "track-metadata", "artist-metadata", "playback-observe", "entity-search",
     }:
         raise SystemExit(
             "Usage: spotify_curator_tool.py "
@@ -770,6 +813,9 @@ def main():
         elif command == "artist-metadata":
             payload = json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
             result = artist_metadata(spotify_client(), payload.get("ids") or [])
+        elif command == "entity-search":
+            payload = json.loads(sys.argv[2] if len(sys.argv) > 2 else "{}")
+            result = entity_search(spotify_client(), payload.get("kind"), payload.get("name"), payload.get("artist"))
         elif command == "playback-observe":
             result = playback_observation(spotify_client())
         elif command in {"resolve", "play-queue"}:

@@ -31,13 +31,21 @@ The first phase established the subject's influences and working habits. A usefu
 The next phase introduced a new direction. Separating the chronology into sections makes the story easier to follow without removing nuance.
 
 \`\`\`apollo-ui
-{"blocks":[{"type":"timeline","id":"history-timeline","title":"Key moments","items":[{"time":"Phase one","title":"Early work","text":"Initial development"},{"time":"Phase two","title":"A new direction","text":"The project took shape"}]}]}
+{"schema":"apollo.rich","version":3,"blocks":[{"type":"timeline","id":"history-timeline","title":"Key moments","items":[{"time":"Phase one","title":"Early work","text":"Initial development"},{"time":"Phase two","title":"A new direction","text":"The project took shape"}]}]}
+\`\`\`
+
+The record also mentions A Public Album as a central work.
+
+\`\`\`apollo-ui
+{"schema":"apollo.rich","version":3,"blocks":[{"type":"entity","id":"public-album","kind":"album","name":"A Public Album"}]}
 \`\`\`
 
 ## What followed
 
 The concluding phase connects the earlier context to the outcome. It should state any uncertainty plainly rather than filling gaps with invented facts.`;
-    document.getElementById('rendered').appendChild(window.ApolloGenUI.render(sample));
+    const content = new URLSearchParams(location.search).has('missing')
+      ? sample.replaceAll('A Public Album', 'A Missing Image Album') : sample;
+    document.getElementById('rendered').appendChild(window.ApolloGenUI.render(content));
   </script>
 </body>
 </html>

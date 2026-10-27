@@ -114,6 +114,21 @@ console.log('buffered');
 """
         self.assertEqual(run_node(script), "buffered")
 
+    def test_versioned_entities_parse_and_unknown_versions_degrade(self):
+        script = r"""
+const gen = require('./apollo_genui.js');
+const good = '```apollo-ui\n' + JSON.stringify({schema:'apollo.rich',version:3,blocks:[
+  {type:'entity',id:'album',kind:'album',name:'A Public Album',artist:'Example Artist'}
+]}) + '\n```';
+const parsed = gen.parse(good);
+if (!parsed.structured || parsed.parts[0].type !== 'entity') process.exit(2);
+if (parsed.parts[0].url) process.exit(3);
+const bad = good.replace('"version":3','"version":99');
+if (gen.parse(bad).parts[0].type !== 'invalid') process.exit(4);
+console.log('versioned');
+"""
+        self.assertEqual(run_node(script), "versioned")
+
     def test_cancelled_stream_keeps_only_complete_safe_segments(self):
         source = (
             "A complete opening sentence.\n\n"

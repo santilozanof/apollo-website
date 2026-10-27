@@ -1,9 +1,9 @@
-/* Apollo Generative UI v2 — trusted, schema-driven response composition. */
+/* Apollo Rich Response v3 — trusted, schema-driven response composition. */
 (() => {
   "use strict";
 
   const TYPES = new Set([
-    "text", "image", "image_gallery", "card", "carousel", "quiz",
+    "text", "image", "image_gallery", "card", "carousel", "quiz", "entity",
     "checklist", "chart", "table", "progress", "form", "button_group",
     "date_picker", "slider", "media", "location", "code", "expandable",
     "status", "timeline", "calculator", "selector", "function_explorer",
@@ -19,6 +19,8 @@
     "illustrative", "hypothetical"
   ]);
   const CALCULATIONS = new Set(["sum", "multiply", "divide", "percentage"]);
+  const ENTITY_KINDS = new Set(["artist", "album", "song", "book", "movie", "person", "place"]);
+  const entityCache = new Map();
   const EXPRESSION_ARITIES = {
     add: [2, 8], subtract: [2, 2], multiply: [2, 8], divide: [2, 2],
     power: [2, 2], min: [2, 8], max: [2, 8], negate: [1, 1],
@@ -226,6 +228,13 @@
 
   function validate(raw, index) {
     if (!raw || typeof raw !== "object" || !TYPES.has(raw.type)) return null;
+    if (raw.type === "entity") {
+      const kind = str(raw.kind, 30).toLowerCase();
+      const name = str(raw.name, 120).trim();
+      if (!ENTITY_KINDS.has(kind) || name.length < 2 || /[<>\r\n]/.test(name)) return null;
+      return {type: "entity", id: str(raw.id, 100) || `entity-${index + 1}`,
+        kind, name, artist: str(raw.artist, 120).trim()};
+    }
     const block = {
       type: raw.type,
       id: str(raw.id, 100) || `block-${index + 1}`,
@@ -242,6 +251,9 @@
       poster: safeUrl(raw.poster, true),
       alt: str(raw.alt, 240),
       caption: str(raw.caption, 500),
+      source_url: safeUrl(raw.source_url),
+      source_title: str(raw.source_title, 300),
+      publisher: str(raw.publisher, 160),
       kind: str(raw.kind, 30),
       preset: str(raw.preset, 40),
       unit: str(raw.unit, 30),
@@ -262,6 +274,9 @@
         url: safeUrl(item.url, true),
         alt: str(item.alt, 240),
         caption: str(item.caption, 500),
+        source_url: safeUrl(item.source_url),
+        source_title: str(item.source_title, 300),
+        publisher: str(item.publisher, 160),
         time: str(item.time, 80),
         value: finite(item.value) ? Number(item.value) : 0,
         completed: Boolean(item.completed),
@@ -451,18 +466,26 @@
     let cursor = 0;
     let match;
     const parts = [];
+    const ids = new Set();
     while ((match = pattern.exec(source))) {
       if (match.index > cursor) parts.push({type: "text", text: source.slice(cursor, match.index).trim()});
       try {
         const data = JSON.parse(match[1]);
+        if (!data || typeof data !== "object"
+            || (data.version !== undefined && data.version !== 2 && data.version !== 3)
+            || (data.version === 3 && data.schema !== "apollo.rich")) {
+          parts.push({type: "invalid"});
+          cursor = pattern.lastIndex;
+          continue;
+        }
         const rawBlocks = Array.isArray(data) ? data : data.blocks;
-        const ids = new Set();
         list(rawBlocks, MAX_BLOCKS).forEach((raw, index) => {
           const block = validate(raw, index);
-          if (!block || ids.has(block.id)) {
+          if (!block) {
             parts.push({type: "invalid"});
             return;
           }
+          if (ids.has(block.id)) return;
           ids.add(block.id);
           parts.push(block);
         });
@@ -926,11 +949,140 @@
     image.src = item.url;
     figure.append(image, status, retry);
     if (item.caption) figure.appendChild(el("figcaption", null, item.caption));
+    if (item.source_url) {
+      const details = el("button", "apollo-ui-media-details", "Image details");
+      details.type = "button";
+      details.addEventListener("click", () => openDetail({
+        title: item.alt || item.title || "Image", description: item.caption,
+        image_url: item.url, provider: item.publisher || "Image source",
+        source_url: item.source_url, source_title: item.source_title || "Open source"
+      }, details));
+      figure.appendChild(details);
+    }
     return figure;
   }
   if (typeof window !== "undefined") {
     window.apolloImageNode = imageNode;
     window.apolloOpenImage = openImage;
+  }
+
+  let activeDetail = null;
+  function closeDetail() {
+    if (!activeDetail) return;
+    const trigger = activeDetail.trigger;
+    activeDetail.overlay.remove();
+    document.removeEventListener("keydown", activeDetail.onKeydown);
+    activeDetail = null;
+    if (trigger?.isConnected) trigger.focus({preventScroll: true});
+  }
+  function openDetail(data, trigger) {
+    if (!data || typeof document === "undefined") return;
+    if (!activeDetail) {
+      const overlay = el("div", "apollo-detail-overlay");
+      const backdrop = el("button", "apollo-detail-backdrop");
+      backdrop.type = "button";
+      backdrop.setAttribute("aria-label", "Close details");
+      backdrop.addEventListener("click", closeDetail);
+      const panel = el("aside", "apollo-detail-panel");
+      panel.setAttribute("role", "dialog");
+      panel.setAttribute("aria-modal", "true");
+      panel.setAttribute("aria-labelledby", "apollo-detail-title");
+      overlay.append(backdrop, panel);
+      const onKeydown = event => {
+        if (event.key === "Escape") { event.preventDefault(); closeDetail(); }
+        if (event.key === "Tab" && activeDetail) {
+          const focusable = [...panel.querySelectorAll("button:not([disabled]), a[href]")];
+          if (!focusable.length) return;
+          if (event.shiftKey && document.activeElement === focusable[0]) {
+            event.preventDefault(); focusable.at(-1).focus();
+          } else if (!event.shiftKey && document.activeElement === focusable.at(-1)) {
+            event.preventDefault(); focusable[0].focus();
+          }
+        }
+      };
+      document.addEventListener("keydown", onKeydown);
+      document.body.appendChild(overlay);
+      activeDetail = {overlay, panel, onKeydown, trigger};
+    } else {
+      activeDetail.trigger = trigger || activeDetail.trigger;
+    }
+    const panel = activeDetail.panel;
+    const top = el("div", "apollo-detail-top");
+    top.appendChild(el("span", "apollo-detail-kicker", data.provider || data.kind || "Details"));
+    const close = el("button", "apollo-detail-close", "×");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close details");
+    close.addEventListener("click", closeDetail);
+    top.appendChild(close);
+    panel.replaceChildren(top);
+    if (data.image_url && safeUrl(data.image_url, true)) {
+      const image = el("img", "apollo-detail-image");
+      image.src = safeUrl(data.image_url, true);
+      image.alt = data.name || data.title || "Entity image";
+      image.loading = "lazy";
+      image.addEventListener("error", () => image.remove());
+      panel.appendChild(image);
+    }
+    const title = el("h2", "apollo-detail-title", data.name || data.title || "Details");
+    title.id = "apollo-detail-title";
+    panel.appendChild(title);
+    if (data.description) panel.appendChild(el("p", "apollo-detail-description", data.description));
+    if (data.source_url && safeUrl(data.source_url)) {
+      const link = el("a", "apollo-detail-source", data.source_title || "Open verified source ↗");
+      link.href = safeUrl(data.source_url);
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      panel.appendChild(link);
+    }
+    close.focus({preventScroll: true});
+  }
+
+  function entityLookup(block) {
+    const query = new URLSearchParams({kind: block.kind, name: block.name});
+    if (block.artist) query.set("artist", block.artist);
+    const key = query.toString();
+    const cached = entityCache.get(key);
+    if (cached && Date.now() - cached.at < 600000) return cached.promise;
+    const promise = fetch(`/api/chat/entity?${key}`, {credentials: "same-origin", cache: "no-store"})
+      .then(async response => {
+        if (!response.ok) throw new Error("Verified details unavailable");
+        const payload = await response.json();
+        if (!payload.entity || !safeUrl(payload.entity.source_url)) throw new Error("Invalid entity source");
+        return payload.entity;
+      });
+    entityCache.set(key, {at: Date.now(), promise});
+    return promise;
+  }
+
+  function renderEntity(block) {
+    const card = el("button", "apollo-entity-card");
+    card.type = "button";
+    card.setAttribute("aria-label", `Open ${block.kind} details for ${block.name}`);
+    const artwork = el("span", "apollo-entity-art", block.name.slice(0, 1).toUpperCase());
+    const copy = el("span", "apollo-entity-copy");
+    copy.append(el("span", "apollo-entity-kind", block.kind), el("span", "apollo-entity-name", block.name));
+    const hint = el("span", "apollo-entity-hint", "Checking source…");
+    copy.appendChild(hint);
+    card.append(artwork, copy, el("span", "apollo-entity-arrow", "↗"));
+    let details = null;
+    entityLookup(block).then(entity => {
+      details = entity;
+      hint.textContent = entity.description || entity.provider || "Verified details";
+      if (entity.image_url && safeUrl(entity.image_url, true)) {
+        const image = el("img");
+        image.src = safeUrl(entity.image_url, true);
+        image.alt = `${entity.name} artwork`;
+        image.loading = "lazy";
+        image.addEventListener("error", () => artwork.replaceChildren(document.createTextNode(block.name.slice(0, 1).toUpperCase())));
+        artwork.replaceChildren(image);
+      }
+    }).catch(() => { hint.textContent = "Details unavailable"; card.classList.add("is-unavailable"); });
+    card.addEventListener("click", () => {
+      if (details) openDetail(details, card);
+      else openDetail({title: block.name, kind: block.kind,
+        description: hint.textContent === "Checking source…" ? "Checking a verified source…" : "Verified details are unavailable."}, card);
+    });
+    return card;
   }
 
   async function reconcileChecklist(block, items, state, apply) {
@@ -1790,6 +1942,14 @@
       link.appendChild(el("span", "apollo-ui-source-title", title));
       if (item.publisher && item.publisher !== title) link.appendChild(el("span", "apollo-ui-source-publisher", item.publisher));
       row.appendChild(link);
+      const preview = el("button", "apollo-ui-source-preview", "Details");
+      preview.type = "button";
+      preview.setAttribute("aria-label", `View source details for ${title}`);
+      preview.addEventListener("click", () => openDetail({
+        title, provider: item.publisher || fallback, description: item.note || "Verified source reference",
+        source_url: item.url, source_title: title,
+      }, preview));
+      row.appendChild(preview);
       if (item.note) row.appendChild(el("div", "apollo-ui-source-note", item.note));
       listNode.appendChild(row);
     });
@@ -1797,18 +1957,16 @@
     return root;
   }
 
+  const COMPONENT_REGISTRY = Object.freeze({
+    entity: renderEntity, checklist: renderChecklist, quiz: renderQuiz,
+    chart: renderChart, table: renderTable, form: renderForm, card: renderCard,
+    calculator: renderCalculator, selector: renderSelector,
+    function_explorer: renderFunctionExplorer, metric_trend: renderMetricTrend,
+    sources: renderSources,
+  });
   function renderGeneric(block, citations) {
-    if (block.type === "checklist") return renderChecklist(block);
-    if (block.type === "quiz") return renderQuiz(block);
-    if (block.type === "chart") return renderChart(block);
-    if (block.type === "table") return renderTable(block);
-    if (block.type === "form") return renderForm(block);
-    if (block.type === "card") return renderCard(block);
-    if (block.type === "calculator") return renderCalculator(block);
-    if (block.type === "selector") return renderSelector(block);
-    if (block.type === "function_explorer") return renderFunctionExplorer(block);
-    if (block.type === "metric_trend") return renderMetricTrend(block);
-    if (block.type === "sources") return renderSources(block);
+    const component = COMPONENT_REGISTRY[block.type];
+    if (component) return component(block, citations);
     if (block.type === "text") return richText(block.text, citations);
     if (block.type === "image") return imageNode(block);
     if (block.type === "image_gallery") {
@@ -2135,6 +2293,7 @@
       ...block.items.map(item => `${item.label}: ${numberLabel(item.value, block.unit)}${item.description ? ` — ${item.description}` : ""}`)
     ].filter(Boolean).join("\n");
     if (block.type === "code") return block.text;
+    if (block.type === "entity") return [block.kind, block.name, block.artist].filter(Boolean).join(" — ");
     if (block.type === "image") return [block.caption || block.alt || block.title, block.url].filter(Boolean).join("\n");
     if (["image_gallery", "carousel", "timeline"].includes(block.type)) {
       return [block.title, ...block.items.map(item => [item.time, item.title || item.label, item.text].filter(Boolean).join(" — "))].filter(Boolean).join("\n");
@@ -2168,7 +2327,7 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", install, {once: true});
     else install();
   }
-  const api = {parse, validate, render, copyText, install, keyFor, completeStreamSegments, hasIncompleteInline, createStreamRenderer, evaluateExpression};
+  const api = {parse, validate, render, copyText, install, keyFor, completeStreamSegments, hasIncompleteInline, createStreamRenderer, evaluateExpression, openDetail};
   if (typeof window !== "undefined") window.ApolloGenUI = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

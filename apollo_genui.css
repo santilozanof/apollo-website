@@ -481,3 +481,74 @@ html.apollo-jarvis-mode #apolloView .apollo-message.assistant .apollo-ui-timelin
     #apolloView .apollo-message.assistant .apollo-rich-text,
     html.apollo-jarvis-mode #apolloView .apollo-message.assistant .apollo-rich-text { font-size: 16px !important; line-height: 1.66 !important; }
 }
+
+/* Apollo Rich Response v3: quiet references and a contextual reading panel. */
+.apollo-entity-card {
+    display: grid;
+    grid-template-columns: 62px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 14px;
+    width: min(100%, 520px);
+    padding: 9px 13px 9px 9px;
+    border: 1px solid rgba(127,127,127,.18);
+    border-radius: 14px;
+    background: rgba(127,127,127,.045);
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background .18s ease, border-color .18s ease;
+}
+.apollo-entity-card:hover,
+.apollo-entity-card:focus-visible { background: rgba(127,127,127,.09); border-color: rgba(127,127,127,.3); }
+.apollo-entity-art { display: grid; place-items: center; width: 62px; height: 62px; overflow: hidden; border-radius: 10px; background: rgba(127,127,127,.12); font-size: 24px; font-weight: 600; }
+.apollo-entity-art img { width: 100%; height: 100%; object-fit: cover; }
+.apollo-entity-copy { display: grid; gap: 2px; min-width: 0; }
+.apollo-entity-kind { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; opacity: .56; }
+.apollo-entity-name { overflow: hidden; font-size: 15px; font-weight: 630; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.apollo-entity-hint { overflow: hidden; font-size: 12px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; opacity: .66; }
+.apollo-entity-arrow { opacity: .55; }
+.apollo-entity-card.is-unavailable { opacity: .7; }
+html.apollo-jarvis-mode #apolloView .apollo-message.assistant .apollo-entity-card,
+html.apollo-jarvis-mode #apolloView .apollo-message.assistant .apollo-entity-card * {
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif !important;
+    letter-spacing: 0 !important;
+}
+.apollo-ui-media-details,
+.apollo-ui-source-preview { border: 0; background: transparent; color: inherit; font: inherit; font-size: 11px; text-decoration: underline; text-underline-offset: 3px; opacity: .65; cursor: pointer; }
+.apollo-ui-media-details { margin: 0 2px 5px; }
+.apollo-ui-source-preview { margin-left: 9px; }
+.apollo-detail-overlay { position: fixed; z-index: 10020; inset: 0; pointer-events: none; }
+.apollo-detail-backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(0,0,0,.32); pointer-events: auto; }
+.apollo-detail-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(420px, 36vw);
+    box-sizing: border-box;
+    overflow-y: auto;
+    padding: max(30px,env(safe-area-inset-top)) 26px 36px;
+    border-left: 1px solid rgba(127,127,127,.2);
+    background: #111923;
+    color: #e9eef4;
+    box-shadow: -18px 0 60px rgba(0,0,0,.26);
+    pointer-events: auto;
+    animation: apollo-detail-in .22s cubic-bezier(.22,1,.36,1) both;
+}
+html[data-theme="light"] .apollo-detail-panel { background: #fafafa; color: #171717; }
+.apollo-detail-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.apollo-detail-kicker { font-size: 11px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; opacity: .6; }
+.apollo-detail-close { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid rgba(127,127,127,.24); border-radius: 50%; background: transparent; color: inherit; font: inherit; font-size: 24px; cursor: pointer; }
+.apollo-detail-image { display: block; width: 100%; max-height: 300px; object-fit: contain; margin: 22px 0 18px; border-radius: 13px; background: rgba(127,127,127,.08); }
+.apollo-detail-title { margin: 24px 0 10px; font-size: clamp(25px,2.5vw,32px); line-height: 1.14; letter-spacing: -.035em; }
+.apollo-detail-description { margin: 0 0 22px; font-size: 15px; line-height: 1.65; opacity: .8; }
+.apollo-detail-source { color: inherit; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+@keyframes apollo-detail-in { from { opacity: .5; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+@media (max-width: 760px) {
+    .apollo-detail-panel { top: auto; right: 0; bottom: max(78px, env(safe-area-inset-bottom)); left: 0; width: 100%; max-height: min(72dvh, 660px); padding: 20px 20px 30px; border: 1px solid rgba(127,127,127,.22); border-bottom: 0; border-radius: 20px 20px 0 0; animation-name: apollo-detail-mobile-in; }
+    .apollo-detail-image { max-height: 210px; }
+    .apollo-entity-card { grid-template-columns: 54px minmax(0,1fr) auto; gap: 11px; }
+    .apollo-entity-art { width: 54px; height: 54px; }
+}
+@keyframes apollo-detail-mobile-in { from { opacity: .6; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .apollo-detail-panel, .apollo-entity-card { animation: none; transition: none; } }

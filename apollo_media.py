@@ -25,7 +25,7 @@ FL_IMAGES = (
     ("Mixer", "mixer_main.png", "mixer.htm"),
     ("Browser", "browser.png", "browser.htm"),
 )
-ALLOWED_IMAGE_HOSTS = {"www.image-line.com", "thumb.wikimedia.org", "upload.wikimedia.org"}
+ALLOWED_IMAGE_HOSTS = {"www.image-line.com", "thumb.wikimedia.org", "upload.wikimedia.org", "i.scdn.co"}
 ALLOWED_MIME = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 
 
@@ -239,7 +239,8 @@ def visual_response(subject):
     gallery = {
         "blocks": [
             {"type": "image_gallery", "id": "verified-images", "items": [
-                {key: item[key] for key in ("url", "alt", "caption")} for item in images
+                {key: item[key] for key in ("url", "alt", "caption", "source_url", "source_title", "publisher")}
+                for item in images
             ]},
             {"type": "sources", "id": "image-sources", "title": "Image sources", "items": [
                 {"url": item["source_url"], "title": item["source_title"], "publisher": item["publisher"]}
