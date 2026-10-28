@@ -6,7 +6,7 @@
   const tabs = document.createElement('nav');
   tabs.className = 'apollo-music-tabs';
   tabs.setAttribute('aria-label', 'Music sections');
-  tabs.innerHTML = '<button type="button" data-tab="player" aria-selected="true">Player</button><button type="button" data-tab="insights" aria-selected="false">Insights</button><button type="button" data-tab="recaps" aria-selected="false">Monthly recaps</button>';
+  tabs.innerHTML = '<button type="button" data-tab="player" aria-selected="true">Player</button><button type="button" data-tab="insights" aria-selected="false">Insights</button><button type="button" data-tab="recaps" aria-selected="false">Recaps</button>';
   player.before(tabs);
   const pane = document.createElement('section');
   pane.className = 'apollo-music-data';
@@ -22,7 +22,7 @@
     const [year, number] = month.split('-').map(Number);
     return number === 1 ? `${year - 1}-12` : `${year}-${String(number - 1).padStart(2, '0')}`;
   }
-  const state = {tab: 'player', month: localMonth(), summary: null, recap: null, slide: 0, format: 'story', renderId: 0};
+  const state = {tab: 'player', month: localMonth(), recapPeriod: 'monthly', recapAnchor: `${previousMonth(localMonth())}-01`, summary: null, recap: null, slide: 0, theme: 'noir', format: 'story', renderId: 0};
   const text = (tag, value, className) => {
     const node = document.createElement(tag);
     node.textContent = value;
@@ -308,7 +308,14 @@
       const image = new Image();
       image.crossOrigin = 'anonymous';
       image.src = url;
-      try { await image.decode(); return image; } catch (_) { return null; }
+      let timer;
+      try {
+        await Promise.race([image.decode(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Artwork timed out')), 8000); })]);
+        return image;
+      } catch (_) {
+        setTimeout(() => artworkCache.delete(url), 30000);
+        return null;
+      } finally { clearTimeout(timer); }
     })());
     return artworkCache.get(url);
   }
@@ -322,133 +329,167 @@
     })());
     return brandCache.get(color);
   }
-  function fitted(ctx, value, x, y, maxWidth, size, weight = 600) {
-    ctx.font = `${weight} ${size}px system-ui, -apple-system, sans-serif`;
-    let content = String(value || '—');
-    while (ctx.measureText(content).width > maxWidth && content.length > 2) content = content.slice(0, -2) + '…';
-    ctx.fillText(content, x, y);
+  const recapSizes = {story: 1920, portrait: 1350, square: 1080};
+  const recapThemes = ['noir', 'atmosphere', 'editorial', 'after-hours'];
+  function recapText(ctx, value, x, y, width, size, options = {}) {
+    const {lines = 1, weight = 650, color = '#f7f5f0', family = 'system-ui, sans-serif', lineHeight = 1.13} = options;
+    ctx.fillStyle = color;
+    ctx.font = `${weight} ${size}px ${family}`;
+    const words = String(value || '—').split(/\s+/);
+    let line = '', used = 0;
+    for (let i = 0; i < words.length; i++) {
+      const candidate = line ? `${line} ${words[i]}` : words[i];
+      if (ctx.measureText(candidate).width <= width) { line = candidate; continue; }
+      if (line && used < lines - 1) { ctx.fillText(line, x, y + used++ * size * lineHeight); line = words[i]; continue; }
+      line = candidate;
+      while (ctx.measureText(line + (i < words.length - 1 ? '…' : '')).width > width && line.length > 1) line = line.slice(0, -1);
+      if (i < words.length - 1 || line !== candidate) line += '…';
+      break;
+    }
+    ctx.fillText(line, x, y + used * size * lineHeight);
+    return used + 1;
   }
-  async function renderRecap(canvas) {
-    const token = ++state.renderId;
+  function recapPalette(image) {
+    if (!image) return [92, 72, 113];
+    try {
+      const sample = document.createElement('canvas'); sample.width = sample.height = 16;
+      const context = sample.getContext('2d'); context.drawImage(image, 0, 0, 16, 16);
+      const pixels = context.getImageData(0, 0, 16, 16).data;
+      let r = 0, g = 0, b = 0, count = 0;
+      for (let i = 0; i < pixels.length; i += 16) { r += pixels[i]; g += pixels[i + 1]; b += pixels[i + 2]; count++; }
+      return [r / count, g / count, b / count].map(channel => Math.max(42, Math.min(190, Math.round(channel))));
+    } catch (_) { return [92, 72, 113]; }
+  }
+  function recapImage(ctx, image, x, y, width, height, shape = 'square', fallback = '') {
+    ctx.save();
+    ctx.beginPath();
+    if (shape === 'circle') ctx.arc(x + width / 2, y + height / 2, Math.min(width, height) / 2, 0, Math.PI * 2);
+    else ctx.roundRect(x, y, width, height, shape === 'editorial' || shape === 'portrait' ? 2 : 17);
+    ctx.clip();
+    if (image) {
+      // Portraits are contained when a square crop would cut off a face.
+      const ratio = shape === 'circle' || shape === 'portrait' ? Math.min(width / image.width, height / image.height) : Math.max(width / image.width, height / image.height);
+      const drawWidth = image.width * ratio, drawHeight = image.height * ratio;
+      ctx.fillStyle = '#25252b'; ctx.fillRect(x, y, width, height);
+      ctx.drawImage(image, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight);
+    } else {
+      const gradient = ctx.createLinearGradient(x, y, x + width, y + height);
+      gradient.addColorStop(0, '#383243'); gradient.addColorStop(1, '#181a20');
+      ctx.fillStyle = gradient; ctx.fillRect(x, y, width, height);
+      ctx.textAlign = 'center';
+      recapText(ctx, (fallback || '♪').slice(0, 1).toUpperCase(), x + width / 2, y + height / 2 + Math.min(width, height) * .13, width * .8, Math.min(width, height) * .42, {color: '#e9e1ef'});
+      ctx.textAlign = 'left';
+    }
+    ctx.restore();
+  }
+  function recapBackground(ctx, theme, h, palette) {
+    const [r, g, b] = palette;
+    const gradient = ctx.createLinearGradient(0, 0, theme === 'editorial' ? 0 : 1080, h);
+    if (theme === 'editorial') { gradient.addColorStop(0, '#eeece7'); gradient.addColorStop(1, '#d8d5ce'); }
+    else if (theme === 'noir') { gradient.addColorStop(0, '#101114'); gradient.addColorStop(1, '#050608'); }
+    else if (theme === 'atmosphere') { gradient.addColorStop(0, `rgb(${Math.round(r*.55)},${Math.round(g*.55)},${Math.round(b*.65)})`); gradient.addColorStop(.55, '#192132'); gradient.addColorStop(1, `rgb(${Math.round(b*.36)},${Math.round(r*.28)},${Math.round(g*.35)})`); }
+    else { gradient.addColorStop(0, '#0b0c1b'); gradient.addColorStop(.62, '#10101c'); gradient.addColorStop(1, '#05060b'); }
+    ctx.fillStyle = gradient; ctx.fillRect(0, 0, 1080, h);
+    if (theme === 'atmosphere' || theme === 'after-hours') {
+      const glows = theme === 'atmosphere' ? [[800, h*.27, 640, `rgba(${r},${g},${b},.34)`], [140, h*.75, 500, 'rgba(64,143,172,.24)']] : [[840, h*.3, 600, 'rgba(119,60,159,.25)'], [170, h*.82, 480, 'rgba(197,75,100,.13)']];
+      for (const [x, y, radius, color] of glows) { const glow = ctx.createRadialGradient(x, y, 0, x, y, radius); glow.addColorStop(0, color); glow.addColorStop(1, 'transparent'); ctx.fillStyle = glow; ctx.fillRect(0, 0, 1080, h); }
+    }
+  }
+  function recapFrame(ctx, summary, theme, slide, h, brand) {
+    const ink = theme === 'editorial' ? '#151515' : '#f7f5f0';
+    const subdued = theme === 'editorial' ? '#5d5b56' : '#c0bdc5';
+    ctx.fillStyle = ink; ctx.fillRect(68, 119, 944, theme === 'editorial' ? 3 : 1);
+    recapText(ctx, 'APOLLO  /  MUSIC', 68, 91, 600, 28, {weight: 750, color: ink});
+    ctx.textAlign = 'right'; recapText(ctx, `${slide + 1} / 3`, 1010, 91, 160, 25, {color: subdued}); ctx.textAlign = 'left';
+    ctx.fillStyle = ink; ctx.fillRect(68, h - 117, 944, 1);
+    recapText(ctx, 'PERSONAL LISTENING HISTORY', 68, h - 73, 620, 22, {weight: 600, color: subdued});
+    if (brand) ctx.drawImage(brand, 811, h - 96, 198, 54);
+    recapText(ctx, summary.period.label.toUpperCase(), 68, 173, 940, 26, {weight: 650, color: subdued});
+  }
+  function recapMetric(ctx, label, value, x, y, width, theme, compact) {
+    const ink = theme === 'editorial' ? '#151515' : '#f7f5f0';
+    const subdued = theme === 'editorial' ? '#5d5b56' : '#c0bdc5';
+    recapText(ctx, label.toUpperCase(), x, y, width, 20, {weight: 700, color: subdued});
+    recapText(ctx, value, x, y + (compact ? 51 : 66), width, compact ? 43 : 57, {weight: 680, color: ink});
+  }
+  async function renderRecap(canvas, choice = {}) {
     const summary = state.recap;
     if (!summary) return;
-    const square = state.format === 'square';
-    canvas.width = 1080; canvas.height = square ? 1080 : 1920;
-    const ctx = canvas.getContext('2d');
-    const h = canvas.height;
-    ctx.fillStyle = state.slide === 0 ? '#eeeae2' : state.slide === 1 ? '#151719' : '#dce2d3';
-    ctx.fillRect(0, 0, 1080, h);
-    const dark = state.slide === 1;
-    ctx.fillStyle = dark ? '#f1eee8' : '#131518';
-    const side = 82;
-    ctx.font = '700 30px system-ui, sans-serif';
-    ctx.letterSpacing = '8px';
-    ctx.fillText('APOLLO / MUSIC', side, 105);
-    ctx.letterSpacing = '0px';
-    ctx.fillRect(side, 130, 916, 2);
-    const month = monthLabel(summary.month).toUpperCase();
-    fitted(ctx, month, side, 200, 916, 38, 650);
-    if (state.slide === 0) {
-      ctx.font = `700 ${square ? 108 : 145}px system-ui, sans-serif`;
-      ctx.fillText('IN', side - 7, square ? 350 : 390);
-      ctx.fillText('ROTATION', side - 7, square ? 465 : 535);
-      const artwork = summary.top_albums.find(item => safeArt(item.artwork_url) && safeSpotify(item.spotify_url))?.artwork_url;
-      const image = await artImage(artwork);
-      if (token !== state.renderId) return;
-      const boxY = square ? 515 : 625;
-      const boxSize = square ? 350 : 850;
-      ctx.fillStyle = '#ccc8c0'; ctx.fillRect(side, boxY, boxSize, boxSize);
-      if (image) {
-        const ratio = Math.min(boxSize / image.width, boxSize / image.height);
-        const width = image.width * ratio, height = image.height * ratio;
-        const imageX = side + (boxSize - width) / 2, imageY = boxY + (boxSize - height) / 2;
-        ctx.save();
-        ctx.beginPath();
-        ctx.roundRect(imageX, imageY, width, height, 8);
-        ctx.clip();
-        ctx.drawImage(image, imageX, imageY, width, height);
-        ctx.restore();
-      } else {
-        ctx.fillStyle = '#151719'; ctx.fillRect(side, boxY, boxSize, boxSize);
-        ctx.fillStyle = '#f1eee8';
-        const names = summary.top_artists.slice(0, 3);
-        names.forEach((item, index) => fitted(ctx, item.name.toUpperCase(), side + 35, boxY + 115 + index * (boxSize / 3.5), boxSize - 70, square ? 32 : 68, 700));
-        if (!names.length) fitted(ctx, 'NO RECORDED PLAYS', side + 35, boxY + boxSize / 2, boxSize - 70, 55, 700);
-      }
-      const detailsX = square ? 485 : side;
-      const detailsY = square ? 610 : 1590;
-      ctx.fillStyle = '#131518';
-      ctx.font = '600 28px system-ui'; ctx.fillText('01 / MOST PLAYED ARTIST', detailsX, detailsY);
-      fitted(ctx, summary.top_artists[0]?.name || 'No recorded plays', detailsX, detailsY + 65, square ? 500 : 916, square ? 44 : 64, 700);
-      ctx.font = '500 27px system-ui';
-      ctx.fillText(`${summary.events} recorded plays`, detailsX, detailsY + 115);
-      ctx.fillText(summary.duration_known_events ? `${duration(summary.verified_ms)} verified listening` : 'Listening time unavailable', detailsX, detailsY + 155);
-    } else if (state.slide === 1) {
-      ctx.font = `700 ${square ? 95 : 145}px system-ui, sans-serif`;
-      ctx.fillText('THE', side - 7, square ? 345 : 385);
-      ctx.fillText('TOP FIVE', side - 7, square ? 455 : 530);
-      const top = summary.top_tracks.slice(0, 5);
-      const start = square ? 555 : 670;
-      const spacing = square ? 92 : 185;
-      top.forEach((item, index) => {
-        const y = start + index * spacing;
-        ctx.fillStyle = '#62676b'; ctx.font = '700 34px system-ui';
-        ctx.fillText(String(index + 1).padStart(2, '0'), side, y);
-        ctx.fillStyle = '#f1eee8';
-        fitted(ctx, item.name, side + 85, y, 770, square ? 34 : 48, 650);
-        ctx.fillStyle = '#3d4348'; ctx.fillRect(side, y + 25, 916, 1);
-      });
-      if (!top.length) { ctx.font = '500 35px system-ui'; ctx.fillText('No recorded songs this month.', side, start); }
-    } else {
-      ctx.font = `700 ${square ? 93 : 143}px system-ui, sans-serif`;
-      ctx.fillText('NEW', side - 7, square ? 335 : 390);
-      ctx.fillText('FREQUENCIES', side - 7, square ? 430 : 535);
-      ctx.fillStyle = '#173b32';
-      ctx.font = `700 ${square ? 126 : 235}px system-ui, sans-serif`;
-      ctx.fillText(String(summary.unique_artists), side - 7, square ? 570 : 820);
-      ctx.fillStyle = '#293a34';
-      ctx.font = '600 26px system-ui, sans-serif';
-      ctx.fillText('ARTISTS IN ROTATION', side, square ? 610 : 875);
-      const albums = summary.top_albums.slice(0, square ? 2 : 3);
-      const listTop = square ? 770 : 1120;
-      ctx.fillStyle = '#173b32';
-      ctx.fillRect(side, listTop - 130, 916, 2);
-      ctx.font = '700 28px system-ui, sans-serif';
-      ctx.fillText('MOST PLAYED ALBUMS', side, listTop - 80);
-      albums.forEach((album, index) => {
-        const y = listTop + index * (square ? 80 : 130);
-        ctx.fillStyle = '#6e8075';
-        ctx.font = '700 27px system-ui, sans-serif';
-        ctx.fillText(String(index + 1).padStart(2, '0'), side, y);
-        ctx.fillStyle = '#131518';
-        fitted(ctx, album.name, side + 70, y, 845, square ? 34 : 53, 650);
-        ctx.fillStyle = '#9ca99b';
-        ctx.fillRect(side, y + (square ? 17 : 28), 916, 1);
-      });
-      if (!albums.length) {
-        ctx.fillStyle = '#293a34';
-        ctx.font = '500 31px system-ui, sans-serif';
-        ctx.fillText('No album metadata available.', side, listTop + 15);
-      }
-      const discoveryY = square ? 924 : 1610;
-      ctx.fillStyle = '#173b32';
-      ctx.font = '700 28px system-ui, sans-serif';
-      ctx.fillText('FIRST SEEN THIS MONTH', side, discoveryY);
-      ctx.fillStyle = '#131518';
-      fitted(ctx, summary.first_seen_artists.length ? summary.first_seen_artists.slice(0, 3).join(' · ') : 'No new artists recorded', side, discoveryY + (square ? 42 : 65), 916, square ? 29 : 43, 600);
-    }
-    const brand = await brandImage(dark);
-    if (token !== state.renderId) return;
+    const slide = choice.slide ?? state.slide, theme = choice.theme ?? state.theme, format = choice.format ?? state.format;
+    const h = recapSizes[format], compact = h <= 1350, ink = theme === 'editorial' ? '#151515' : '#f7f5f0';
+    if (!h || !recapThemes.includes(theme)) throw new Error('Unknown recap layout');
+    const tracks = summary.top.tracks.slice(0, 5), artists = summary.top.artists.slice(0, 5);
+    const images = await Promise.all([...tracks.map(item => artImage(item.image_url)), ...artists.map(item => artImage(item.image_url))]);
+    const loadedTrack = images.slice(0, tracks.length).findIndex(Boolean);
+    const loadedArtist = images.slice(tracks.length).findIndex(Boolean);
+    const featuredTrack = tracks[loadedTrack >= 0 ? loadedTrack : 0];
+    const featuredArtist = artists[loadedArtist >= 0 ? loadedArtist : 0];
+    const albumImage = loadedTrack >= 0 ? images[loadedTrack] : null;
+    const artistImage = loadedArtist >= 0 ? images[tracks.length + loadedArtist] : null;
+    const brand = await brandImage(theme !== 'editorial');
     if (!brand) throw new Error('Spotify attribution could not load; recap export is unavailable.');
-    ctx.fillStyle = dark ? '#9c9fa1' : '#666769';
-    ctx.font = '500 22px system-ui';
-    ctx.fillText('Personal history by Apollo', side, h - 78);
-    if (brand) ctx.drawImage(brand, 808, h - 119, 190, 52);
-    const link = state.slide === 0
-      ? summary.top_albums.find(item => safeArt(item.artwork_url) && safeSpotify(item.spotify_url))?.spotify_url
-      : state.slide === 1 ? summary.top_tracks.find(item => safeSpotify(item.spotify_url))?.spotify_url : null;
-    fitted(ctx, link || 'https://open.spotify.com', side, h - 38, 730, 20, 500);
-    ctx.fillText(`${state.slide + 1} / 3`, 925, h - 38);
+    canvas.width = 1080; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    recapBackground(ctx, theme, h, recapPalette(albumImage || artistImage));
+    const serif = theme === 'editorial' ? 'Georgia, serif' : 'system-ui, sans-serif';
+    if (slide === 0) {
+      const artY = compact ? 287 : 350, artSize = h === 1080 ? 350 : compact ? 555 : 890;
+      if (theme === 'editorial') {
+        recapText(ctx, 'The listening edit', 68, compact ? 257 : 310, 940, compact ? 64 : 96, {weight: 500, family: serif, color: ink});
+        recapImage(ctx, albumImage, 68, artY + (compact ? 37 : 65), artSize, artSize, 'editorial', featuredTrack?.name);
+        recapImage(ctx, artistImage, compact ? 670 : 682, artY + (compact ? 70 : 105), compact ? 282 : 315, h === 1080 ? 335 : compact ? 460 : 560, 'portrait', featuredArtist?.name);
+      } else if (theme === 'atmosphere') {
+        recapText(ctx, 'In rotation', 68, compact ? 260 : 317, 930, compact ? 72 : 102, {weight: 720, color: ink});
+        recapImage(ctx, albumImage, 96, artY + 28, artSize - 45, artSize - 45, 'square', featuredTrack?.name);
+        recapImage(ctx, artistImage, compact ? 668 : 676, artY + (compact ? 110 : 250), h === 1080 ? 270 : compact ? 365 : 330, h === 1080 ? 270 : compact ? 365 : 330, 'circle', featuredArtist?.name);
+      } else if (theme === 'after-hours') {
+        recapText(ctx, 'After the lights', 68, compact ? 255 : 313, 940, compact ? 69 : 98, {weight: 650, color: ink});
+        recapImage(ctx, albumImage, 68, artY + 37, artSize - 65, artSize - 65, 'square', featuredTrack?.name);
+        recapImage(ctx, artistImage, compact ? 640 : 621, artY + (compact ? 115 : 380), h === 1080 ? 282 : compact ? 340 : 365, h === 1080 ? 282 : compact ? 340 : 365, 'square', featuredArtist?.name);
+      } else {
+        recapText(ctx, 'In rotation', 68, compact ? 255 : 313, 940, compact ? 73 : 103, {weight: 700, color: ink});
+        recapImage(ctx, albumImage, 68, artY + 37, artSize - 38, artSize - 38, 'square', featuredTrack?.name);
+        recapImage(ctx, artistImage, compact ? 670 : 694, artY + (compact ? 115 : 295), h === 1080 ? 270 : compact ? 318 : 300, h === 1080 ? 270 : compact ? 318 : 300, 'circle', featuredArtist?.name);
+      }
+      const bottom = compact ? h - 255 : h - 330;
+      recapText(ctx, `${String(loadedTrack >= 0 ? loadedTrack + 1 : 1).padStart(2, '0')}  /  FEATURED TRACK`, 68, bottom - (compact ? 105 : 135), 700, 24, {weight: 700, color: ink});
+      recapText(ctx, featuredTrack?.name || 'Your music, in focus', 68, bottom - (compact ? 47 : 61), 930, compact ? 45 : 60, {weight: 700, family: serif, color: ink});
+      recapText(ctx, featuredTrack?.artist_name || featuredArtist?.name || 'No recorded artist', 68, bottom, 920, compact ? 28 : 34, {color: ink});
+      recapMetric(ctx, 'Recorded streams', summary.events.toLocaleString(), 68, h - (compact ? 212 : 260), 410, theme, compact);
+      const listened = summary.verified_ms ? `${duration(summary.verified_ms)} verified` : summary.estimated_ms ? `${duration(summary.estimated_ms)} estimated` : 'Unavailable';
+      recapMetric(ctx, 'Listening time', listened, 545, h - (compact ? 212 : 260), 455, theme, compact);
+    } else {
+      const isTrack = slide === 1, rows = isTrack ? tracks : artists;
+      recapText(ctx, isTrack ? 'The tracks' : 'The artists', 68, compact ? 265 : 312, 940, compact ? 76 : 108, {weight: theme === 'editorial' ? 500 : 730, family: serif, color: ink});
+      recapText(ctx, isTrack ? 'FIVE SONGS THAT DEFINED THE PERIOD' : 'FIVE VOICES IN YOUR ROTATION', 68, compact ? 309 : 364, 940, 23, {weight: 650, color: ink});
+      const start = h === 1080 ? 340 : compact ? 365 : 445, gap = h === 1080 ? 123 : compact ? 155 : 232, art = h === 1080 ? 104 : compact ? 129 : 178;
+      rows.forEach((item, index) => {
+        const y = start + index * gap;
+        if (theme === 'atmosphere' || theme === 'after-hours') {
+          ctx.fillStyle = theme === 'atmosphere' ? 'rgba(255,255,255,.11)' : 'rgba(255,255,255,.065)';
+          const stagger = theme === 'after-hours' && index % 2 ? 20 : 0;
+          ctx.beginPath(); ctx.roundRect(68 + stagger, y - 15, 944 - stagger, gap - (compact ? 9 : 23), 19); ctx.fill();
+          if (theme === 'after-hours') { ctx.fillStyle = index % 2 ? '#8b638e' : '#bb6779'; ctx.fillRect(68 + stagger, y + 4, 3, art - 8); }
+        } else if (theme === 'editorial') {
+          ctx.fillStyle = '#77736d'; ctx.fillRect(68, y + art + 13, 944, 1);
+        } else { ctx.fillStyle = '#49494c'; ctx.fillRect(68, y + art + 13, 944, 1); }
+        const stagger = theme === 'after-hours' && index % 2 ? 20 : 0;
+        recapImage(ctx, images[isTrack ? index : tracks.length + index], theme === 'editorial' ? 844 : 84 + stagger, y, art, art, isTrack ? theme === 'editorial' ? 'editorial' : 'square' : theme === 'editorial' ? 'portrait' : 'circle', item.name);
+        const left = theme === 'editorial' ? 70 : (compact ? 220 : 282) + stagger;
+        recapText(ctx, String(index + 1).padStart(2, '0'), left, y + 29, 70, compact ? 25 : 32, {weight: 700, color: theme === 'editorial' ? '#77736d' : '#bdb8c0'});
+        const width = theme === 'editorial' ? 730 : 1010 - left;
+        recapText(ctx, item.name, left, y + (compact ? 68 : 88), width, compact ? 38 : 49, {lines: compact ? 1 : 2, weight: theme === 'editorial' ? 500 : 690, family: serif, color: ink});
+        if (isTrack) recapText(ctx, item.artist_name || 'Artist unavailable', left, y + (compact ? 99 : 170), width, compact ? 22 : 27, {color: theme === 'editorial' ? '#55534f' : '#c5c0c9'});
+      });
+      if (!rows.length) recapText(ctx, 'No recorded listening in this period.', 68, start + 130, 900, 35, {color: ink});
+      const listened = summary.verified_ms ? `${duration(summary.verified_ms)} verified` : summary.estimated_ms ? `${duration(summary.estimated_ms)} estimated` : 'Time unavailable';
+      if (h > 1350) {
+        const footerY = h - 230;
+        recapMetric(ctx, 'Recorded streams', summary.events.toLocaleString(), 68, footerY, 410, theme, compact);
+        recapMetric(ctx, 'Listening time', listened, 545, footerY, 455, theme, compact);
+      }
+    }
+    recapFrame(ctx, summary, theme, slide, h, brand);
   }
   function canvasBlob(canvas) {
     return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not create PNG')), 'image/png'));
@@ -501,115 +542,143 @@
     e.setUint32(12, size, true); e.setUint32(16, offset, true);
     return new Blob([...pieces, ...central, end], {type: 'application/zip'});
   }
+  function recapStep(direction) {
+    const [year, month, day] = state.recapAnchor.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (state.recapPeriod === 'weekly') date.setUTCDate(date.getUTCDate() + 7 * direction);
+    else { date.setUTCDate(1); date.setUTCMonth(date.getUTCMonth() + direction); }
+    const next = date.toISOString().slice(0, 10);
+    if (next <= initialDay()) state.recapAnchor = next;
+  }
   async function loadRecap() {
-    pane.replaceChildren(heading('Monthly recap', state.month), text('p', 'Loading recap…', 'muted'));
+    const period = state.recapPeriod, anchor = state.recapAnchor;
+    pane.replaceChildren(heading('Music recaps'), text('p', 'Composing your recap…', 'muted'));
     try {
-      if (state.month >= localMonth()) {
-        pane.replaceChildren(heading('Monthly recap', state.month), text('p', 'This month is still in progress. Choose a completed month to generate a recap.', 'empty'));
-        return;
+      const summary = await request(`/api/music/analytics?${new URLSearchParams({period, anchor, timezone: zone})}`);
+      if (state.tab !== 'recaps' || state.recapPeriod !== period || state.recapAnchor !== anchor) return;
+      state.recap = summary;
+      pane.replaceChildren(heading('Music recaps'));
+      const navigation = text('div', '', 'recap-period-controls');
+      const types = text('div', '', 'recap-segment');
+      for (const kind of ['weekly', 'monthly']) {
+        const button = text('button', kind === 'weekly' ? 'Weekly' : 'Monthly'); button.type = 'button';
+        button.setAttribute('aria-pressed', String(period === kind));
+        button.onclick = () => { state.recapPeriod = kind; state.recapAnchor = kind === 'monthly' ? `${state.month}-01` : initialDay(); loadRecap(); };
+        types.append(button);
       }
-      const data = await request('/api/music/recaps', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Apollo-Request': 'music'}, body: JSON.stringify({month: state.month, timezone: zone})});
-      if (state.tab !== 'recaps' || data.summary.month !== state.month) return;
-      state.recap = data.summary;
-      pane.replaceChildren(heading('Monthly recap', state.month));
-      const status = text('div', '', 'statusline');
-      status.append(text('span', `${data.summary.events} recorded plays · ${data.summary.duration_unknown_events} without duration · Coverage may be incomplete`));
+      navigation.append(types);
+      const dates = text('div', '', 'recap-date-controls');
+      const previous = text('button', '‹'); previous.type = 'button'; previous.setAttribute('aria-label', 'Previous recap period');
+      previous.onclick = () => { recapStep(-1); loadRecap(); };
+      const picker = document.createElement('input'); picker.type = period === 'weekly' ? 'date' : 'month';
+      picker.value = period === 'weekly' ? anchor : anchor.slice(0, 7);
+      picker.max = period === 'weekly' ? initialDay() : localMonth();
+      picker.setAttribute('aria-label', period === 'weekly' ? 'Choose recap week' : 'Choose recap month');
+      picker.onchange = () => { if (picker.value && picker.value <= picker.max) { state.recapAnchor = period === 'weekly' ? picker.value : `${picker.value}-01`; state.month = state.recapAnchor.slice(0, 7); loadRecap(); } };
+      const next = text('button', '›'); next.type = 'button'; next.setAttribute('aria-label', 'Next recap period');
+      next.disabled = !summary.period.can_next; next.onclick = () => { recapStep(1); loadRecap(); };
+      dates.append(previous, picker, next); navigation.append(dates); pane.append(navigation);
+      pane.append(text('p', summary.period.label, 'recap-period-label'));
+      const status = text('p', `${summary.events.toLocaleString()} recorded streams · ${summary.duration_unknown_events} without verified duration · Coverage may be incomplete`, 'muted recap-coverage');
       pane.append(status);
+      if (!summary.events) { pane.append(text('p', 'No recorded music in this period. Choose another week or month.', 'empty')); return; }
       const layout = text('div', '', 'recap-layout');
-      const canvas = document.createElement('canvas');
-      canvas.className = 'recap-preview';
-      canvas.setAttribute('aria-label', `Apollo music recap for ${monthLabel(state.month)}, slide ${state.slide + 1}`);
-      layout.append(canvas);
-      const controls = text('div', '', 'panel');
-      controls.append(text('h3', 'Make it yours'), text('p', 'Three editorial slides, composed from your recorded listening history. The preview is the exact canvas exported as PNG.', 'muted'));
-      const actions = text('div', '', 'recap-actions');
-      const slides = ['Overview', 'Top songs', 'Discoveries'];
+      const preview = text('div', '', 'recap-preview-wrap');
+      const canvas = document.createElement('canvas'); canvas.className = 'recap-preview'; preview.append(canvas); layout.append(preview);
+      const controls = text('div', '', 'panel recap-panel');
+      controls.append(text('h3', 'Your listening, beautifully told'), text('p', 'Choose a composition and format. Every PNG uses the same canvas as this preview.', 'muted'));
+      const errorBox = text('p', '', 'recap-error'); errorBox.setAttribute('role', 'status');
+      let renderToken = 0;
+      async function previewRecap() {
+        const token = ++renderToken, offscreen = document.createElement('canvas');
+        await document.fonts?.ready;
+        await renderRecap(offscreen);
+        if (token !== renderToken || state.tab !== 'recaps' || state.recap !== summary) return;
+        canvas.width = offscreen.width; canvas.height = offscreen.height;
+        canvas.getContext('2d').drawImage(offscreen, 0, 0);
+        canvas.setAttribute('aria-label', `Apollo ${period} music recap for ${summary.period.label}, ${state.theme} theme, slide ${state.slide + 1}`);
+      }
+      function updatePreview() { previewRecap().catch(error => { errorBox.textContent = error.message; }); }
+      const themes = text('div', '', 'recap-theme-grid'); themes.setAttribute('role', 'group'); themes.setAttribute('aria-label', 'Recap theme');
+      for (const theme of recapThemes) {
+        const button = text('button', theme === 'after-hours' ? 'After Hours' : theme[0].toUpperCase() + theme.slice(1), `recap-theme recap-theme-${theme}`);
+        button.type = 'button'; button.setAttribute('aria-pressed', String(state.theme === theme));
+        button.onclick = () => { state.theme = theme; themes.querySelectorAll('button').forEach(item => item.setAttribute('aria-pressed', String(item === button))); updatePreview(); };
+        themes.append(button);
+      }
+      controls.append(text('h4', 'Visual theme'), themes);
+      const slides = ['Cover', 'Top tracks', 'Top artists'];
+      const slideButtons = text('div', '', 'recap-actions');
       slides.forEach((label, index) => {
-        const button = text('button', label); button.type = 'button';
-        button.setAttribute('aria-pressed', String(state.slide === index));
-        button.addEventListener('click', async () => {
-          state.slide = index;
-          actions.querySelectorAll('button[aria-pressed]').forEach((item, number) => item.setAttribute('aria-pressed', String(number === index)));
-          canvas.setAttribute('aria-label', `Apollo music recap for ${monthLabel(state.month)}, slide ${index + 1}`);
-          await renderRecap(canvas);
-        });
-        actions.append(button);
+        const button = text('button', label); button.type = 'button'; button.setAttribute('aria-pressed', String(state.slide === index));
+        button.onclick = () => { state.slide = index; slideButtons.querySelectorAll('button').forEach((item, position) => item.setAttribute('aria-pressed', String(position === index))); updatePreview(); };
+        slideButtons.append(button);
       });
-      const format = text('button', state.format === 'story' ? 'Story · 1080 × 1920' : 'Square · 1080 × 1080');
-      format.type = 'button';
-      format.addEventListener('click', async () => { state.format = state.format === 'story' ? 'square' : 'story'; format.textContent = state.format === 'story' ? 'Story · 1080 × 1920' : 'Square · 1080 × 1080'; await renderRecap(canvas); });
-      actions.append(format);
-      controls.append(actions);
+      controls.append(text('h4', 'Slide'), slideButtons);
+      const formats = text('div', '', 'recap-actions');
+      for (const [key, label] of [['story', 'Story · 1080 × 1920'], ['portrait', 'Portrait · 1080 × 1350'], ['square', 'Square · 1080 × 1080']]) {
+        const button = text('button', label); button.type = 'button'; button.setAttribute('aria-pressed', String(state.format === key));
+        button.onclick = () => { state.format = key; formats.querySelectorAll('button').forEach(item => item.setAttribute('aria-pressed', String(item === button))); updatePreview(); };
+        formats.append(button);
+      }
+      controls.append(text('h4', 'Format'), formats);
       const exportActions = text('div', '', 'recap-actions');
-      const download = text('button', 'Download PNG', 'button-primary');
-      download.type = 'button';
-      download.addEventListener('click', async () => {
-        download.disabled = true;
-        try { await renderRecap(canvas); saveBlob(await canvasBlob(canvas), `apollo-${state.month}-${state.slide + 1}-${state.format}.png`); }
-        catch (error) { controls.append(text('p', error.message, 'muted')); }
+      const fileStem = choice => `apollo-${period}-${summary.period.first_date}-${choice.theme}-${choice.format}`;
+      const download = text('button', 'Download PNG', 'button-primary'); download.type = 'button';
+      download.onclick = async () => {
+        download.disabled = true; errorBox.textContent = '';
+        try { const selected = {slide: state.slide, theme: state.theme, format: state.format}; const output = document.createElement('canvas'); await renderRecap(output, selected); saveBlob(await canvasBlob(output), `${fileStem(selected)}-${selected.slide + 1}.png`); }
+        catch (error) { errorBox.textContent = error.message; }
         finally { download.disabled = false; }
-      });
+      };
       exportActions.append(download);
-      const downloadAll = text('button', 'Download all · ZIP');
-      downloadAll.type = 'button';
-      downloadAll.addEventListener('click', async () => {
-        downloadAll.disabled = true;
-        const originalSlide = state.slide;
+      const downloadAll = text('button', 'Download all slides · ZIP'); downloadAll.type = 'button';
+      downloadAll.onclick = async () => {
+        downloadAll.disabled = true; errorBox.textContent = '';
         try {
-          const entries = [];
-          for (let slide = 0; slide < slides.length; slide++) {
-            state.slide = slide;
-            await renderRecap(canvas);
-            entries.push({name: `apollo-${state.month}-${slide + 1}-${state.format}.png`, blob: await canvasBlob(canvas)});
-          }
-          saveBlob(await zipPngs(entries), `apollo-${state.month}-${state.format}.zip`);
-        } catch (error) { controls.append(text('p', error.message, 'muted')); }
-        finally { state.slide = originalSlide; await renderRecap(canvas); downloadAll.disabled = false; }
-      });
+          const selected = {theme: state.theme, format: state.format}; const entries = [];
+          for (let slide = 0; slide < 3; slide++) { const output = document.createElement('canvas'); await renderRecap(output, {...selected, slide}); entries.push({name: `${fileStem(selected)}-${slide + 1}.png`, blob: await canvasBlob(output)}); }
+          saveBlob(await zipPngs(entries), `${fileStem(selected)}.zip`);
+        } catch (error) { errorBox.textContent = error.message; }
+        finally { downloadAll.disabled = false; }
+      };
       exportActions.append(downloadAll);
       if (navigator.canShare) {
         const share = text('button', 'Share'); share.type = 'button';
-        share.addEventListener('click', async () => {
-          try {
-            await renderRecap(canvas);
-            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-            const file = new File([blob], `apollo-${state.month}.png`, {type: 'image/png'});
-            if (navigator.canShare({files: [file]})) await navigator.share({files: [file]});
-          } catch (_) { /* Native share can be cancelled. */ }
-        });
+        share.onclick = async () => {
+          try { const selected = {slide: state.slide, theme: state.theme, format: state.format}; const output = document.createElement('canvas'); await renderRecap(output, selected); const file = new File([await canvasBlob(output)], `${fileStem(selected)}-${selected.slide + 1}.png`, {type: 'image/png'}); if (navigator.canShare({files: [file]})) await navigator.share({files: [file]}); }
+          catch (error) { if (error.name !== 'AbortError') errorBox.textContent = error.message; }
+        };
         exportActions.append(share);
       }
-      const regenerate = text('button', 'Regenerate archive'); regenerate.type = 'button';
-      regenerate.addEventListener('click', async () => {
-        try {
-          await request('/api/music/recaps', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Apollo-Request': 'music'}, body: JSON.stringify({month: state.month, timezone: zone, regenerate: true})});
-          loadRecap();
-        } catch (error) { controls.append(text('p', error.message, 'muted')); }
-      });
-      exportActions.append(regenerate);
-      controls.append(exportActions);
-      controls.append(spotifyAttribution());
-      const featuredAlbum = data.summary.top_albums.find(item => safeArt(item.artwork_url) && safeSpotify(item.spotify_url));
-      if (featuredAlbum) {
-        const sourceLink = text('a', `Listen to ${featuredAlbum.name} on Spotify`, 'spotify-source-link');
-        sourceLink.href = featuredAlbum.spotify_url;
-        sourceLink.target = '_blank'; sourceLink.rel = 'noopener noreferrer';
-        controls.append(sourceLink);
+      controls.append(text('h4', 'Export'), exportActions, errorBox, spotifyAttribution());
+      const featured = summary.top.tracks.find(item => safeSpotify(item.spotify_url));
+      if (featured) { const source = text('a', `Listen to ${featured.name} on Spotify`, 'spotify-source-link'); source.href = featured.spotify_url; source.target = '_blank'; source.rel = 'noopener noreferrer'; controls.append(source); }
+      controls.append(text('p', summary.methodology, 'muted method'));
+      if (period === 'monthly') {
+        const archived = text('div', '', 'recap-archive');
+        archived.append(text('h4', 'Saved months'));
+        if (summary.period.end_date <= initialDay()) {
+          const regenerate = text('button', 'Refresh saved recap'); regenerate.type = 'button';
+          regenerate.onclick = async () => {
+            regenerate.disabled = true; errorBox.textContent = '';
+            try { await request('/api/music/recaps', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Apollo-Request': 'music'}, body: JSON.stringify({month: anchor.slice(0, 7), timezone: zone, regenerate: true})}); await loadRecap(); }
+            catch (error) { errorBox.textContent = error.message; regenerate.disabled = false; }
+          };
+          archived.append(regenerate);
+        }
+        const archiveList = text('div', '', 'archive-list'); archived.append(archiveList); controls.append(archived);
+        request('/api/music/recaps').then(archive => {
+          if (state.recap !== summary) return;
+          archive.recaps.filter(item => item.timezone === zone).forEach(item => {
+            const button = text('button', monthLabel(item.month)); button.type = 'button';
+            button.onclick = () => { state.month = item.month; state.recapAnchor = `${item.month}-01`; loadRecap(); };
+            archiveList.append(button);
+          });
+        }).catch(() => { archiveList.append(text('p', 'Saved months are unavailable right now.', 'muted')); });
       }
-      controls.append(text('p', data.summary.methodology, 'muted method'));
-      controls.append(text('h3', 'Archive'));
-      const archiveList = text('div', '', 'archive-list');
-      const archive = await request('/api/music/recaps').catch(() => ({recaps: []}));
-      archive.recaps.filter(item => item.timezone === zone).forEach(item => {
-        const button = text('button', monthLabel(item.month)); button.type = 'button';
-        button.addEventListener('click', () => { state.month = item.month; loadRecap(); });
-        archiveList.append(button);
-      });
-      controls.append(archiveList);
-      layout.append(controls);
-      pane.append(layout);
-      await renderRecap(canvas);
-    } catch (error) { pane.replaceChildren(heading('Monthly recap', state.month), text('p', error.message || 'Recap could not load.', 'empty')); }
+      layout.append(controls); pane.append(layout); updatePreview();
+    } catch (error) { if (state.tab === 'recaps' && state.recapPeriod === period && state.recapAnchor === anchor) pane.replaceChildren(heading('Music recaps'), text('p', error.message || 'Recap could not load.', 'empty')); }
   }
   function activate(tab) {
     const previousTab = state.tab;
@@ -618,11 +687,13 @@
     player.hidden = tab !== 'player';
     pane.hidden = tab === 'player';
     if (tab === 'insights') {
-      if (previousTab === 'recaps' && state.period === 'monthly') state.anchor = `${state.month}-01`;
+      if (previousTab === 'recaps') { state.period = state.recapPeriod; state.anchor = state.recapAnchor; }
       loadInsights();
     }
     if (tab === 'recaps') {
-      if (state.month === localMonth()) state.month = previousMonth(state.month);
+      if (previousTab === 'insights' && ['weekly', 'monthly'].includes(state.period)) {
+        state.recapPeriod = state.period; state.recapAnchor = state.anchor; state.month = state.anchor.slice(0, 7);
+      }
       loadRecap();
     }
   }
