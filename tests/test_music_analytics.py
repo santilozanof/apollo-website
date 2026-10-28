@@ -93,6 +93,32 @@ class MusicAnalyticsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             music_analytics.range_rankings(self.conn, "2026-10-28", "2026-10-27", "UTC")
 
+    def test_recap_uses_only_unambiguous_matching_spotify_art(self):
+        music_history.insert_records(self.conn, [
+            play("2026-10-20T12:00:00Z"),
+            {"ts": "2026-10-22T12:00:00Z", "ms_played": 120000,
+             "master_metadata_track_name": "Blue Hour",
+             "master_metadata_album_artist_name": "Aster",
+             "master_metadata_album_album_name": "Night"},
+        ])
+        self.conn.execute("UPDATE music_artists SET image_url=? WHERE spotify_id=?",
+                          ("https://i.scdn.co/image/portrait", ARTIST_A))
+        report = music_analytics.recap_art(self.conn, music_analytics.summary(self.conn, "monthly", "2026-10-22"))
+        name_only_track = next(row for row in report["top"]["tracks"] if not row["spotify_url"])
+        name_only_artist = next(row for row in report["top"]["artists"] if not row["spotify_url"])
+        self.assertEqual(name_only_track["image_url"], "https://i.scdn.co/image/test")
+        self.assertEqual(name_only_artist["image_url"], "https://i.scdn.co/image/portrait")
+        self.assertEqual(report["events"], 2)
+        self.assertEqual(sum(row["plays"] for row in report["top"]["tracks"]), 2)
+
+        music_history.insert_records(self.conn, [play("2026-10-24T12:00:00Z", TRACK_B,
+                                                     artists=[{"id": ARTIST_B, "name": "Aster"}])])
+        ambiguous = music_analytics.recap_art(self.conn, music_analytics.summary(self.conn, "monthly", "2026-10-22"))
+        name_only_track = next(row for row in ambiguous["top"]["tracks"] if not row["spotify_url"])
+        name_only_artist = next(row for row in ambiguous["top"]["artists"] if not row["spotify_url"])
+        self.assertIsNone(name_only_track["image_url"])
+        self.assertIsNone(name_only_artist["image_url"])
+
 
 if __name__ == "__main__":
     unittest.main()

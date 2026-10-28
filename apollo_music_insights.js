@@ -554,7 +554,7 @@
     const period = state.recapPeriod, anchor = state.recapAnchor;
     pane.replaceChildren(heading('Music recaps'), text('p', 'Composing your recap…', 'muted'));
     try {
-      const summary = await request(`/api/music/analytics?${new URLSearchParams({period, anchor, timezone: zone})}`);
+      const summary = await request(`/api/music/analytics?${new URLSearchParams({period, anchor, timezone: zone, recap: '1'})}`);
       if (state.tab !== 'recaps' || state.recapPeriod !== period || state.recapAnchor !== anchor) return;
       state.recap = summary;
       pane.replaceChildren(heading('Music recaps'));

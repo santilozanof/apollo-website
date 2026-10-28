@@ -281,6 +281,45 @@ def summary(conn, kind, anchor=None, tz_name="UTC"):
             "methodology": "Plays are recorded events. Verified time comes from official history exports. Estimated time is observed playback progress after overlap with verified time is removed. Missing coverage and unknown duration are excluded."}
 
 
+def recap_art(conn, report):
+    """Decorate a recap's existing top five without changing its ranking or counts.
+
+    Name-only history can use artwork from a later identified play only when
+    the exact artist or track/artist/album identity resolves to one Spotify ID.
+    Ambiguous names remain artwork-free rather than showing a wrong cover.
+    """
+    for artist in report["top"]["artists"]:
+        if artist["image_url"]:
+            continue
+        matches = conn.execute("""
+            SELECT DISTINCT spotify_id, image_url FROM music_artists
+            WHERE lower(trim(name)) = lower(trim(?)) AND spotify_id IS NOT NULL
+        """, (artist["name"],)).fetchall()
+        ids = {row[0] for row in matches if music_history._valid_id(row[0])}
+        images = {music_history._safe_art(row[1]) for row in matches if row[0] in ids}
+        images.discard(None)
+        if len(ids) == len(images) == 1:
+            artist["image_url"] = next(iter(images))
+            artist["image_kind"] = "artist"
+    for track in report["top"]["tracks"]:
+        if track["image_url"] or not track.get("album_name"):
+            continue
+        matches = conn.execute("""
+            SELECT DISTINCT track_id, artwork_url FROM music_listens
+            WHERE lower(trim(track_name)) = lower(trim(?))
+              AND lower(trim(artist_name)) = lower(trim(?))
+              AND lower(trim(album_name)) = lower(trim(?))
+              AND track_id IS NOT NULL
+        """, (track["name"], track["artist_name"], track["album_name"])).fetchall()
+        ids = {row[0] for row in matches if music_history._valid_id(row[0])}
+        images = {music_history._safe_art(row[1]) for row in matches if row[0] in ids}
+        images.discard(None)
+        if len(ids) == len(images) == 1:
+            track["image_url"] = next(iter(images))
+            track["image_kind"] = "album"
+    return report
+
+
 def history(conn, kind, anchor, tz_name, search="", limit=30, offset=0):
     if len(search) > 120 or limit < 1 or limit > 50 or offset < 0 or offset > 1000000:
         raise ValueError("Invalid search or page")

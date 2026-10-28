@@ -21146,6 +21146,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
             try:
                 if route == "/api/music/analytics":
                     result = music_analytics.summary(conn, kind, anchor, zone)
+                    if query.get("recap") == ["1"]:
+                        result = music_analytics.recap_art(conn, result)
                 elif route == "/api/music/rankings":
                     result = music_analytics.rankings(
                         conn, kind, anchor, zone, query.get("entity", ["artists"])[0],
