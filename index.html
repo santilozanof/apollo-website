@@ -1853,13 +1853,27 @@ stroke-width: 1.35;
     font-size: 11px;
     line-height: 1;
     color: var(--muted);
-    opacity: .62;
-    white-space: nowrap;
+    opacity: 0;
+    white-space: normal;
 
     transition:
         opacity 180ms ease,
         transform 220ms cubic-bezier(.22,1,.36,1),
         filter 220ms ease;
+}
+
+.apollo-typing-status.visible {
+    opacity: .72;
+    transform: translateY(0);
+}
+
+.apollo-prepared-response .apollo-message-text {
+    animation: apolloPreparedAnswerIn 150ms ease-out both;
+}
+
+@keyframes apolloPreparedAnswerIn {
+    from { opacity: .55; }
+    to { opacity: 1; }
 }
 
 .apollo-typing-status.changing {
@@ -7131,6 +7145,8 @@ html[data-theme="light"]
     </div>
 
     <div class="apollo-composer-wrap">
+
+        <div class="apollo-pulse" id="apolloPulse" aria-label="Suggested actions"></div>
 
         <!-- APOLLO COMPOSER MEDIA FOUNDATION V1 -->
 
@@ -17143,12 +17159,101 @@ html[data-theme="light"]
 
     grid-template-areas:
         "attachments actions"
+        "pulse pulse"
         "composer composer";
 
     column-gap: 10px;
     row-gap: 7px;
 
     align-items: end;
+}
+
+#apolloView .apollo-pulse {
+    grid-area: pulse;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px 15px;
+    align-items: center;
+    min-width: 0;
+    max-height: 86px;
+    margin-bottom: 4px;
+    overflow: hidden;
+    opacity: 1;
+    transition: max-height 280ms cubic-bezier(.22,1,.36,1),
+                margin-bottom 280ms cubic-bezier(.22,1,.36,1),
+                opacity 180ms ease;
+}
+
+#apolloView .apollo-pulse.is-hidden {
+    max-height: 0;
+    margin-bottom: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+#apolloView .apollo-pulse:empty {
+    max-height: 0;
+    margin-bottom: 0;
+}
+
+#apolloView .apollo-pulse-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    max-width: 100%;
+    border: 0;
+    padding: 4px 2px;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.35;
+    text-align: left;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(5px);
+    animation: apolloPulseIn 300ms cubic-bezier(.22,1,.36,1) forwards;
+    animation-delay: var(--pulse-delay, 0ms);
+    transition: color 160ms ease;
+}
+
+#apolloView .apollo-pulse-item:hover,
+#apolloView .apollo-pulse-item:focus-visible {
+    color: var(--text);
+}
+
+#apolloView .apollo-pulse-item:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
+    border-radius: 3px;
+}
+
+#apolloView .apollo-pulse-icon {
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-size: 9px;
+    font-weight: 600;
+    opacity: .75;
+}
+
+@keyframes apolloPulseIn {
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 700px) {
+    #apolloView .apollo-pulse { gap: 4px 12px; max-height: 120px; }
+    #apolloView .apollo-pulse-item { font-size: 11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #apolloView .apollo-pulse,
+    #apolloView .apollo-pulse-item { transition: none; animation: none; }
+    #apolloView .apollo-pulse-item { opacity: 1; transform: none; }
 }
 
 
@@ -22380,6 +22485,12 @@ function apolloSetGenerationActive(active) {
 }
 const apolloMessages = document.getElementById("apolloMessages");
 const apolloWelcome = document.getElementById("apolloWelcome");
+new MutationObserver(() => {
+    if (!apolloView.classList.contains("active") && apolloActiveStreamController) {
+        apolloActiveStreamController.abort();
+        apolloHideTyping();
+    }
+}).observe(apolloView, {attributes: true, attributeFilter: ["class"]});
 
 
 /* =========================================================
@@ -22425,6 +22536,108 @@ const apolloComposer =
     document.querySelector(
         ".apollo-composer"
     );
+
+const apolloPulse = document.getElementById("apolloPulse");
+let apolloPulseDismissed = false;
+let apolloPulseLoaded = false;
+let apolloPulseSignature = "";
+let apolloPulseRefreshGeneration = 0;
+
+function apolloPulseSync() {
+    if (!apolloPulse) return;
+    const empty = !apolloMessages.querySelector(".apollo-message")
+        && !apolloInput.value.trim();
+    apolloPulse.classList.toggle("is-hidden", !empty || apolloPulseDismissed);
+    apolloPulse.setAttribute("aria-hidden", !empty || apolloPulseDismissed ? "true" : "false");
+    apolloPulse.inert = !empty || apolloPulseDismissed;
+    apolloPulse.querySelectorAll("button").forEach(button => {
+        button.tabIndex = empty && !apolloPulseDismissed ? 0 : -1;
+    });
+}
+
+async function apolloPulseRefresh(force = false) {
+    if (!apolloPulse || (apolloPulseLoaded && !force)) return;
+    apolloPulseLoaded = true;
+    const generation = ++apolloPulseRefreshGeneration;
+    const [tasksResult, connectionsResult] = await Promise.allSettled([
+        fetch("/api/tasks", {cache: "no-store"}).then(response => {
+            if (!response.ok) throw new Error("Tasks unavailable");
+            return response.json();
+        }),
+        fetch("/api/connections", {cache: "no-store"}).then(response => {
+            if (!response.ok) throw new Error("Connections unavailable");
+            return response.json();
+        })
+    ]);
+    if (generation !== apolloPulseRefreshGeneration) return;
+    const suggestions = [];
+    const tasks = tasksResult.status === "fulfilled"
+        && Array.isArray(tasksResult.value.tasks) ? tasksResult.value.tasks : [];
+    const openTasks = tasks.filter(task => task.active !== false && !task.completed);
+    if (openTasks.length) suggestions.push({
+        icon: "✓", label: `Prioritize my ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}`,
+        prompt: "Review my open tasks and help me prioritize them."
+    });
+    const integrations = connectionsResult.status === "fulfilled"
+        && Array.isArray(connectionsResult.value.integrations)
+        ? connectionsResult.value.integrations : [];
+    const connected = id => integrations.some(item => item.id === id && item.connected);
+    if (connected("google_calendar") || connected("canvas_calendar")) suggestions.push({
+        icon: "▦", label: "Review my upcoming calendar",
+        prompt: "Review my upcoming calendar events and help me prepare."
+    });
+    if (connected("spotify")) suggestions.push({
+        icon: "♫", label: "Explore my listening trends",
+        prompt: "Explore my recent Spotify listening trends."
+    });
+    if (suggestions.length < 2) suggestions.push({
+        icon: "↗", label: "Help me plan today",
+        prompt: "Help me make a practical plan for today. Ask what matters if you need context."
+    });
+    if (suggestions.length < 2) suggestions.push({
+        icon: "◇", label: "Talk through a decision",
+        prompt: "Help me think through a decision. Ask me what I am deciding."
+    });
+    const signature = JSON.stringify(suggestions.slice(0, 3));
+    if (signature === apolloPulseSignature) {
+        apolloPulseSync();
+        return;
+    }
+    apolloPulseSignature = signature;
+    apolloPulse.replaceChildren();
+    suggestions.slice(0, 3).forEach((suggestion, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "apollo-pulse-item";
+        button.style.setProperty("--pulse-delay", `${index * 65}ms`);
+        const icon = document.createElement("span");
+        icon.className = "apollo-pulse-icon";
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = suggestion.icon;
+        const label = document.createElement("span");
+        label.textContent = suggestion.label;
+        button.append(icon, label);
+        button.addEventListener("click", () => {
+            if (apolloSending) return;
+            apolloPulseDismissed = true;
+            apolloInput.value = suggestion.prompt;
+            apolloPulseSync();
+            apolloSendMessage();
+        });
+        apolloPulse.appendChild(button);
+    });
+    apolloPulseSync();
+}
+
+apolloPulseSync();
+apolloPulseRefresh().catch(() => {});
+new MutationObserver(() => {
+    if (!apolloMessages.querySelector(".apollo-message") && !apolloInput.value.trim()) {
+        apolloPulseDismissed = false;
+        apolloPulseRefresh(true).catch(() => {});
+    }
+    apolloPulseSync();
+}).observe(apolloMessages, {childList: true});
 
 
 let apolloPendingAttachments =
@@ -23309,6 +23522,8 @@ function openApollo() {
 }
 
 function openHome() {
+    apolloActiveStreamController?.abort();
+    apolloHideTyping();
     apolloView.classList.remove("active");
     apolloHome.classList.remove("hidden");
 
@@ -24000,306 +24215,56 @@ function apolloFinishUserSendViewport() {
 }
 
 
-function apolloStatusesForMessage(
-    content,
-    hasAttachments = false
-) {
-
-    const text =
-        String(
-            content || ""
-        ).toLowerCase();
-
-
-    if (hasAttachments) {
-
-        if (
-            /\b(image|photo|picture|screenshot)\b/.test(
-                text
-            )
-        ) {
-            return [
-                "Reading the image…",
-                "Looking closer…",
-                "Working it out…",
-                "Pulling it together…"
-            ];
-        }
-
-        return [
-            "Reading the file…",
-            "Going through it…",
-            "Finding what matters…",
-            "Pulling it together…"
-        ];
+function apolloPreparationForMessage(content, hasAttachments = false) {
+    const text = String(content || "").trim();
+    if (hasAttachments) return "I'm reviewing what you attached and preparing a response.";
+    if (text.length < 45 && !/\b(compare|analyze|analyse|explain|research|plan|summarize|evaluate)\b/i.test(text)) {
+        return "";
     }
-
-
-    if (
-        /\b(calendar|schedule|event|meeting|appointment)\b/.test(
-            text
-        )
-    ) {
-        return [
-            "Checking your schedule…",
-            "Finding the event…",
-            "Working that out…",
-            "Getting it ready…"
-        ];
+    if (/\b(compare|versus|vs\.?|difference between)\b/i.test(text)) {
+        return "I'm comparing the options you asked about.";
     }
-
-
-    if (
-        /\b(task|tasks|todo|to-do|remind|reminder|homework)\b/.test(
-            text
-        )
-    ) {
-
-        if (
-            /\b(what|which|show|list|have|due|upcoming)\b/.test(
-                text
-            )
-        ) {
-
-            if (/\btomorrow\b/.test(text)) {
-                return [
-                    "Checking your tasks…",
-                    "Looking at tomorrow…",
-                    "Pulling the list together…"
-                ];
-            }
-
-            if (/\btoday\b/.test(text)) {
-                return [
-                    "Checking your tasks…",
-                    "Looking at today…",
-                    "Pulling the list together…"
-                ];
-            }
-
-            return [
-                "Checking your tasks…",
-                "Looking through the list…",
-                "Pulling it together…"
-            ];
-        }
-
-
-        if (
-            /\b(remind|reminder|add|create|make)\b/.test(
-                text
-            )
-        ) {
-            return [
-                "Understanding the reminder…",
-                "Checking the timing…",
-                "Creating task…"
-            ];
-        }
-
-
-        if (
-            /\b(complete|completed|done|finish|finished|mark)\b/.test(
-                text
-            )
-        ) {
-            return [
-                "Finding that task…",
-                "Checking the match…",
-                "Completing task…"
-            ];
-        }
-
-
-        if (
-            /\b(delete|remove|clear)\b/.test(
-                text
-            )
-        ) {
-            return [
-                "Finding that task…",
-                "Checking the match…",
-                "Preparing deletion…"
-            ];
-        }
-
-
-        return [
-            "Checking your tasks…",
-            "Working with that task…",
-            "Getting it ready…"
-        ];
+    if (/\b(plan|organize|prioriti[sz]e|schedule)\b/i.test(text)) {
+        return "I'm organizing a practical response to your request.";
     }
-
-
-    if (
-        /\b(latest|today|news|current|recent|search|look up|lookup|find online|web)\b/.test(
-            text
-        )
-    ) {
-        return [
-            "Checking sources…",
-            "Looking that up…",
-            "Comparing results…",
-            "Pulling it together…"
-        ];
+    if (/\b(explain|why|how|analy[sz]e|research|summarize|history)\b/i.test(text)) {
+        return "I'm putting together a clear explanation.";
     }
-
-
-    if (
-        /\b(compare|difference|better|versus|vs\.?)\b/.test(
-            text
-        )
-    ) {
-        return [
-            "Comparing options…",
-            "Looking at the differences…",
-            "Weighing it up…",
-            "Pulling it together…"
-        ];
-    }
-
-
-    if (
-        /\b(remember|earlier|before|last time|we talked|previous)\b/.test(
-            text
-        )
-    ) {
-        return [
-            "Finding that context…",
-            "Looking back…",
-            "Connecting the pieces…",
-            "Got the context…"
-        ];
-    }
-
-
-    if (
-        /\b(explain|why|how|analyze|analyse|figure out|solve)\b/.test(
-            text
-        )
-    ) {
-        return [
-            "Working it out…",
-            "Thinking it through…",
-            "Connecting the pieces…",
-            "Pulling it together…"
-        ];
-    }
-
-
-    return [
-        "Thinking…",
-        "Working it out…",
-        "Connecting the pieces…",
-        "Pulling it together…"
-    ];
+    return "I'm reviewing your request and putting together a response.";
 }
 
+let apolloTypingStatusTimer = null;
+let apolloPendingBackendStatus = "";
+let apolloPreparationReady = false;
 
-let apolloTypingStatusTimer =
-    null;
-
-let apolloTypingStatusInterval =
-    null;
-
-let apolloTypingStatusIndex =
-    0;
-
-
-let apolloBackendStatusActive =
-    false;
-
-
-function apolloSetBackendStatus(
-    status
-) {
-
-    if (!status) {
-        return;
-    }
-
-    apolloBackendStatusActive =
-        true;
-
-    clearTimeout(
-        apolloTypingStatusTimer
-    );
-
-    clearInterval(
-        apolloTypingStatusInterval
-    );
-
-    apolloTypingStatusTimer =
-        null;
-
-    apolloTypingStatusInterval =
-        null;
-
-    apolloSetTypingStatus(
-        status
-    );
-}
-
-
-function apolloSetTypingStatus(
-    status
-) {
-
-    const element =
-        document.querySelector(
-            "#apolloTyping .apollo-typing-status"
+function apolloSetTypingStatus(status) {
+    const element = document.querySelector("#apolloTyping .apollo-typing-status");
+    if (!element) return;
+    const message = String(status || "").trim();
+    if (element.textContent === message) return;
+    const updating = Boolean(element.textContent);
+    element.textContent = message;
+    element.classList.toggle("visible", Boolean(message));
+    if (updating && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        element.animate(
+            [{opacity: .45, transform: "translateY(2px)"}, {opacity: .72, transform: "translateY(0)"}],
+            {duration: 180, easing: "ease-out"}
         );
-
-    if (!element) {
-        return;
     }
-
-    if (
-        element.textContent
-        === status
-    ) {
-        return;
-    }
-
-    element.classList.add(
-        "changing"
-    );
-
-    setTimeout(
-        () => {
-
-            if (!element.isConnected) {
-                return;
-            }
-
-            element.textContent =
-                status || "";
-
-            requestAnimationFrame(
-                () => {
-                    element.classList.remove(
-                        "changing"
-                    );
-                }
-            );
-
-        },
-        170
-    );
 }
 
+function apolloSetBackendStatus(status) {
+    const message = String(status || "").trim();
+    if (!message || !document.getElementById("apolloTyping")) return;
+    apolloPendingBackendStatus = message;
+    if (apolloPreparationReady) apolloSetTypingStatus(message);
+}
 
-function apolloShowTyping(
-    content = "",
-    hasAttachments = false
-) {
+function apolloShowTyping(content = "", hasAttachments = false) {
     apolloHideTyping();
-
     const typing = document.createElement("div");
     typing.className = "apollo-message assistant";
     typing.id = "apolloTyping";
-
     typing.innerHTML = `
         <div class="apollo-message-mark">
             <svg viewBox="0 0 32 32" aria-label="Apollo" role="img">
@@ -24308,80 +24273,21 @@ function apolloShowTyping(
                 <path d="M6.5 20 C11 15.5 18 14.5 27 19" fill="none" stroke="#fff" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
         </div>
-
         <div class="apollo-message-body">
             <div class="apollo-typing">
-                <div class="apollo-typing-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+                <div class="apollo-typing-dots" aria-label="Apollo is responding">
+                    <span></span><span></span><span></span>
                 </div>
-
-                <div
-                    class="apollo-typing-status"
-                    aria-live="polite"
-                ></div>
+                <div class="apollo-typing-status" aria-live="polite"></div>
             </div>
-        </div>
-    `;
-
+        </div>`;
     apolloMessages.appendChild(typing);
-
-    clearTimeout(
-        apolloTypingStatusTimer
-    );
-
-    const statuses =
-        apolloStatusesForMessage(
-            content,
-            hasAttachments
-        );
-
-    apolloTypingStatusIndex =
-        0;
-
-    apolloTypingStatusTimer =
-        setTimeout(
-            () => {
-
-                apolloSetTypingStatus(
-                    statuses[0]
-                );
-
-                apolloTypingStatusInterval =
-                    setInterval(
-                        () => {
-
-                            if (
-                                apolloTypingStatusIndex
-                                >= statuses.length - 1
-                            ) {
-                                clearInterval(
-                                    apolloTypingStatusInterval
-                                );
-
-                                apolloTypingStatusInterval =
-                                    null;
-
-                                return;
-                            }
-
-                            apolloTypingStatusIndex += 1;
-
-                            apolloSetTypingStatus(
-                                statuses[
-                                    apolloTypingStatusIndex
-                                ]
-                            );
-
-                        },
-                        2700
-                    );
-
-            },
-            700
-        );
-
+    const genericMessage = apolloPreparationForMessage(content, hasAttachments);
+    apolloTypingStatusTimer = setTimeout(() => {
+        if (document.getElementById("apolloTyping") !== typing) return;
+        apolloPreparationReady = true;
+        apolloSetTypingStatus(apolloPendingBackendStatus || genericMessage);
+    }, 1100);
 }
 
 function apolloShowImageGenerating() {
@@ -24437,35 +24343,22 @@ function apolloShowImageGenerating() {
 
 
 function apolloStopTypingStatus() {
-    clearTimeout(
-        apolloTypingStatusTimer
-    );
-
-    clearInterval(
-        apolloTypingStatusInterval
-    );
-
-    apolloTypingStatusTimer =
-        null;
-
-    apolloTypingStatusInterval =
-        null;
-
-    apolloTypingStatusIndex =
-        0;
-
-    apolloBackendStatusActive =
-        false;
+    clearTimeout(apolloTypingStatusTimer);
+    apolloTypingStatusTimer = null;
+    apolloPendingBackendStatus = "";
+    apolloPreparationReady = false;
 }
 
 
 function apolloPromotePendingAssistant() {
-
-    apolloStopTypingStatus();
-
     const message =
         document.getElementById("apolloTyping")
         || document.getElementById("apolloImageGenerating");
+
+    const wasPrepared = Boolean(
+        message?.querySelector(".apollo-typing-status.visible")
+    );
+    apolloStopTypingStatus();
 
     if (!message) {
         return null;
@@ -24473,7 +24366,7 @@ function apolloPromotePendingAssistant() {
 
     message.removeAttribute("id");
     message.className =
-        "apollo-message assistant apollo-response-fade";
+        "apollo-message assistant" + (wasPrepared ? " apollo-prepared-response" : "");
 
     const body =
         message.querySelector(".apollo-message-body")
@@ -26297,6 +26190,8 @@ apolloInput.addEventListener(
     "input",
     () => {
 
+        apolloPulseSync();
+
         apolloInput.style.height =
             "auto";
 
@@ -26911,6 +26806,8 @@ async function apolloRefreshHistory() {
 
 
 async function apolloHistoryOpenChat(id) {
+    apolloActiveStreamController?.abort();
+    apolloHideTyping();
 
     if (
         typeof window.apolloCloseHistory
@@ -26989,6 +26886,8 @@ async function apolloHistoryOpenChat(id) {
 
 
 function apolloHistoryNewChat() {
+    apolloActiveStreamController?.abort();
+    apolloHideTyping();
 
     const view =
         document.getElementById(

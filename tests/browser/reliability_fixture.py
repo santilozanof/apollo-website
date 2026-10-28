@@ -37,6 +37,11 @@ server.get_now_playing = lambda **kwargs: {'playing': False, 'connection_state':
 server.apollo_calendar_events = lambda *args, **kwargs: ([], {})
 server.ask_hermes = lambda *args, **kwargs: 'Attached photographs show a blue test rectangle.'
 def fixture_stream(messages):
+    if any("delayed fixture" in str(item.get("content", "")).lower()
+           for item in messages if isinstance(item, dict)):
+        time.sleep(12)
+        yield "# Delayed fixture answer\n\nThe response began after preparation."
+        return
     if any("slow fixture" in str(item.get("content", "")).lower()
            for item in messages if isinstance(item, dict)):
         yield "First complete sentence.\n\n"
