@@ -1,0 +1,91 @@
+#settingsView .apollo-settings-inner { width: min(720px, 100%); }
+#settingsView .apollo-settings-section { margin-top: 25px; }
+#settingsView .apollo-settings-disclosure {
+    width: 100%; min-height: 44px; padding: 7px 4px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    border: 0; border-bottom: 1px solid var(--border); background: transparent;
+    color: var(--text); text-align: left; font: inherit; cursor: pointer;
+}
+#settingsView .apollo-settings-disclosure-label { font-size: 13px; font-weight: 620; letter-spacing: -.012em; }
+#settingsView .apollo-settings-disclosure svg { width: 16px; height: 16px; flex: 0 0 16px; color: var(--muted); transition: transform 210ms ease; }
+#settingsView .apollo-settings-section.is-open > .apollo-settings-disclosure svg { transform: rotate(180deg); }
+#settingsView .apollo-settings-disclosure:focus-visible,
+#settingsView .apollo-google-connect:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+#settingsView .apollo-settings-disclosure-body { overflow: hidden; transition: height 210ms cubic-bezier(.22,1,.36,1); }
+#settingsView .apollo-settings-disclosure-body > .apollo-settings-panel { margin-top: 10px; }
+#settingsView .apollo-setting-row { min-height: 58px; padding: 11px 15px; gap: 16px; }
+#settingsView .apollo-setting-description { max-width: 450px; line-height: 1.45; }
+#settingsView .apollo-setting-select { height: 32px; }
+#settingsView .apollo-connected-service { align-items: center; }
+#settingsView .apollo-service-identity { display: flex; min-width: 0; align-items: center; gap: 12px; }
+#settingsView .apollo-service-icon { width: 28px; height: 28px; flex: 0 0 28px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); }
+#settingsView .apollo-service-icon svg, #settingsView .apollo-service-icon img { width: 17px; height: 17px; display: block; }
+#settingsView .apollo-service-icon svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+#settingsView .apollo-connection-control { min-width: 0; align-items: flex-end; gap: 5px; }
+#settingsView .apollo-connection-actions { gap: 8px; flex-wrap: wrap; }
+#settingsView .apollo-google-connect { min-height: 30px; padding: 5px 9px; display: inline-flex; align-items: center; border-radius: 7px; font-size: 11px; background: transparent; cursor: pointer; }
+#settingsView .apollo-connection-details { color: var(--muted); font-size: 10px; }
+#settingsView .apollo-connection-details summary { cursor: pointer; text-align: right; }
+#settingsView .apollo-connection-details p { max-width: 240px; margin: 6px 0 0; text-align: right; line-height: 1.45; }
+#settingsView .apollo-security-settings { padding: 15px; gap: 9px; }
+#settingsView .apollo-security-intro { max-width: 550px; margin: 0 0 6px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+#settingsView .apollo-security-enrollment-fields { display: flex; gap: 10px; flex-wrap: wrap; }
+#settingsView .apollo-security-enrollment-fields input { width: min(220px, 100%); min-height: 34px; padding: 7px 10px; font-size: 12px; }
+#settingsView .apollo-security-reveal { width: max-content; min-height: 28px; padding: 3px 7px; border: 0; background: transparent; font-size: 11px; color: var(--muted); }
+#settingsView .apollo-security-enroll-button { width: max-content; min-height: 34px; padding: 6px 10px; font-size: 12px; }
+#settingsView .apollo-security-settings form input:not([type="checkbox"]) { max-width: 300px; min-height: 34px; }
+#settingsView .apollo-security-settings form button { min-height: 34px; padding: 6px 10px; }
+html.apollo-jarvis-mode #apolloView .apollo-message.assistant > .apollo-message-actions,
+#apolloView .apollo-message.assistant > .apollo-message-actions {
+    position: static !important; height: 32px !important; width: max-content !important;
+    margin: 4px 0 0 0 !important; padding: 0 !important;
+    display: flex !important; align-items: center !important; gap: 10px !important;
+    border: 0 !important; background: transparent !important;
+    opacity: 0 !important; visibility: visible !important; pointer-events: none !important;
+    transform: translateY(-3px) !important;
+    transition: opacity 190ms ease, transform 190ms ease !important;
+}
+html.apollo-jarvis-mode #apolloView .apollo-message.assistant:hover > .apollo-message-actions,
+html.apollo-jarvis-mode #apolloView .apollo-message.assistant > .apollo-message-actions:focus-within,
+#apolloView .apollo-message.assistant:hover > .apollo-message-actions,
+#apolloView .apollo-message.assistant > .apollo-message-actions:focus-within {
+    opacity: 1 !important; visibility: visible !important; pointer-events: auto !important;
+    transform: none !important; transition-delay: 0s !important;
+}
+html.apollo-jarvis-mode #apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action,
+#apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action {
+    width: 32px !important; height: 32px !important; flex: 0 0 32px !important;
+    padding: 0 !important; display: grid !important; place-items: center !important;
+    border: 0 !important; border-radius: 7px !important; background: transparent !important;
+    color: var(--muted) !important; box-shadow: none !important;
+}
+#apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action:hover { color: var(--text) !important; background: var(--control-bg) !important; }
+#apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action svg { width: 16px; height: 16px; }
+#apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+.apollo-history-group { display: flex; flex-direction: column; gap: 7px; flex: 0 0 auto; width: 100%; }
+.apollo-history-group > h3, .apollo-history-group > summary {
+    margin: 12px 0 2px; padding: 0 4px; color: var(--muted);
+    font-size: 10px; font-weight: 650; letter-spacing: .035em;
+}
+.apollo-history-group > summary { cursor: pointer; }
+.apollo-history-group.is-empty { display: block; }
+.apollo-history-group.is-empty .apollo-history-card { margin-top: 7px; }
+.apollo-history-group.is-empty .apollo-history-card { opacity: .72; }
+.apollo-history-group .apollo-history-card { width: 100%; }
+@media (hover: none), (pointer: coarse) {
+    #apolloView .apollo-message.assistant > .apollo-message-actions { opacity: 1 !important; visibility: visible !important; pointer-events: auto !important; transform: none !important; }
+    html.apollo-jarvis-mode #apolloView .apollo-message.assistant > .apollo-message-actions,
+    #apolloView .apollo-message.assistant > .apollo-message-actions { height: 44px !important; margin-left: 0 !important; }
+    html.apollo-jarvis-mode #apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action,
+    #apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action { width: 44px !important; height: 44px !important; flex-basis: 44px !important; }
+}
+@media (max-width: 700px) {
+    #settingsView .apollo-connected-service { flex-direction: row; align-items: flex-start; flex-wrap: wrap; }
+    #settingsView .apollo-connected-service .apollo-connection-control { width: 100%; align-items: flex-start; padding-left: 40px; }
+    #settingsView .apollo-connected-service .apollo-connection-actions { justify-content: flex-start; }
+    #settingsView .apollo-connection-details summary, #settingsView .apollo-connection-details p { text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #settingsView .apollo-settings-disclosure-body, #settingsView .apollo-settings-disclosure svg,
+    #apolloView .apollo-message.assistant > .apollo-message-actions { transition-duration: 1ms !important; }
+}

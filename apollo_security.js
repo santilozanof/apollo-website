@@ -264,13 +264,17 @@
         settingsPanel.replaceChildren();
         if (!state.enrolled) {
             const intro = document.createElement('p');
-            intro.textContent = 'Set a strong passphrase before enabling locks. The deployment operator must provide the one-time setup token.';
+            intro.textContent = 'First-time enrollment protects private tabs. Ask the Apollo deployment operator for the one-time setup token, then choose a passphrase of at least 16 characters. The token is supplied privately and is never stored in this page.';
+            intro.className = 'apollo-security-intro';
             settingsPanel.append(intro);
-            const token = document.createElement('input'); token.placeholder = 'Operator setup token'; token.type = 'password';
-            const pass = document.createElement('input'); pass.placeholder = 'New passphrase (16+ characters)'; pass.type = 'password';
-            const button = document.createElement('button'); button.textContent = 'Set up security';
+            const token = document.createElement('input'); token.placeholder = 'Operator setup token'; token.type = 'password'; token.autocomplete = 'off'; token.setAttribute('aria-label', 'Operator setup token');
+            const pass = document.createElement('input'); pass.placeholder = 'New passphrase (16+ characters)'; pass.type = 'password'; pass.autocomplete = 'new-password'; pass.setAttribute('aria-label', 'New security passphrase');
+            const fields = document.createElement('div'); fields.className = 'apollo-security-enrollment-fields'; fields.append(token, pass);
+            const reveal = document.createElement('button'); reveal.type = 'button'; reveal.className = 'apollo-security-reveal'; reveal.textContent = 'Show'; reveal.setAttribute('aria-label', 'Show setup token and passphrase');
+            reveal.onclick = () => { const show = token.type === 'password'; token.type = pass.type = show ? 'text' : 'password'; reveal.textContent = show ? 'Hide' : 'Show'; reveal.setAttribute('aria-label', (show ? 'Hide' : 'Show') + ' setup token and passphrase'); };
+            const button = document.createElement('button'); button.type = 'button'; button.className = 'apollo-security-enroll-button'; button.textContent = 'Set up security';
             const message = document.createElement('p'); message.className = 'apollo-security-message';
-            settingsPanel.append(token, pass, button, message);
+            settingsPanel.append(fields, reveal, button, message);
             button.onclick = async () => {
                 try {
                     const result = await request('setup', {setup_token: token.value, passphrase: pass.value});

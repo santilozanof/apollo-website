@@ -26582,6 +26582,7 @@ apolloInput.addEventListener(
 ============================================================ */
 
 let apolloHistorySearchTimer = null;
+let apolloHistoryRequestNumber = 0;
 
 
 function apolloHistoryBindSearch() {
@@ -26628,6 +26629,7 @@ async function apolloRefreshHistory() {
     if (!track) return;
 
     apolloHistoryBindSearch();
+    const requestNumber = ++apolloHistoryRequestNumber;
 
     try {
 
@@ -26667,6 +26669,7 @@ async function apolloRefreshHistory() {
         }
 
         const data = await response.json();
+        if (requestNumber !== apolloHistoryRequestNumber) return;
 
         const chats =
             query
@@ -26696,6 +26699,7 @@ async function apolloRefreshHistory() {
         existingCards.forEach(
             card => card.remove()
         );
+        track.querySelectorAll('.apollo-history-group').forEach(group => group.remove());
 
         if (
             searchWrap
@@ -26710,6 +26714,30 @@ async function apolloRefreshHistory() {
         ) {
             track.appendChild(newButton);
         }
+
+        const groups = new Map();
+        const today = new Date();
+        const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+        const dateKey = date => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+        const groupFor = chat => {
+            const empty = !query && Number(chat.message_count) === 0;
+            const raw = chat.updated_at || chat.created_at || '';
+            const date = new Date(raw.replace(' ', 'T') + (/[zZ]|[+-]\d\d:\d\d$/.test(raw) ? '' : 'Z'));
+            const label = empty ? 'Empty conversations' : query ? 'Search results' :
+                !Number.isFinite(date.getTime()) ? 'Earlier' :
+                dateKey(date) === dateKey(today) ? 'Today' :
+                dateKey(date) === dateKey(yesterday) ? 'Yesterday' :
+                date.toLocaleDateString([], {month:'long', day:'numeric', year: date.getFullYear() === today.getFullYear() ? undefined : 'numeric'});
+            if (groups.has(label)) return groups.get(label);
+            const group = document.createElement(empty ? 'details' : 'section');
+            group.className = 'apollo-history-group' + (empty ? ' is-empty' : '');
+            const heading = document.createElement(empty ? 'summary' : 'h3');
+            heading.textContent = label;
+            group.append(heading);
+            track.append(group);
+            groups.set(label, group);
+            return group;
+        };
 
         for (const chat of chats) {
 
@@ -26735,8 +26763,10 @@ async function apolloRefreshHistory() {
             title.className =
                 "apollo-history-card-title";
 
-            title.textContent =
-                chat.title || "Conversation";
+            const rawTitle = String(chat.title || '').trim();
+            title.textContent = /^(?:error\b|traceback\b|http\s*\d{3}\b|internal server error\b|provider error\b)/i.test(rawTitle)
+                ? 'Conversation with an error'
+                : rawTitle && rawTitle !== 'New Chat' ? rawTitle : 'Untitled conversation';
 
             const date =
                 document.createElement("div");
@@ -27132,7 +27162,7 @@ async function apolloRefreshHistory() {
                 }
             );
 
-            track.appendChild(card);
+            groupFor(chat).appendChild(card);
         }
 
         console.log(
@@ -37888,7 +37918,17 @@ html.apollo-reduce-motion *::after {
         reconnection_required: "Reconnection required",
         expired_authorization: "Authorization expired",
         temporary_error: "Temporary service error",
+        syncing: "Syncing",
         not_configured: "Not configured"
+    };
+
+    const connectionIcons = {
+        generic: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v5M16 3v5M6 8h12v4a6 6 0 0 1-12 0V8ZM12 18v3"/></svg>',
+        gmail: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 7 9-7"/></svg>',
+        google_calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18M8 15h.01M12 15h.01M16 15h.01"/></svg>',
+        canvas_calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v14M3 18V5a2 2 0 0 1 2-2h4a3 3 0 0 1 3 3 3 3 0 0 1 3-3h4a2 2 0 0 1 2 2v13a2 2 0 0 0-2-2h-4a3 3 0 0 0-3 3 3 3 0 0 0-3-3H5a2 2 0 0 0-2 2Z"/></svg>',
+        spotify: '<img src="/vendor/spotify/icon-green.svg" alt="">',
+        whoop: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 8-5-16-3 8H2"/></svg>'
     };
 
     function connectionTime(value) {
@@ -37918,17 +37958,22 @@ html.apollo-reduce-motion *::after {
                      data-connection-url="${escapeConnectionText(action.url)}"
                      data-connection-confirm="${escapeConnectionText(action.confirm || "")}">${escapeConnectionText(action.label)}</button>`
             ).join("");
-            return `<div class="apollo-setting-row" data-connection-id="${escapeConnectionText(integration.id)}">
+            const details = integration.management_note || integration.error || "";
+            return `<div class="apollo-setting-row apollo-connected-service" data-connection-id="${escapeConnectionText(integration.id)}">
+                <div class="apollo-service-identity">
+                <span class="apollo-service-icon" aria-hidden="true">${connectionIcons[integration.id] || connectionIcons.generic}</span>
                 <div class="apollo-setting-copy">
                     <div class="apollo-setting-name">${escapeConnectionText(integration.name)}</div>
-                    <div class="apollo-setting-description">${escapeConnectionText(integration.description)} ${integration.needs_attention ? escapeConnectionText(integration.management_note || "") : ""}</div>
+                    <div class="apollo-setting-description">${escapeConnectionText(integration.description)}</div>
+                </div>
                 </div>
                 <div class="apollo-connection-control">
-                    <div class="apollo-connection-status ${integration.status === "connected" ? "connected" : integration.status}">
+                    <div class="apollo-connection-status ${escapeConnectionText(integration.status)}" role="status">
                         <span class="apollo-connection-dot"></span><span>${escapeConnectionText(status)}</span>
                     </div>
                     ${sync ? `<div class="apollo-connection-sync">${escapeConnectionText(sync)}</div>` : ""}
                     ${(canvasInput || buttons) ? `<div class="apollo-connection-actions">${canvasInput}${buttons}</div>` : ""}
+                    ${details ? `<details class="apollo-connection-details"><summary>Details</summary><p>${escapeConnectionText(details)}</p></details>` : ""}
                 </div>
             </div>`;
         }).join("");
@@ -79110,5 +79155,7 @@ html.apollo-jarvis-mode
 <script src="/apollo_brand.js?v=20261027-1"></script>
 <script src="/apollo_shortcuts.js?v=20261027-1"></script>
 <link rel="stylesheet" href="/apollo_security.css?v=20261029-1">
-<script src="/apollo_security.js?v=20261029-1"></script>
+<script src="/apollo_security.js?v=20261029-2"></script>
+<link rel="stylesheet" href="/apollo_settings_polish.css?v=20261029-1">
+<script src="/apollo_settings_polish.js?v=20261029-1"></script>
 <style>.apollo-shortcut-target { outline: 2px solid currentColor; outline-offset: 3px; }</style>

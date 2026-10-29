@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.request
 from email.message import EmailMessage
 from html.parser import HTMLParser
+from zoneinfo import ZoneInfo
 
 SCOPES = (
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -278,8 +279,90 @@ def search(server, query, limit=8):
     query = str(query or "").strip()[:400]
     if not query:
         query = "in:inbox"
-    result = api(server, "/messages", {"q": query, "maxResults": min(max(int(limit), 1), 10)})
-    return [get_message(server, item["id"]) for item in result.get("messages") or [] if ID.fullmatch(str(item.get("id") or ""))]
+    wanted = min(max(int(limit), 1), 20)
+    ids, seen, page = [], set(), None
+    for _ in range(3):
+        params = {"q": query, "maxResults": min(10, wanted - len(ids))}
+        if page:
+            params["pageToken"] = page
+        result = api(server, "/messages", params)
+        for item in result.get("messages") or []:
+            message_id = str(item.get("id") or "")
+            if ID.fullmatch(message_id) and message_id not in seen:
+                ids.append(message_id)
+                seen.add(message_id)
+                if len(ids) >= wanted:
+                    break
+        page = result.get("nextPageToken")
+        if len(ids) >= wanted or not page:
+            break
+    return [get_message(server, message_id) for message_id in ids]
+
+
+SENSITIVE_MAIL = re.compile(
+    r"\b(?:verification|verify|one[- ]time|otp|2fa|two[- ]factor|security code|"
+    r"sign[- ]in code|login code|password reset|recovery code|authentication code)\b", re.I)
+CODE_VALUE = re.compile(r"(?<![A-Za-z0-9])(?:\d[ -]?){6,8}(?![A-Za-z0-9])")
+
+
+def _safe_message(item):
+    """Keep authentication content out of ordinary listings and model evidence."""
+    safe = dict(item)
+    combined = " ".join(str(item.get(key) or "") for key in ("subject", "body", "snippet"))
+    if SENSITIVE_MAIL.search(combined):
+        safe["subject"] = "Account verification message"
+        safe["body"] = "[Authentication content hidden]"
+        safe["snippet"] = "[Authentication content hidden]"
+        safe["from"] = CODE_VALUE.sub("[code hidden]", str(safe.get("from") or ""))
+    else:
+        for key in ("from", "subject", "body", "snippet"):
+            safe[key] = CODE_VALUE.sub("[code hidden]", str(safe.get(key) or ""))
+    return safe
+
+
+def _message_link(item):
+    thread = str(item.get("thread_id") or "")
+    return "https://mail.google.com/mail/u/0/#all/" + thread if ID.fullmatch(thread) else ""
+
+
+def _markdown_text(value):
+    return re.sub(r"([\\`*_[\]<>])", r"\\\1", str(value or ""))
+
+
+def _local_date(server, value):
+    try:
+        stamp = email.utils.parsedate_to_datetime(str(value))
+        zone = ZoneInfo(server.app_state_get("time_zone", "Europe/Zurich"))
+        return stamp.astimezone(zone).strftime("%d %b %Y, %H:%M %Z")
+    except (TypeError, ValueError, KeyError):
+        return "Date unavailable"
+
+
+def _admissions_relevance(item):
+    heading = (str(item.get("from") or "") + " " + str(item.get("subject") or "")).casefold()
+    body = (str(item.get("body") or "") + " " + str(item.get("snippet") or "")).casefold()
+    terms = ("admission", "application", "university", "college", "common app", "applicant",
+             "financial aid", "enrollment", "decision", "acceptance")
+    score = 3 * sum(term in heading for term in terms) + sum(term in body for term in terms)
+    if re.search(r"\b(sale|discount|coupon|promotion|unsubscribe|shop now)\b", heading):
+        score -= 8
+    return score
+
+
+def _address(value):
+    address = email.utils.parseaddr(str(value or ""))[1]
+    if not re.fullmatch(r"[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+", address) or len(address) > 320:
+        raise ValueError("A valid recipient email address is required")
+    return address
+
+
+def _new_message(server, recipient, subject, body):
+    message = EmailMessage()
+    message["To"] = _address(recipient)
+    message["Subject"] = str(subject).replace("\r", " ").replace("\n", " ")[:250]
+    message.set_content(str(body)[:12000])
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
+    return api(server, "/messages/send", data={"raw": raw})
 
 
 def _reply_address(original):
@@ -289,14 +372,18 @@ def _reply_address(original):
     return address
 
 
+def _reply_subject(original):
+    subject = str(original.get("subject") or "")[:250]
+    return subject if subject.lower().startswith("re:") else "Re: " + subject
+
+
 def send_reply(server, original, body):
     address = _reply_address(original)
     if not ID.fullmatch(str(original.get("thread_id") or "")):
         raise ValueError("Invalid thread")
     message = EmailMessage()
     message["To"] = address
-    subject = str(original.get("subject") or "")[:250]
-    message["Subject"] = subject if subject.lower().startswith("re:") else "Re: " + subject
+    message["Subject"] = _reply_subject(original)
     if original.get("message_id"):
         message["In-Reply-To"] = original["message_id"]
         message["References"] = (str(original.get("references") or "") + " " + original["message_id"]).strip()[:1500]
@@ -333,9 +420,14 @@ def _model(server, instruction, user, evidence):
 
 def related(message, context=None):
     text = str(message or "").casefold()
-    if re.search(r"\b(gmail|inbox|emails?|mailbox|admissions? (?:emails?|messages?|letters?)|email (?:from|about)|university (?:admissions?|applications?))\b", text):
+    if context and context.get("kind") == "awaiting_recipient" and re.search(
+            r"\b(?:myself|me|cancel)\b|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.I):
         return True
-    if not context or not context.get("message_id"):
+    if re.search(r"\b(?:draft|write|compose) (?:a |an |the )?reply\b", text):
+        return True
+    if re.search(r"\b(gmail|inbox|emails?|mailbox|admissions? (?:emails?|messages?|letters?)|university (?:admissions?|applications?)|(?:save|store) (?:this |the |a )?draft)\b", text):
+        return True
+    if not context or not (context.get("message_id") or context.get("kind") == "new"):
         return bool(context and context.get("message_ids") and
                     re.search(r"\b(first|second|third|fourth|fifth|[1-5](?:st|nd|rd|th)?)\b", text))
     if context.get("message_ids") and re.search(r"\b(first|second|third|fourth|fifth|[1-5](?:st|nd|rd|th)?)\b", text):
@@ -356,6 +448,14 @@ def handle_chat(server, chat_id, user_message):
     lower = text.casefold()
     if not status(server).get("connected"):
         return "Gmail isn't connected. Connect it in Settings → Connections, then ask me again."
+    if context.get("kind") == "awaiting_recipient":
+        if lower == "cancel":
+            _save_context(server, chat_id, {})
+            return "Okay, I canceled that draft. Nothing was sent."
+        text = context.get("draft_request", "") + " to " + text
+        lower = text.casefold()
+    if re.search(r"\b(?:verification|otp|two[- ]factor|authentication|recovery) code\b", lower):
+        return "I can't reveal authentication or recovery codes through chat. Open the message in Gmail after verifying your account."
     if context.get("confirm"):
         if lower == "yes":
             return "Please reply **yes, send** to confirm sending the exact draft above, or **cancel**."
@@ -366,12 +466,18 @@ def handle_chat(server, chat_id, user_message):
             draft = context.pop("draft", "")
             message_id = context.get("message_id", "")
             _save_context(server, chat_id, context)
-            if not draft or not message_id:
-                return "The draft expired. Please draft the reply again."
+            if not draft or (not message_id and context.get("kind") != "new"):
+                return "The draft expired. Please draft it again."
             try:
+                if context.get("kind") == "new":
+                    _new_message(server, context["recipient"], context["subject"], draft)
+                    return "Sent your email to " + context["recipient"] + "."
                 original = get_message(server, message_id)
+                if _reply_address(original) != context.get("recipient") or \
+                        _reply_subject(original) != context.get("subject"):
+                    return "The original message changed. Please draft the reply again. Nothing was sent."
                 send_reply(server, original, draft)
-                return "Sent your reply to " + email.utils.parseaddr(original.get("reply_to") or original.get("from") or "")[1] + "."
+                return "Sent your reply to " + context["recipient"] + "."
             except Exception:
                 return ("I couldn't confirm whether Gmail sent the reply. I won't retry automatically. "
                         "Check your Sent folder before drafting or sending again.")
@@ -380,17 +486,53 @@ def handle_chat(server, chat_id, user_message):
         if re.fullmatch(r"(?:no|cancel|don't send|do not send)", lower):
             return "Okay, I didn't send it."
     if re.fullmatch(r"(?:send this email|send this reply|send it)[.!]?", lower) and not context.get("draft"):
-        return "There is no current reply draft to send. Ask me to draft a reply first."
+        return "There is no current draft to send. Ask me to draft an email first."
     if re.search(r"\b(send|submit)\b", lower) and context.get("draft"):
+        if context.get("kind") != "new" and not context.get("recipient"):
+            try:
+                original = get_message(server, context["message_id"])
+                context["recipient"] = _reply_address(original)
+                context["subject"] = _reply_subject(original)
+            except (KeyError, GmailAuthError, RuntimeError, ValueError):
+                return "I couldn't verify the reply recipient. Please draft it again."
         context["confirm"] = True
         _save_context(server, chat_id, context)
-        original = get_message(server, context["message_id"])
-        address = _reply_address(original)
+        address = context["recipient"]
         return ("Please confirm before I send this email.\n\n**To:** " + address +
-                "\n\n**Subject:** Re: " + original.get("subject", "")[:200] +
+                "\n\n**Subject:** " + context["subject"] +
                 "\n\n**Message:**\n\n" + context["draft"] +
                 "\n\nReply **yes, send** to send exactly this draft, or **cancel**.")
+    if re.search(r"\b(save|store) (?:this |the |a )?draft\b", lower):
+        return "Apollo can preview a draft in chat, but saving it to Gmail needs an additional Gmail compose permission that has not been granted. Nothing was saved or sent."
     drafting = bool(re.search(r"\b(draft|write|compose|reply|respond)\b", lower))
+    reply_request = bool(re.search(r"\b(reply|respond)\b|\b(?:draft|write|compose) (?:a |an |the )?reply\b", lower))
+    if drafting and not reply_request:
+        recipient = re.search(r"\bto\s+([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b", text, re.I)
+        if recipient:
+            address = _address(recipient.group(1))
+        elif re.search(r"\bto (?:myself|me|my own (?:email|address))\b", lower):
+            try:
+                address = _address(api(server, "/profile").get("emailAddress"))
+            except (RuntimeError, GmailAuthError, ValueError, urllib.error.URLError):
+                return "I couldn't verify your Gmail address. Reconnect Gmail or give me the recipient address."
+        else:
+            _save_context(server, chat_id, {"kind": "awaiting_recipient", "draft_request": text})
+            return "Who should receive this draft? Give me the recipient email address; I won't send anything."
+        explicit_subject = re.search(r"\bsubject\s*:\s*([^\n.;]+)", text, re.I)
+        saying = re.search(r"\bsaying\s+(.+?)(?:[.!?]\s*(?:show|do not|don't|but)\b|$)", text, re.I | re.S)
+        subject = (explicit_subject.group(1) if explicit_subject else
+                   saying.group(1) if saying else "Message from Apollo").strip(" .!\"'")[:250]
+        body = (saying.group(1).strip(" .!\"'") if saying else _model(server,
+            "Write only the concise plain-text body of a new email draft. Never send it. "
+            "Do not include To or Subject headers. Do not invent commitments or sensitive facts.",
+            text, [])).strip()[:12000]
+        if not body:
+            return "I couldn't prepare a draft. Please try again."
+        _save_context(server, chat_id, {"kind": "new", "recipient": address,
+                                        "subject": subject, "draft": body, "confirm": False})
+        return ("### Email draft\n\n**To:** " + address + "\n\n**Subject:** " + subject +
+                "\n\n**Message:**\n\n" + body +
+                "\n\nNothing was sent. Say **send this email** only if you want to review and confirm sending.")
     try:
         ordinal = re.search(r"\b(first|second|third|fourth|fifth|[1-5](?:st|nd|rd|th)?)\b", lower)
         ids = context.get("message_ids") or []
@@ -406,28 +548,35 @@ def handle_chat(server, chat_id, user_message):
         elif drafting and context.get("message_id") and re.search(r"\b(that|it|the email|the message)\b", lower):
             items = [get_message(server, context["message_id"])]
         else:
-            query = _model(server,
+            admissions_request = bool(re.search(r"\b(admissions?|universit(?:y|ies)|college|common app|applicant)\b", lower))
+            query = ("{admission admissions application university college applicant \"Common App\"}"
+                     if admissions_request else _model(server,
                 "Convert the user's request to one concise Gmail search query. Return only Gmail search syntax, no prose. "
                 "Do not invent an email address. Prefer a broad keyword query when uncertain.",
-                text, [])[:400].strip().strip('`"')
-            if "admission" in lower and not query:
-                query = "{admission admissions application university}"
+                text, [])[:400].strip().strip('`"'))
             if not query or "\n" in query:
                 query = "in:inbox"
-            items = search(server, query, limit=5)
-            if not items and "admission" in lower and query != "{admission admissions application university college}":
-                items = search(server, "{admission admissions application university college}", limit=5)
+            items = search(server, query, limit=15 if admissions_request else 8)
+            if admissions_request:
+                items = sorted((item for item in items if _admissions_relevance(item) > 0),
+                               key=_admissions_relevance, reverse=True)[:8]
     except (GmailAuthError, RuntimeError, ValueError):
         return "I couldn't read Gmail right now. Check its connection status in Settings and try again."
     if not items:
-        return "I found no matching emails. Try a sender, subject, or different search terms."
+        return ("I found no relevant messages in the first 15 results of a broad admissions search. "
+                "That does not prove your mailbox has none; try a school or sender name."
+                if re.search(r"\b(admissions?|universit(?:y|ies)|college|common app|applicant)\b", lower)
+                else "I found no matching emails in this search. Try a sender, subject, or different search terms.")
     if drafting:
         if len(items) > 1 and not re.search(r"\b(latest|newest|most recent|first|top)\b", lower) and not context.get("message_id"):
             _save_context(server, chat_id, {"message_ids": [item["id"] for item in items],
                                             "draft_request": text})
             return "I found several matching emails. Which one should I reply to?\n\n" + "\n".join(
-                f"- **{item['subject'][:120]}** — {item['from'][:100]} ({item['date'][:40]})" for item in items)
+                f"- **{_markdown_text(_safe_message(item)['subject'][:120])}** — {_markdown_text(_safe_message(item)['from'][:100])} ({_local_date(server, item.get('date'))})"
+                for item in items)
         item = items[0]
+        if SENSITIVE_MAIL.search(" ".join(str(item.get(key) or "") for key in ("subject", "body", "snippet"))):
+            return "I can't draft a reply using authentication or recovery content through chat. Open that message in Gmail after verifying your account."
         try:
             address = _reply_address(item)
         except ValueError:
@@ -435,22 +584,36 @@ def handle_chat(server, chat_id, user_message):
         body = _model(server,
             "Write only the plain-text body of a helpful reply. This is a draft for the user to review; "
             "do not promise commitments the user did not authorize. No subject, salutation metadata, or commentary.",
-            text, [{key: item[key] for key in ("from", "subject", "date", "body")}]).strip()[:12000]
+            text, [{key: _safe_message(item).get(key, "") for key in ("from", "subject", "date", "body")}]).strip()[:12000]
         if not body:
             return "I couldn't draft that reply. Please try again."
-        _save_context(server, chat_id, {"message_id": item["id"], "draft": body, "confirm": False})
-        return (f"**Draft reply to {address}**\n\n**Re: {item['subject'][:200]}**\n\n" + body +
+        _save_context(server, chat_id, {"kind": "reply", "message_id": item["id"],
+                                        "recipient": address, "subject": _reply_subject(item),
+                                        "draft": body, "confirm": False})
+        return (f"**Draft reply to {address}**\n\n**{_reply_subject(item)}**\n\n" + body +
                 "\n\nThis is a draft. Say **send this email** if you want to review the exact message and confirm sending.")
     _save_context(server, chat_id, {"message_id": items[0]["id"],
                                     "message_ids": [item["id"] for item in items],
                                     "confirm": False})
-    evidence = [{key: item.get(key, "") for key in ("from", "subject", "date", "body", "snippet")}
+    evidence = [{key: _safe_message(item).get(key, "") for key in ("from", "subject", "date", "body", "snippet")}
                 for item in items]
     answer = _model(server,
-        "Answer the user's question about their email clearly. For multiple emails, use compact headings or bullets "
-        "and identify sender and date. If the user asks for a summary, summarize the evidence, not just subjects.",
+        "Give a concise synthesis of the supplied email evidence, without enumerating individual messages "
+        "or adding links; Apollo displays a separate interactive row for each message. "
+        "Do not infer application status, decisions, deadlines, or policies absent from the messages. "
+        "Do not claim the whole mailbox was searched or reproduce authentication content.",
         text, evidence)
-    links = "\n\n".join(
-        f"[Open email {index + 1} in Gmail](https://mail.google.com/mail/u/0/#all/{item['id']})"
-        for index, item in enumerate(items[:3]))
-    return answer + ("\n\n" + links if answer else "")
+    rows = []
+    for item in items[:8]:
+        safe = _safe_message(item)
+        url = _message_link(item)
+        label = _markdown_text(str(safe.get("subject") or "(No subject)")[:120])
+        sender = _markdown_text(str(safe.get("from") or "Unknown sender")[:100])
+        preview = _markdown_text(str(safe.get("snippet") or safe.get("body") or "")[:150])
+        rows.append(f"- **{sender}** · {_local_date(server, item.get('date'))}\n  " +
+                    (f"[{label}]({url})" if url else label) +
+                    (f" — {preview}" if preview else ""))
+    scope = ("I checked up to 15 matching messages from a broad admissions search."
+             if re.search(r"\b(admissions?|universit(?:y|ies)|college|common app|applicant)\b", lower)
+             else f"I checked {len(items)} matching message{'s' if len(items) != 1 else ''} for this search.")
+    return (answer.strip() + "\n\n" if answer else "") + scope + "\n\n" + "\n".join(rows)

@@ -9,6 +9,7 @@ const { chromium } = require('playwright');
     assert.equal(seed.status(),200);
     await page.goto(base);
     await page.evaluate(() => window.openSettings());
+    await page.locator('.apollo-settings-disclosure').filter({hasText:'Memory & conversation history'}).click();
     const controls = page.locator('#apolloMemoryControls');
     await controls.locator('summary').click();
     await controls.getByText(`Fixture ${viewport.width}: prefers concise answers`,{exact:true}).waitFor();

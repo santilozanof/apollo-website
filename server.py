@@ -13341,6 +13341,7 @@ def _apollo_connections_probe():
                 "connected": gmail["connected"],
                 "last_successful_sync": None,
                 "error": "Gmail needs reconnection." if gmail["status"] == "reconnection_required" else None,
+                "management_note": "Disconnect removes Gmail access in Apollo only; it leaves Google Calendar connected.",
                 "actions": ([{
                     "id": "reconnect", "label": "Reconnect", "method": "GET",
                     "url": "/api/gmail/connect",
@@ -13362,6 +13363,7 @@ def _apollo_connections_probe():
                 "connected": bool(google.get("connected")),
                 "last_successful_sync": None,
                 "error": None if google_status == "connected" else "Google Calendar connection needs attention.",
+                "management_note": "Calendar uses the existing Google authorization. Apollo does not offer a separate Calendar disconnect here.",
                 "actions": [] if google.get("connected") or not google.get("reconnect") else [{
                     "id": "connect" if google_status == "disconnected" else "reconnect",
                     "label": "Connect" if google_status == "disconnected" else "Reconnect",
@@ -13376,6 +13378,7 @@ def _apollo_connections_probe():
                 "connected": bool(canvas.get("connected")),
                 "last_successful_sync": canvas.get("last_synced_at"),
                 "error": "Canvas synchronization failed." if canvas.get("last_error") else None,
+                "management_note": "Refresh checks the iCal feed. Disconnect removes imported Canvas events and related Canvas tasks.",
                 "actions": (([{
                     "id": "reconnect", "label": "Replace feed", "method": "POST",
                     "url": "/api/calendar/subscriptions/canvas/connect", "input": "feed_url",
@@ -13411,6 +13414,7 @@ def _apollo_connections_probe():
                 "connected": bool(whoop.get("connected")),
                 "last_successful_sync": whoop.get("last_successful_sync"),
                 "error": None if whoop.get("status") == "connected" else "WHOOP connection needs attention.",
+                "management_note": "WHOOP currently supports connection and reconnection here; individual disconnect is not available.",
                 "actions": [] if whoop.get("status") == "connected" else (
                     [] if whoop.get("status") == "not_configured" else [{
                         "id": "reconnect" if whoop.get("status") == "reconnection_required" else "connect",
@@ -22554,6 +22558,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     c.title,
                     c.created_at,
                     c.updated_at,
+                    (SELECT count(*) FROM messages mc WHERE mc.chat_id = c.id) AS message_count,
 
                     (
                         SELECT m.id
@@ -22660,9 +22665,12 @@ class ApolloHandler(BaseHTTPRequestHandler):
             conn = db()
 
             chats = conn.execute("""
-                SELECT id, title, created_at, updated_at
-                FROM chats
-                ORDER BY updated_at DESC
+                SELECT c.id, c.title, c.created_at, c.updated_at,
+                    COALESCE(mc.message_count, 0) AS message_count
+                FROM chats c
+                LEFT JOIN (SELECT chat_id, count(*) AS message_count FROM messages GROUP BY chat_id) mc
+                    ON mc.chat_id = c.id
+                ORDER BY c.updated_at DESC
             """).fetchall()
 
             conn.close()
@@ -25302,7 +25310,15 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 app_state_delete(f"gmail_chat_{chat_id}")
             if apollo_gmail.related(user_message, gmail_context):
                 apollo_open_sse(self)
-                apollo_send_status_sse(self, "Reading Gmail…")
+                gmail_intent = str(user_message).casefold()
+                gmail_progress = (
+                    "Sending Gmail message…" if gmail_context.get("confirm") and
+                    re.fullmatch(r"\s*(?:yes,? send(?: it)?|send this email|send this reply)[.!]?\s*", gmail_intent)
+                    else "Preparing email draft…" if re.search(r"\b(draft|write|compose)\b", gmail_intent)
+                    else "Searching Gmail…" if re.search(r"\b(find|search|show|list)\b", gmail_intent)
+                    else "Reading Gmail…"
+                )
+                apollo_send_status_sse(self, gmail_progress)
                 try:
                     gmail_reply = apollo_gmail.handle_chat(sys.modules[__name__], chat_id, user_message)
                 except Exception as error:
