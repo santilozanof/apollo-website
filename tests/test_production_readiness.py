@@ -61,6 +61,11 @@ class DestinationTests(unittest.TestCase):
             with patch.object(server, 'ask_hermes', side_effect=AssertionError('unnecessary classifier')):
                 self.assertTrue(server.apollo_should_reply_semantically([], prompt))
         self.assertTrue(server.apollo_silence_candidate('Thanks, that helps'))
+        with patch.object(server, 'ask_hermes', side_effect=AssertionError('unnecessary classifier')):
+            self.assertTrue(server.apollo_should_reply_semantically([], 'Delayed fixture question'))
+            self.assertTrue(server.apollo_should_reply_semantically([], 'Explain the chord progression'))
+            self.assertFalse(server.apollo_should_reply_semantically(
+                [{'role': 'assistant', 'content': 'Done.'}], 'Thanks'))
 
     def test_private_mixed_dns_and_credentials_rejected(self):
         for url in ['file:///etc/passwd', 'https://user:pass@example.com/', 'http://example.com:8765']:

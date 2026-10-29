@@ -44,7 +44,7 @@ test('weekly and monthly recap canvases retain matched art, five ranks and expor
         } else {
           const expected = slide === 1 ? tracks : artists;
           for (const item of expected) assert.ok(calls.images.includes(item.image_url), `${theme}/${format}/${slide}: ${item.image_url}`);
-          if (slide === 1 && format === 'square') assert.ok(calls.text.some(item => item.value.includes('…')), 'long track titles are truncated within the square layout');
+          if (slide === 1 && format === 'square') assert.ok(calls.text.some(item => item.value.includes('descriptive title')), 'long track titles wrap within the square layout');
         }
       }
     }

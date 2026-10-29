@@ -251,6 +251,9 @@
       poster: safeUrl(raw.poster, true),
       alt: str(raw.alt, 240),
       caption: str(raw.caption, 500),
+      original: safeUrl(raw.original, true),
+      creator: str(raw.creator, 160),
+      license: str(raw.license, 160),
       source_url: safeUrl(raw.source_url),
       source_title: str(raw.source_title, 300),
       publisher: str(raw.publisher, 160),
@@ -274,6 +277,9 @@
         url: safeUrl(item.url, true),
         alt: str(item.alt, 240),
         caption: str(item.caption, 500),
+        original: safeUrl(item.original, true),
+        creator: str(item.creator, 160),
+        license: str(item.license, 160),
         source_url: safeUrl(item.source_url),
         source_title: str(item.source_title, 300),
         publisher: str(item.publisher, 160),
@@ -907,17 +913,48 @@
     node.appendChild(row);
   }
 
-  function openImage(source, alt) {
+  function openImage(source, alt, gallery = null, startingIndex = 0) {
     const previousFocus = document.activeElement;
     const box = el("div", "apollo-ui-lightbox");
     const image = el("img");
     const close = el("button", null, "×");
+    const items = gallery || [source && typeof source === "object" ? source : {url: source, alt}];
+    let index = startingIndex;
     box.setAttribute("role", "dialog");
     box.setAttribute("aria-modal", "true");
-    box.setAttribute("aria-label", alt || "Image preview");
-    image.src = source;
-    image.alt = alt || "";
-    image.addEventListener("error", () => box.appendChild(el("p", "apollo-ui-media-unavailable", "The full image could not load. Close and retry when connected.")));
+    box.setAttribute("aria-label", "Image preview");
+    const stage = el("div", "apollo-ui-lightbox-stage");
+    const details = el("div", "apollo-ui-lightbox-details");
+    const previous = el("button", "apollo-ui-lightbox-previous", "‹");
+    const next = el("button", "apollo-ui-lightbox-next", "›");
+    previous.type = next.type = "button";
+    previous.setAttribute("aria-label", "Previous image");
+    next.setAttribute("aria-label", "Next image");
+    const broken = el("p", "apollo-ui-media-unavailable", "This image could not load. The source link may still be available.");
+    broken.hidden = true;
+    image.addEventListener("error", () => { broken.hidden = false; });
+    function show(nextIndex) {
+      index = (nextIndex + items.length) % items.length;
+      const item = items[index];
+      broken.hidden = true;
+      image.src = item.original || item.url;
+      image.alt = item.alt || item.title || "Image";
+      box.setAttribute("aria-label", image.alt);
+      details.replaceChildren();
+      details.append(el("strong", null, item.alt || item.title || "Image"));
+      if (item.creator) details.append(el("span", null, `By ${item.creator}`));
+      if (item.publisher) details.append(el("span", null, item.publisher));
+      if (item.license) details.append(el("span", null, `License: ${item.license}`));
+      else details.append(el("span", null, "License details unavailable"));
+      if (item.source_url) {
+        const link = el("a", null, item.source_title || "Open original source ↗");
+        link.href = item.source_url; link.target = "_blank"; link.rel = "noopener noreferrer";
+        details.append(link);
+      }
+      previous.hidden = next.hidden = items.length < 2;
+    }
+    previous.addEventListener("click", () => show(index - 1));
+    next.addEventListener("click", () => show(index + 1));
     close.type = "button";
     close.setAttribute("aria-label", "Close image preview");
     const overflow = document.body.style.overflow;
@@ -925,17 +962,34 @@
     const dismiss = () => { box.remove(); document.body.style.overflow = overflow; document.removeEventListener("keydown", onKey); previousFocus?.focus(); };
     const onKey = event => {
       if (event.key === "Escape") dismiss();
-      if (event.key === "Tab") { event.preventDefault(); close.focus(); }
+      if (event.key === "ArrowLeft") { event.preventDefault(); show(index - 1); }
+      if (event.key === "ArrowRight") { event.preventDefault(); show(index + 1); }
+      if (event.key === "Tab") {
+        const focusable = [close, previous, next, ...details.querySelectorAll("a")].filter(node => !node.hidden);
+        const current = focusable.indexOf(document.activeElement);
+        if (event.shiftKey && current <= 0) { event.preventDefault(); focusable.at(-1).focus(); }
+        else if (!event.shiftKey && current === focusable.length - 1) { event.preventDefault(); focusable[0].focus(); }
+      }
     };
     close.addEventListener("click", dismiss);
     box.addEventListener("click", event => { if (event.target === box) dismiss(); });
     document.addEventListener("keydown", onKey);
-    box.append(image, close);
+    let touchX = null;
+    stage.addEventListener("touchstart", event => { touchX = event.changedTouches[0]?.clientX ?? null; }, {passive: true});
+    stage.addEventListener("touchend", event => {
+      const endX = event.changedTouches[0]?.clientX;
+      if (touchX !== null && endX !== undefined && Math.abs(endX - touchX) > 55) show(index + (endX < touchX ? 1 : -1));
+      touchX = null;
+    }, {passive: true});
+    stage.append(image, broken);
+    box.append(stage, details, previous, next, close);
     document.body.appendChild(box);
+    show(index);
     close.focus();
   }
-  function imageNode(item) {
+  function imageNode(item, gallery = null, index = 0) {
     const figure = el("figure", "apollo-ui-figure");
+    if (item.source_url) figure.dataset.sourceUrl = item.source_url;
     const image = el("img", "apollo-ui-image");
     const status = el("span", "apollo-image-status", "Loading image…");
     const retry = el("button", "apollo-image-retry", "Retry image");
@@ -962,23 +1016,13 @@
       retry.hidden = true; status.textContent = "Loading image…";
       image.src = item.url;
     });
-    image.addEventListener("click", () => openImage(image.currentSrc || image.src, image.alt));
+    image.addEventListener("click", () => openImage(item, image.alt, gallery, index));
     image.addEventListener("keydown", event => {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); image.click(); }
     });
     image.src = item.url;
     figure.append(image, status, retry);
-    if (item.caption) figure.appendChild(el("figcaption", null, item.caption));
-    if (item.source_url) {
-      const details = el("button", "apollo-ui-media-details", "Image details");
-      details.type = "button";
-      details.addEventListener("click", () => openDetail({
-        title: item.alt || item.title || "Image", description: item.caption,
-        image_url: item.url, provider: item.publisher || "Image source",
-        source_url: item.source_url, source_title: item.source_title || "Open source"
-      }, details));
-      figure.appendChild(details);
-    }
+    if (item.caption || item.publisher) figure.appendChild(el("figcaption", null, item.caption || item.publisher));
     return figure;
   }
   if (typeof window !== "undefined") {
@@ -2012,6 +2056,18 @@
     return root;
   }
 
+  function compactImageSources(root) {
+    const imageUrls = new Set([...root.querySelectorAll(".apollo-ui-gallery .apollo-ui-figure[data-source-url]")].map(node => node.dataset.sourceUrl));
+    if (!imageUrls.size) return;
+    root.querySelectorAll(":scope > .apollo-ui-sources").forEach(section => {
+      const links = [...section.querySelectorAll("li a[href]")];
+      if (!links.length || !links.every(link => imageUrls.has(link.href))) return;
+      const disclosure = el("details", "apollo-ui-image-sources");
+      section.replaceWith(disclosure);
+      disclosure.append(el("summary", null, "Image sources and licenses"), section);
+    });
+  }
+
   const COMPONENT_REGISTRY = Object.freeze({
     entity: renderEntity, checklist: renderChecklist, quiz: renderQuiz,
     chart: renderChart, table: renderTable, diagram: renderDiagram, form: renderForm, card: renderCard,
@@ -2026,7 +2082,8 @@
     if (block.type === "image") return imageNode(block);
     if (block.type === "image_gallery") {
       const root = el("div", `apollo-ui-block apollo-ui-gallery${block.items.length === 1 ? " one" : ""}`);
-      block.items.filter(item => item.url).forEach(item => root.appendChild(imageNode(item)));
+      const items = block.items.filter(item => item.url);
+      items.forEach((item, index) => root.appendChild(imageNode(item, items, index)));
       return root;
     }
     if (block.type === "carousel") {
@@ -2146,6 +2203,7 @@
         ? el("div", "apollo-ui-block apollo-ui-error", "Some interactive content could not be displayed.")
         : renderGeneric(part, citations)
     ));
+    compactImageSources(root);
     return root;
   }
 
@@ -2248,6 +2306,7 @@
       if (anchored && scrollElement) scrollElement.scrollTop = scrollElement.scrollHeight;
     };
     const refreshCitations = () => {
+      compactImageSources(root);
       const sources = [...root.querySelectorAll(".apollo-ui-sources li[id]")];
       root.querySelectorAll(".apollo-citation-ref[data-citation-number]").forEach(link => {
         const source = sources[Number(link.dataset.citationNumber) - 1];

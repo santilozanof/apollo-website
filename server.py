@@ -17,6 +17,8 @@ import shutil
 import hashlib
 import threading
 import tempfile
+import io
+from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import routines
 import debrief_personalization
@@ -134,6 +136,23 @@ def canonical_api_request_path(raw_path):
 
 def init_db():
     conn = db()
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_generation_jobs (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL UNIQUE,
+            chat_id INTEGER NOT NULL,
+            state TEXT NOT NULL,
+            content TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT '',
+            message_json TEXT,
+            error TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("UPDATE chat_generation_jobs SET state='interrupted', error='Server restarted during generation' WHERE state='running'")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS chat_generation_one_active ON chat_generation_jobs(chat_id) WHERE state='running'")
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS chats (
@@ -1457,6 +1476,12 @@ or tool has supplied a verified, loadable image URL that genuinely illustrates
 the subject, include one relevant image with alt text, source, and attribution.
 Never invent an image URL, imply an image was checked when it was not, or let
 the absence of images block the answer.
+For an explicit image-search request, show 2–4 relevant verified images when
+those actual URLs are present in trusted tool output. Use image_gallery with
+each image's direct URL, alt text, source_url, and available creator, publisher,
+license, or original URL metadata. Fewer images are fine when sources are
+limited. Never substitute a text description or an unrelated image for a
+requested subject, and never delay the main factual answer just to fill a gallery.
 
 Before answering, silently choose the smallest useful response shape:
 - simple: ordinary prose only;
@@ -3039,6 +3064,9 @@ def _apollo_normalize_ui_block(block):
                                     if _apollo_safe_ui_url(block.get("source_url")) else "")
         normalized["source_title"] = str(block.get("source_title") or "")[:300]
         normalized["publisher"] = str(block.get("publisher") or "")[:160]
+        normalized["original"] = str(block.get("original") or "")[:1000] if _apollo_safe_media_url(block.get("original")) else ""
+        normalized["creator"] = str(block.get("creator") or "")[:160]
+        normalized["license"] = str(block.get("license") or "")[:160]
     if kind == "image_gallery":
         images = [
             {
@@ -3049,6 +3077,9 @@ def _apollo_normalize_ui_block(block):
                                if _apollo_safe_ui_url(item.get("source_url")) else ""),
                 "source_title": str(item.get("source_title") or "")[:300],
                 "publisher": str(item.get("publisher") or "")[:160],
+                "original": str(item.get("original") or "")[:1000] if _apollo_safe_media_url(item.get("original")) else "",
+                "creator": str(item.get("creator") or "")[:160],
+                "license": str(item.get("license") or "")[:160],
             }
             for item in (block.get("items") or [])[:12]
             if isinstance(item, dict) and _apollo_safe_media_url(item.get("url"))
@@ -4666,6 +4697,13 @@ def apollo_fast_context_plan(messages, user_message):
 
     # Consequential verbs and manual routing overrides always keep semantic
     # planning in the loop. A local optimization must never grant authority.
+    if re.search(r"\b(?:what did i (?:tell|say|ask)|do you remember|i mentioned|we discussed)\b", lower):
+        return None
+    if re.match(r"^(when|why|who|where|what|how)\s+(?:did|does|do|was|were|is|are)\b", lower) and not re.search(r"\b(my|mine|our|for me)\b", lower):
+        return {
+            **base, "intent": "general_knowledge", "primary_domain": "general",
+            "reason": "public factual question",
+        }
     if lower.startswith(("/tools", "/notools")) or re.search(
         r"\b(add|log|create|delete|remove|rename|move|mark|complete|"
         r"reopen|reschedule|schedule|cancel|play|pause|skip|start|stop|set|"
@@ -17176,6 +17214,9 @@ def apollo_finish_direct_sse(
 
     handler.wfile.flush()
 
+    if getattr(handler, "_apollo_generation_cancelled", lambda: False)():
+        return
+
     if evidence:
         apollo_save_assistant_message(chat_id, assistant_message, evidence=evidence)
     else:
@@ -20598,6 +20639,14 @@ def apollo_silence_candidate(
 
 
     lower = value.lower()
+    normalized = re.sub(r"[.!?,]+$", "", lower).strip()
+    # Only acknowledgement-shaped turns need a silence decision. A short
+    # statement without a question mark can still be a real request; sending
+    # every such turn through another model delayed ordinary answers.
+    if not re.fullmatch(r"(?:ok(?:ay)?|yeah|yep|yes|nice|cool|bet|got it|sounds good|"
+                        r"thanks(?:[ ,]+(?:that helps|for that|you|so much))?|thank you|"
+                        r"ha(?:ha)+|lol|lmao|all good|perfect|great)", normalized):
+        return False
 
 
     # Things that strongly imply a continuing request.
@@ -20672,6 +20721,12 @@ def apollo_should_reply_semantically(
         user_message
     ):
         return True
+
+    normalized = re.sub(r"[.!?,]+$", "", str(user_message).strip().lower()).strip()
+    if normalized in {"ok", "okay", "yeah", "yep", "nice", "cool", "bet", "got it",
+                      "sounds good", "thanks", "thank you", "thanks that helps", "all good"}:
+        if any(item.get("role") == "assistant" for item in messages[-3:] if isinstance(item, dict)):
+            return False
 
 
     # Give the classifier enough conversation to understand
@@ -21070,7 +21125,10 @@ def music_history_worker():
             next_artists = now + 900
         if now >= next_observation:
             playing = music_history_observe_once()
-            next_observation = now + (120 if playing else 600)
+            # Nearby progress samples are required to estimate time. A two
+            # minute cadence misses most ordinary tracks; idle sampling also
+            # needs to catch the beginning of a new listening session.
+            next_observation = now + (45 if playing else 90)
         if now >= next_recap:
             try:
                 zone = apollo_automation_timezone()
@@ -21088,6 +21146,133 @@ def music_history_worker():
                 print(f"[Apollo Music Recap] {type(error).__name__}")
             next_recap = now + 3600
         time.sleep(10)
+
+
+CHAT_GENERATION_LOCK = threading.RLock()
+CHAT_GENERATIONS = {}
+
+
+def apollo_generation_snapshot(job_id, chat_id):
+    with CHAT_GENERATION_LOCK:
+        live = CHAT_GENERATIONS.get(job_id)
+        if live and live["chat_id"] == chat_id:
+            return {key: value for key, value in live.items() if key != "last_saved"}
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT id, chat_id, state, content, status, message_json, error FROM chat_generation_jobs WHERE id=? AND chat_id=?",
+            (job_id, chat_id),
+        ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        result["message"] = json.loads(result.pop("message_json") or "null")
+        return result
+    finally:
+        conn.close()
+
+
+def apollo_generation_save(job, force=False):
+    now = time.monotonic()
+    if not force and now - job["last_saved"] < 0.5:
+        return
+    job["last_saved"] = now
+    conn = db()
+    try:
+        conn.execute(
+            """UPDATE chat_generation_jobs SET state=?, content=?, status=?,
+               message_json=?, error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?""",
+            (job["state"], job["content"], job["status"],
+             json.dumps(job["message"]) if job["message"] is not None else None,
+             job["error"], job["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+class ApolloGenerationStopped(Exception):
+    pass
+
+
+class ApolloGenerationSink:
+    def __init__(self, job):
+        self.job = job
+        self.buffer = ""
+        self.http_status = 200
+
+    def write(self, payload):
+        with CHAT_GENERATION_LOCK:
+            if self.job["state"] == "stopped":
+                raise ApolloGenerationStopped()
+            self.buffer += payload.decode("utf-8", errors="replace")
+            while "\n\n" in self.buffer:
+                raw, self.buffer = self.buffer.split("\n\n", 1)
+                for line in raw.splitlines():
+                    if not line.startswith("data:"):
+                        continue
+                    try:
+                        event = json.loads(line[5:].strip())
+                    except (ValueError, TypeError):
+                        continue
+                    kind = event.get("type")
+                    if kind == "content":
+                        self.job["content"] += str(event.get("content") or "")
+                    elif kind == "status":
+                        self.job["status"] = str(event.get("status") or "")
+                    elif kind == "done":
+                        self.job["message"] = event.get("message")
+                        self.job["content"] = str((event.get("message") or {}).get("content") or self.job["content"])
+                        self.job["state"] = "complete"
+                    elif kind == "error":
+                        self.job["state"] = "error"
+                        self.job["error"] = str(event.get("error") or "Generation failed")
+            apollo_generation_save(self.job, self.job["state"] != "running")
+        return len(payload)
+
+    def flush(self):
+        pass
+
+
+def apollo_generation_worker(job, payload):
+    sink = ApolloGenerationSink(job)
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    fake = SimpleNamespace(
+        path=f"/api/chats/{job['chat_id']}/messages",
+        headers={"Content-Length": str(len(body))},
+        rfile=io.BytesIO(body), wfile=sink, command="POST",
+        client_address=("127.0.0.1", 0),
+        _apollo_generation_cancelled=lambda: job["state"] == "stopped",
+    )
+    fake.send_response = lambda status, message=None: setattr(sink, "http_status", status)
+    fake.send_header = lambda *args: None
+    fake.end_headers = lambda: None
+    try:
+        if job["state"] != "stopped":
+            ApolloHandler.do_POST(fake)
+        with CHAT_GENERATION_LOCK:
+            if job["state"] == "running":
+                if sink.http_status == 204:
+                    job["state"] = "silent"
+                elif sink.http_status != 200:
+                    job["state"] = "error"
+                    job["error"] = f"Generation request failed ({sink.http_status})"
+                else:
+                    job["state"] = "error"
+                    job["error"] = "Generation ended before completion"
+            apollo_generation_save(job, True)
+    except ApolloGenerationStopped:
+        pass
+    except Exception as error:
+        print(f"[Apollo Generation] {type(error).__name__}: {error}")
+        with CHAT_GENERATION_LOCK:
+            if job["state"] == "running":
+                job["state"] = "error"
+                job["error"] = "Generation failed. Please retry."
+            apollo_generation_save(job, True)
+    finally:
+        with CHAT_GENERATION_LOCK:
+            CHAT_GENERATIONS.pop(job["id"], None)
 
 
 class ApolloHandler(BaseHTTPRequestHandler):
@@ -21113,6 +21298,27 @@ class ApolloHandler(BaseHTTPRequestHandler):
         )
 
         route = parsed_url.path
+
+        generation_match = re.fullmatch(r"/api/chats/(\d+)/generations/([0-9a-f]{32})", route)
+        if generation_match:
+            chat_id = int(generation_match.group(1))
+            snapshot = apollo_generation_snapshot(generation_match.group(2), chat_id)
+            json_response(self, snapshot if snapshot else {"error": "Generation not found"}, 200 if snapshot else 404)
+            return
+        active_match = re.fullmatch(r"/api/chats/(\d+)/generations/active", route)
+        if active_match:
+            chat_id = int(active_match.group(1))
+            conn = db()
+            try:
+                row = conn.execute(
+                    "SELECT id FROM chat_generation_jobs WHERE chat_id=? AND state='running' ORDER BY created_at DESC LIMIT 1",
+                    (chat_id,),
+                ).fetchone()
+            finally:
+                conn.close()
+            snapshot = apollo_generation_snapshot(row["id"], chat_id) if row else None
+            json_response(self, {"generation": snapshot})
+            return
 
         if route == "/api/chat/entity":
             query = urllib.parse.parse_qs(parsed_url.query)
@@ -21151,7 +21357,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 elif route == "/api/music/rankings":
                     result = music_analytics.rankings(
                         conn, kind, anchor, zone, query.get("entity", ["artists"])[0],
-                        query.get("metric", ["plays"])[0], query.get("search", [""])[0],
+                        query.get("metric", ["listening"])[0], query.get("search", [""])[0],
                         int(query.get("limit", ["30"])[0]), int(query.get("offset", ["0"])[0]))
                 elif route == "/api/music/history":
                     result = music_analytics.history(
@@ -22538,6 +22744,69 @@ class ApolloHandler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self):
+
+        generation_route = urllib.parse.urlparse(canonical_api_request_path(self.path)).path
+        generation_start = re.fullmatch(r"/api/chats/(\d+)/generations", generation_route)
+        generation_stop = re.fullmatch(r"/api/chats/(\d+)/generations/([0-9a-f]{32})/stop", generation_route)
+        if generation_start or generation_stop:
+            if self.headers.get("X-Apollo-Request") != "chat-generation":
+                json_response(self, {"error": "Request origin could not be verified"}, 403)
+                return
+            chat_id = int((generation_start or generation_stop).group(1))
+            if generation_stop:
+                job_id = generation_stop.group(2)
+                with CHAT_GENERATION_LOCK:
+                    job = CHAT_GENERATIONS.get(job_id)
+                    if job and job["chat_id"] == chat_id and job["state"] == "running":
+                        job["state"] = "stopped"
+                        job["status"] = "Generation stopped"
+                        apollo_generation_save(job, True)
+                snapshot = apollo_generation_snapshot(job_id, chat_id)
+                json_response(self, snapshot if snapshot else {"error": "Generation not found"}, 200 if snapshot else 404)
+                return
+            try:
+                payload = read_json(self)
+                request_id = uuid.UUID(str(payload.get("request_id"))).hex
+                if not isinstance(payload.get("content"), str) or not payload["content"].strip():
+                    raise ValueError("Message is empty")
+            except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+                json_response(self, {"error": "Invalid generation request"}, 400)
+                return
+            conn = db()
+            try:
+                if not conn.execute("SELECT 1 FROM chats WHERE id=?", (chat_id,)).fetchone():
+                    json_response(self, {"error": "Chat not found"}, 404)
+                    return
+                existing = conn.execute("SELECT id, chat_id FROM chat_generation_jobs WHERE request_id=?", (request_id,)).fetchone()
+                if existing:
+                    if existing["chat_id"] != chat_id:
+                        json_response(self, {"error": "Request ID belongs to another chat"}, 409)
+                    else:
+                        json_response(self, apollo_generation_snapshot(existing["id"], chat_id))
+                    return
+                active = conn.execute("SELECT id FROM chat_generation_jobs WHERE chat_id=? AND state='running'", (chat_id,)).fetchone()
+                if active:
+                    json_response(self, {"error": "This chat is already generating", "generation_id": active["id"]}, 409)
+                    return
+                job_id = uuid.uuid4().hex
+                try:
+                    conn.execute(
+                        "INSERT INTO chat_generation_jobs(id,request_id,chat_id,state) VALUES(?,?,?,'running')",
+                        (job_id, request_id, chat_id),
+                    )
+                except sqlite3.IntegrityError:
+                    json_response(self, {"error": "This chat is already generating"}, 409)
+                    return
+                conn.commit()
+            finally:
+                conn.close()
+            job = {"id": job_id, "chat_id": chat_id, "state": "running", "content": "", "status": "Preparing response…", "message": None, "error": None, "last_saved": 0.0}
+            with CHAT_GENERATION_LOCK:
+                CHAT_GENERATIONS[job_id] = job
+            payload.pop("request_id", None)
+            threading.Thread(target=apollo_generation_worker, args=(job, payload), daemon=True, name="apollo-chat-generation").start()
+            json_response(self, apollo_generation_snapshot(job_id, chat_id), 202)
+            return
 
         if apollo_intelligence.handle_api(sys.modules[__name__], self, "POST"):
             return
@@ -24971,6 +25240,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
                             hermes_key,
                             HERMES_URL,
                             evidence_sink=research_evidence.update,
+                            progress_sink=lambda status: apollo_send_status_sse(self, status),
                         )
                     except Exception as error:
                         print(f"[Apollo Research] Unexpected failure: {error}")
@@ -25020,11 +25290,14 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 intelligence_result = apollo_intelligence.enrich(
                     sys.modules[__name__], messages, user_message, turn_plan,
                     user_message_id, client_context if isinstance(client_context, dict) else {},
+                    progress=lambda status: apollo_send_status_sse(self, status),
                 )
                 if intelligence_result:
                     turn_timings["agent_trace_id"] = intelligence_result["trace"]["id"]
                     turn_timings["agent_status"] = intelligence_result["status"]
                 turn_timings["memory_agent_ms"] = round((time.perf_counter() - intelligence_started) * 1000)
+                if getattr(self, '_apollo_sse_open', False):
+                    apollo_send_status_sse(self, 'Writing answer…')
             except Exception as error:
                 print("[Apollo Memory/Agent] " + type(error).__name__)
                 messages.insert(1, {"role": "system", "content":
@@ -26328,6 +26601,11 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 return
 
             # Save Apollo response.
+
+            # A browser disconnect never sets this flag. Only the explicit
+            # Stop endpoint may prevent a background answer from being saved.
+            if getattr(self, "_apollo_generation_cancelled", lambda: False)():
+                return
 
             conn = db()
 

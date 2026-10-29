@@ -52,7 +52,7 @@ def extract_page(url):
     try:
         for _ in range(4):
             parsed, host, port, address = destination(current)
-            options = {'timeout': urllib3.Timeout(connect=10, read=20), 'retries': False}
+            options = {'timeout': urllib3.Timeout(connect=5, read=10), 'retries': False}
             if parsed.scheme == 'https':
                 pool = urllib3.HTTPSConnectionPool(address, port, assert_hostname=host,
                     server_hostname=host, cert_reqs='CERT_REQUIRED', **options)

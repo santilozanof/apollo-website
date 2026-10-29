@@ -442,7 +442,7 @@ def record_playback_observation(conn, snapshot, observed_at=None):
     if previous and previous["playing"] and playing and previous["track_id"] == track_id:
         elapsed = int((observed - datetime.fromisoformat(previous["observed_at"])).total_seconds() * 1000)
         before = previous["progress_ms"]
-        if (30000 <= elapsed <= 180000 and stamp is not None and stamp == previous["state_timestamp_ms"]
+        if (15000 <= elapsed <= 180000 and stamp is not None and stamp == previous["state_timestamp_ms"]
                 and before is not None and progress is not None):
             advanced = progress - before
             if advanced > 0 and abs(advanced - elapsed) <= max(6000, int(elapsed * .12)):
@@ -461,13 +461,13 @@ def record_playback_observation(conn, snapshot, observed_at=None):
     return estimated
 
 
-def estimated_by_track(conn, start, end):
-    """Subtract verified export windows from observed intervals, including imports later on."""
+def estimated_segments(conn, start, end):
+    """Return observed playback portions that do not overlap verified export windows."""
     start_dt, end_dt = datetime.fromisoformat(start), datetime.fromisoformat(end)
     intervals = conn.execute("""
         SELECT * FROM music_observed_intervals WHERE start_at < ? AND end_at > ?
     """, (end, start)).fetchall()
-    totals = Counter()
+    uncovered = []
     for item in intervals:
         left = max(start_dt, datetime.fromisoformat(item["start_at"]))
         right = min(end_dt, datetime.fromisoformat(item["end_at"]))
@@ -492,7 +492,15 @@ def estimated_by_track(conn, start, end):
                     if verified_end < b:
                         next_segments.append((verified_end, b))
             segments = next_segments
-        totals[item["track_id"]] += sum(int((b - a).total_seconds() * 1000) for a, b in segments)
+        uncovered.extend((item["track_id"], a, b) for a, b in segments if a < b)
+    return uncovered
+
+
+def estimated_by_track(conn, start, end):
+    """Subtract verified export windows from observed intervals, including imports later on."""
+    totals = Counter()
+    for track_id, left, right in estimated_segments(conn, start, end):
+        totals[track_id] += int((right - left).total_seconds() * 1000)
     return dict(totals)
 
 

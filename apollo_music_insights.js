@@ -61,7 +61,7 @@
   }
   function duration(ms) {
     const minutes = Math.round(ms / 60000);
-    return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes} min`;
+    return `${minutes.toLocaleString()} min`;
   }
   function initialDay() {
     return new Intl.DateTimeFormat('sv-SE', {timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date());
@@ -69,7 +69,7 @@
   state.period = 'monthly';
   state.anchor = initialDay();
   state.expanded = null;
-  state.metric = 'plays';
+  state.metric = 'listening';
   state.search = '';
   state.offset = 0;
   function params(extra = {}) {
@@ -97,6 +97,7 @@
     return wrapper;
   }
   function timeLabel(row) {
+    if (row.verified_events && row.estimated_ms) return `${duration(row.listening_ms)} measured · ${duration(row.verified_ms)} verified + ${duration(row.estimated_ms)} estimated`;
     if (row.verified_events) return `${duration(row.verified_ms)} verified`;
     if (row.estimated_ms) return `${duration(row.estimated_ms)} estimated`;
     return 'Time unavailable';
@@ -203,9 +204,12 @@
     const panel = text('section', '', 'panel music-chart-panel');
     panel.append(text('h3', summary.period.kind === 'daily' ? 'By hour' : summary.period.kind === 'weekly' ? 'This week' : summary.period.kind === 'monthly' ? 'By day' : summary.period.kind === 'yearly' ? 'By month' : 'Across the years'));
     const bars = text('div', '', 'music-chart'); bars.setAttribute('role', 'img');
-    bars.setAttribute('aria-label', summary.chart.map(item => `${item.label}: ${item.plays} plays`).join(', '));
-    const peak = Math.max(1, ...summary.chart.map(item => item.plays));
-    summary.chart.forEach((item, index) => { const bar = text('span', '', item.plays === peak && item.plays ? 'peak' : ''); bar.style.height = `${Math.max(2, item.plays / peak * 100)}%`; bar.title = `${item.label}: ${item.plays} plays`; if (index % Math.max(1, Math.ceil(summary.chart.length / 7)) === 0) bar.dataset.label = item.label; bars.append(bar); });
+    const measured = summary.chart.some(item => item.listening_ms > 0);
+    const value = item => measured ? item.listening_ms || 0 : item.plays;
+    const describe = item => measured ? `${duration(item.listening_ms || 0)} measured` : `${item.plays} recorded plays (minutes unavailable)`;
+    bars.setAttribute('aria-label', summary.chart.map(item => `${item.label}: ${describe(item)}`).join(', '));
+    const peak = Math.max(1, ...summary.chart.map(value));
+    summary.chart.forEach((item, index) => { const amount = value(item); const bar = text('span', '', amount === peak && amount ? 'peak' : ''); bar.style.height = `${Math.max(2, amount / peak * 100)}%`; bar.title = `${item.label}: ${describe(item)}`; if (index % Math.max(1, Math.ceil(summary.chart.length / 7)) === 0) bar.dataset.label = item.label; bars.append(bar); });
     panel.append(bars);
     if (summary.insights?.length) summary.insights.slice(0, 3).forEach(finding => panel.append(text('p', finding, 'muted method')));
     return panel;
@@ -227,9 +231,9 @@
       const menu = text('details', '', 'music-sync-menu'); const summaryButton = text('summary', '···'); summaryButton.setAttribute('aria-label', 'Music history options'); menu.append(summaryButton);
       const sync = text('button', 'Sync now'); sync.type = 'button'; sync.onclick = async () => { sync.disabled = true; try { await request('/api/music/history/sync', {method: 'POST', headers: {'X-Apollo-Request': 'music'}}); status.append(text('span', 'Sync started')); } catch (error) { status.append(text('span', error.message)); } finally { sync.disabled = false; menu.open = false; } }; menu.append(sync); status.append(menu); pane.append(status);
       const stats = text('div', '', 'stats');
-      const timeValue = summary.verified_ms ? duration(summary.verified_ms) : summary.estimated_ms ? duration(summary.estimated_ms) : 'Unavailable';
-      const timeNote = summary.verified_ms ? `${summary.estimated_ms ? `+ ${duration(summary.estimated_ms)} estimated · ` : ''}${summary.duration_unknown_events} plays without verified duration` : summary.estimated_ms ? 'Estimated from observed playback; verified time available after import' : 'Import official history for verified listening time';
-      stats.append(stat(summary.verified_ms ? 'Verified listening' : summary.estimated_ms ? 'Estimated listening' : 'Listening time', timeValue, timeNote), stat('Recorded plays', summary.events.toLocaleString(), 'Events in available history'), stat('Artists', summary.unique_artists.toLocaleString(), 'Credited in recorded plays'));
+      const timeValue = summary.verified_ms || summary.estimated_ms ? duration(summary.verified_ms + summary.estimated_ms) : 'Unavailable';
+      const timeNote = `${duration(summary.verified_ms)} verified · ${duration(summary.estimated_ms)} estimated · ${summary.duration_unknown_events} plays without verified duration`;
+      stats.append(stat('Measured listening', timeValue, timeNote), stat('Recorded plays', summary.events.toLocaleString(), 'Events in available history'), stat('Artists', summary.unique_artists.toLocaleString(), 'Credited in recorded plays'));
       pane.append(stats);
       if (!summary.events) pane.append(text('p', 'No recorded plays in this period. Choose another period or import your Spotify history below.', 'empty'));
       else { const grid = text('div', '', 'grid'); grid.append(rankPanel('Top artists', 'artists', summary.top.artists), rankPanel('Top songs', 'tracks', summary.top.tracks), rankPanel('Top albums', 'albums', summary.top.albums), chart(summary)); pane.append(grid); }
@@ -259,7 +263,7 @@
     const controls = text('div', '', 'music-explorer-controls');
     const search = document.createElement('input'); search.type = 'search'; search.value = state.search; search.placeholder = 'Search your history'; search.setAttribute('aria-label', 'Search recorded music');
     let timer; search.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { state.search = search.value; state.offset = 0; loadExpanded().then(() => pane.querySelector('input[type=search]')?.focus()); }, 350); }; controls.append(search);
-    if (entity !== 'history') { const metric = document.createElement('select'); metric.setAttribute('aria-label', 'Ranking metric'); [['plays','Recorded plays'],['verified','Verified time'],['estimated','Estimated time']].forEach(([value,label]) => { const option = new Option(label, value); metric.append(option); }); metric.value = state.metric; metric.onchange = () => { state.metric = metric.value; state.offset = 0; loadExpanded(); }; controls.append(metric); } pane.append(controls);
+    if (entity !== 'history') { const metric = document.createElement('select'); metric.setAttribute('aria-label', 'Ranking metric'); [['listening','Listening minutes'],['plays','Recorded plays'],['verified','Verified time'],['estimated','Estimated time']].forEach(([value,label]) => { const option = new Option(label, value); metric.append(option); }); metric.value = state.metric; metric.onchange = () => { state.metric = metric.value; state.offset = 0; loadExpanded(); }; controls.append(metric); } pane.append(controls);
     try { const data = await request(query); if (state.expanded !== entity || state.offset !== offset) return;
       const status = text('p', `${data.total} ${entity === 'history' ? 'recorded events' : `ranked ${entity}`} · ${data.period.label}`, 'muted method'); pane.append(status);
       if (entity !== 'history' && !data.metric_available) pane.append(text('p', `No ${state.metric} listening measurements are available in this period. Entries remain ordered by recorded plays.`, 'muted method'));
@@ -349,6 +353,33 @@
     ctx.fillText(line, x, y + used * size * lineHeight);
     return used + 1;
   }
+  function recapFitText(ctx, value, x, y, width, maxSize, maxLines, options = {}) {
+    const words = String(value || '—').split(/\s+/);
+    for (let size = maxSize; size >= 17; size--) {
+      ctx.font = `${options.weight || 650} ${size}px ${options.family || 'system-ui, sans-serif'}`;
+      const lines = [''];
+      for (const word of words) {
+        const candidate = lines.at(-1) ? `${lines.at(-1)} ${word}` : word;
+        if (ctx.measureText(candidate).width <= width) lines[lines.length - 1] = candidate;
+        else if (ctx.measureText(word).width <= width) lines.push(word);
+        else {
+          if (lines.at(-1)) lines.push('');
+          let part = '';
+          for (const letter of word) {
+            if (ctx.measureText(part + letter).width > width && part) { lines[lines.length - 1] = part; lines.push(''); part = ''; }
+            part += letter;
+          }
+          lines[lines.length - 1] = part;
+        }
+      }
+      if (lines.length > maxLines) continue;
+      ctx.fillStyle = options.color || '#f7f5f0';
+      lines.forEach((line, index) => ctx.fillText(line, x, y + index * size * 1.12));
+      return;
+    }
+    // Extremely long metadata gets an additional line at the smallest size.
+    recapText(ctx, value, x, y, width, 17, {...options, lines: maxLines + 1});
+  }
   function recapPalette(image) {
     if (!image) return [92, 72, 113];
     try {
@@ -435,33 +466,33 @@
     if (slide === 0) {
       const artY = compact ? 287 : 350, artSize = h === 1080 ? 350 : compact ? 555 : 890;
       if (theme === 'editorial') {
-        recapText(ctx, 'The listening edit', 68, compact ? 257 : 310, 940, compact ? 64 : 96, {weight: 500, family: serif, color: ink});
+        recapText(ctx, 'Overview', 68, compact ? 257 : 310, 940, compact ? 64 : 96, {weight: 500, family: serif, color: ink});
         recapImage(ctx, albumImage, 68, artY + (compact ? 37 : 65), artSize, artSize, 'editorial', featuredTrack?.name);
         recapImage(ctx, artistImage, compact ? 670 : 682, artY + (compact ? 70 : 105), compact ? 282 : 315, h === 1080 ? 335 : compact ? 460 : 560, 'portrait', featuredArtist?.name);
       } else if (theme === 'atmosphere') {
-        recapText(ctx, 'In rotation', 68, compact ? 260 : 317, 930, compact ? 72 : 102, {weight: 720, color: ink});
+        recapText(ctx, 'Overview', 68, compact ? 260 : 317, 930, compact ? 72 : 102, {weight: 720, color: ink});
         recapImage(ctx, albumImage, 96, artY + 28, artSize - 45, artSize - 45, 'square', featuredTrack?.name);
         recapImage(ctx, artistImage, compact ? 668 : 676, artY + (compact ? 110 : 250), h === 1080 ? 270 : compact ? 365 : 330, h === 1080 ? 270 : compact ? 365 : 330, 'circle', featuredArtist?.name);
       } else if (theme === 'after-hours') {
-        recapText(ctx, 'After the lights', 68, compact ? 255 : 313, 940, compact ? 69 : 98, {weight: 650, color: ink});
+        recapText(ctx, 'Overview', 68, compact ? 255 : 313, 940, compact ? 69 : 98, {weight: 650, color: ink});
         recapImage(ctx, albumImage, 68, artY + 37, artSize - 65, artSize - 65, 'square', featuredTrack?.name);
         recapImage(ctx, artistImage, compact ? 640 : 621, artY + (compact ? 115 : 380), h === 1080 ? 282 : compact ? 340 : 365, h === 1080 ? 282 : compact ? 340 : 365, 'square', featuredArtist?.name);
       } else {
-        recapText(ctx, 'In rotation', 68, compact ? 255 : 313, 940, compact ? 73 : 103, {weight: 700, color: ink});
+        recapText(ctx, 'Overview', 68, compact ? 255 : 313, 940, compact ? 73 : 103, {weight: 700, color: ink});
         recapImage(ctx, albumImage, 68, artY + 37, artSize - 38, artSize - 38, 'square', featuredTrack?.name);
         recapImage(ctx, artistImage, compact ? 670 : 694, artY + (compact ? 115 : 295), h === 1080 ? 270 : compact ? 318 : 300, h === 1080 ? 270 : compact ? 318 : 300, 'circle', featuredArtist?.name);
       }
       const bottom = compact ? h - 255 : h - 330;
       recapText(ctx, `${String(loadedTrack >= 0 ? loadedTrack + 1 : 1).padStart(2, '0')}  /  FEATURED TRACK`, 68, bottom - (compact ? 105 : 135), 700, 24, {weight: 700, color: ink});
-      recapText(ctx, featuredTrack?.name || 'Your music, in focus', 68, bottom - (compact ? 47 : 61), 930, compact ? 45 : 60, {weight: 700, family: serif, color: ink});
+      recapFitText(ctx, featuredTrack?.name || 'Featured track unavailable', 68, bottom - (compact ? 47 : 61), 930, compact ? 45 : 60, 2, {weight: 700, family: serif, color: ink});
       recapText(ctx, featuredTrack?.artist_name || featuredArtist?.name || 'No recorded artist', 68, bottom, 920, compact ? 28 : 34, {color: ink});
       recapMetric(ctx, 'Recorded streams', summary.events.toLocaleString(), 68, h - (compact ? 212 : 260), 410, theme, compact);
-      const listened = summary.verified_ms ? `${duration(summary.verified_ms)} verified` : summary.estimated_ms ? `${duration(summary.estimated_ms)} estimated` : 'Unavailable';
+      const listened = summary.verified_ms || summary.estimated_ms ? duration(summary.verified_ms + summary.estimated_ms) : 'Unavailable';
       recapMetric(ctx, 'Listening time', listened, 545, h - (compact ? 212 : 260), 455, theme, compact);
     } else {
       const isTrack = slide === 1, rows = isTrack ? tracks : artists;
       recapText(ctx, isTrack ? 'The tracks' : 'The artists', 68, compact ? 265 : 312, 940, compact ? 76 : 108, {weight: theme === 'editorial' ? 500 : 730, family: serif, color: ink});
-      recapText(ctx, isTrack ? 'FIVE SONGS THAT DEFINED THE PERIOD' : 'FIVE VOICES IN YOUR ROTATION', 68, compact ? 309 : 364, 940, 23, {weight: 650, color: ink});
+      recapText(ctx, isTrack ? 'RANKED BY MEASURED LISTENING TIME' : 'RANKED BY MEASURED LISTENING TIME', 68, compact ? 309 : 364, 940, 23, {weight: 650, color: ink});
       const start = h === 1080 ? 340 : compact ? 365 : 445, gap = h === 1080 ? 123 : compact ? 155 : 232, art = h === 1080 ? 104 : compact ? 129 : 178;
       rows.forEach((item, index) => {
         const y = start + index * gap;
@@ -478,11 +509,11 @@
         const left = theme === 'editorial' ? 70 : (compact ? 220 : 282) + stagger;
         recapText(ctx, String(index + 1).padStart(2, '0'), left, y + 29, 70, compact ? 25 : 32, {weight: 700, color: theme === 'editorial' ? '#77736d' : '#bdb8c0'});
         const width = theme === 'editorial' ? 730 : 1010 - left;
-        recapText(ctx, item.name, left, y + (compact ? 68 : 88), width, compact ? 38 : 49, {lines: compact ? 1 : 2, weight: theme === 'editorial' ? 500 : 690, family: serif, color: ink});
-        if (isTrack) recapText(ctx, item.artist_name || 'Artist unavailable', left, y + (compact ? 99 : 170), width, compact ? 22 : 27, {color: theme === 'editorial' ? '#55534f' : '#c5c0c9'});
+        recapFitText(ctx, item.name, left, y + (compact ? 62 : 88), width, h === 1080 ? 27 : compact ? 32 : 49, 2, {weight: theme === 'editorial' ? 500 : 690, family: serif, color: ink});
+        if (isTrack) recapFitText(ctx, item.artist_name || 'Artist unavailable', left, y + (h === 1080 ? 115 : compact ? 129 : 170), width, compact ? 20 : 27, 2, {color: theme === 'editorial' ? '#55534f' : '#c5c0c9'});
       });
       if (!rows.length) recapText(ctx, 'No recorded listening in this period.', 68, start + 130, 900, 35, {color: ink});
-      const listened = summary.verified_ms ? `${duration(summary.verified_ms)} verified` : summary.estimated_ms ? `${duration(summary.estimated_ms)} estimated` : 'Time unavailable';
+      const listened = summary.verified_ms || summary.estimated_ms ? duration(summary.verified_ms + summary.estimated_ms) : 'Time unavailable';
       if (h > 1350) {
         const footerY = h - 230;
         recapMetric(ctx, 'Recorded streams', summary.events.toLocaleString(), 68, footerY, 410, theme, compact);
@@ -607,7 +638,7 @@
         themes.append(button);
       }
       controls.append(text('h4', 'Visual theme'), themes);
-      const slides = ['Cover', 'Top tracks', 'Top artists'];
+      const slides = ['Overview', 'Top Tracks', 'Top Artists'];
       const slideButtons = text('div', '', 'recap-actions');
       slides.forEach((label, index) => {
         const button = text('button', label); button.type = 'button'; button.setAttribute('aria-pressed', String(state.slide === index));

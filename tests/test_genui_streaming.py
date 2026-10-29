@@ -162,7 +162,7 @@ console.log('safe-cancel');
 
     def test_live_stream_paths_use_stateful_renderer(self):
         page = (ROOT / "index.html").read_text()
-        self.assertEqual(page.count("createStreamRenderer?.("), 2)
+        self.assertEqual(page.count("createStreamRenderer?.("), 3)
         self.assertEqual(page.count("apolloStreamRenderer.update(assistantContent)"), 2)
         self.assertEqual(page.count("apolloStreamRenderer?.finish(assistantContent)"), 2)
         self.assertIn('src="/vendor/katex/katex.min.js?v=0.19.0"', page)
@@ -173,7 +173,7 @@ console.log('safe-cancel');
         self.assertIn("const isRequestChatVisible =", retry)
         self.assertIn("if (!isRequestChatVisible())", retry)
         self.assertIn("newMessage?.remove()", retry)
-        self.assertIn("`/api/chats/${requestChatId}/messages`", retry)
+        self.assertIn("apolloGenerationResponse(", retry)
         self.assertIn("apolloShowTyping(\n            userMessage,", retry)
         self.assertNotIn("isImageGeneration", retry)
         self.assertNotIn("hasAttachments", retry)

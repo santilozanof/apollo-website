@@ -14,7 +14,7 @@ import music_history
 
 KINDS = {"daily", "weekly", "monthly", "yearly", "lifetime"}
 ENTITIES = {"artists", "tracks", "albums"}
-METRICS = {"plays", "verified", "estimated"}
+METRICS = {"listening", "plays", "verified", "estimated"}
 
 
 def period(kind, anchor=None, tz_name="UTC"):
@@ -142,15 +142,47 @@ def _source(conn, p, only=None):
             row["image_kind"] = "artist" if entity == "artists" and row["image_url"] else "album" if row["image_url"] else None
             row["verified_ms"] = row["verified_ms"] or 0
             row["verified_events"] = row["verified_events"] or 0
+            row["listening_ms"] = row["verified_ms"] + row["estimated_ms"]
+    # Extended-history exports carry artist names but not IDs. If Spotify's
+    # observed data supplies exactly one ID for the same normalized name,
+    # coalesce the two identities without guessing across homonymous artists.
+    artists = rows.get("artists")
+    if artists:
+        by_name = {}
+        for row in artists:
+            by_name.setdefault(" ".join(row["name"].casefold().split()), []).append(row)
+        merged = []
+        for candidates in by_name.values():
+            ids = {row["spotify_url"] for row in candidates if row["spotify_url"]}
+            if len(candidates) == 1 or len(ids) > 1:
+                merged.extend(candidates)
+                continue
+            primary = next((row.copy() for row in candidates if row["spotify_url"]), candidates[0].copy())
+            primary["plays"] = sum(row["plays"] for row in candidates)
+            primary["verified_ms"] = sum(row["verified_ms"] for row in candidates)
+            primary["verified_events"] = sum(row["verified_events"] for row in candidates)
+            primary["first_at"] = min(row["first_at"] for row in candidates)
+            primary["last_at"] = max(row["last_at"] for row in candidates)
+            primary["image_url"] = next((row["image_url"] for row in candidates if row["image_url"]), None)
+            primary["image_kind"] = "artist" if primary["image_url"] else None
+            per_track = {}
+            for row in candidates:
+                for (artist_key, track_id), amount in estimate_by_artist.items():
+                    if artist_key == row["entity_key"]:
+                        per_track[track_id] = max(per_track.get(track_id, 0), amount)
+            primary["estimated_ms"] = sum(per_track.values())
+            primary["listening_ms"] = primary["verified_ms"] + primary["estimated_ms"]
+            merged.append(primary)
+        rows["artists"] = merged
     return rows
 
 
 def _rank(rows, metric):
-    return sorted(rows, key=lambda row: (-row[{"plays": "plays", "verified": "verified_ms", "estimated": "estimated_ms"}[metric]],
+    return sorted(rows, key=lambda row: (-row[{"listening": "listening_ms", "plays": "plays", "verified": "verified_ms", "estimated": "estimated_ms"}[metric]],
                                          -row["plays"], row["name"].casefold(), row["entity_key"]))
 
 
-def rankings(conn, kind, anchor, tz_name, entity, metric="plays", search="", limit=30, offset=0):
+def rankings(conn, kind, anchor, tz_name, entity, metric="listening", search="", limit=30, offset=0):
     if entity not in ENTITIES or metric not in METRICS:
         raise ValueError("Unknown ranking or metric")
     if len(search) > 120 or limit < 1 or limit > 50 or offset < 0 or offset > 1000000:
@@ -167,10 +199,10 @@ def rankings(conn, kind, anchor, tz_name, entity, metric="plays", search="", lim
         row["rank"] = i + 1
     return {"period": p, "entity": entity, "metric": metric, "total": len(ordered),
             "offset": offset, "limit": limit, "items": ordered[offset:offset + limit],
-            "metric_available": any(row["verified_events"] if metric == "verified" else row["estimated_ms"] if metric == "estimated" else row["plays"] for row in ordered)}
+            "metric_available": any(row["listening_ms"] if metric == "listening" else row["verified_events"] if metric == "verified" else row["estimated_ms"] if metric == "estimated" else row["plays"] for row in ordered)}
 
 
-def range_rankings(conn, start_date, end_date, tz_name, entity="artists", metric="plays", limit=10):
+def range_rankings(conn, start_date, end_date, tz_name, entity="artists", metric="listening", limit=10):
     """Inclusive local-date range, using the same aggregate as Music Insights."""
     if entity not in ENTITIES or metric not in METRICS or not 1 <= limit <= 50:
         raise ValueError("Unknown ranking or metric")
@@ -209,15 +241,36 @@ def summary(conn, kind, anchor=None, tz_name="UTC"):
     entities = _source(conn, p)
     zone = ZoneInfo(tz_name)
     bins = Counter()
+    minute_bins = Counter()
     hours = Counter()
-    for row in conn.execute(f"SELECT l.event_at FROM music_listens l {where}", values):
+    present_track_ids = set()
+    def chart_label(instant):
+        return (f"{instant.hour:02d}:00" if kind == "daily" else
+                instant.strftime("%a") if kind == "weekly" else
+                instant.strftime("%d") if kind == "monthly" else
+                instant.strftime("%b") if kind == "yearly" else instant.strftime("%Y-%m"))
+    for row in conn.execute(f"SELECT l.event_at, l.ms_played, l.track_id FROM music_listens l {where}", values):
         instant = datetime.fromisoformat(row[0]).astimezone(zone)
         hours[instant.hour] += 1
-        label = (f"{instant.hour:02d}:00" if kind == "daily" else
-                 instant.strftime("%a") if kind == "weekly" else
-                 instant.strftime("%d") if kind == "monthly" else
-                 instant.strftime("%b") if kind == "yearly" else instant.strftime("%Y-%m"))
+        label = chart_label(instant)
         bins[label] += 1
+        minute_bins[label] += row[1] or 0
+        if row[2]:
+            present_track_ids.add(row[2])
+    # Allocate each observed interval to its actual local-hour bins. This
+    # handles midnight and daylight-saving boundaries without treating a
+    # catalog track duration as listening time.
+    for track_id, left, right in music_history.estimated_segments(
+            conn, p["start"] or "0001-01-01T00:00:00+00:00",
+            p["end"] or "9999-12-31T00:00:00+00:00"):
+        if track_id not in present_track_ids:
+            continue
+        current = left
+        while current < right:
+            next_hour = current.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+            boundary = min(right, next_hour)
+            minute_bins[chart_label(current.astimezone(zone))] += int((boundary - current).total_seconds() * 1000)
+            current = boundary
     if kind == "daily":
         labels = [f"{h:02d}:00" for h in range(24)]
     elif kind == "weekly":
@@ -233,8 +286,9 @@ def summary(conn, kind, anchor=None, tz_name="UTC"):
     imports = conn.execute("SELECT COUNT(*), MIN(first_event_at), MAX(last_event_at) FROM music_import_jobs").fetchone()
     insights = []
     if basic["events"]:
-        if top_artist := _rank(entities["artists"], "plays")[:1]:
-            insights.append(f"{top_artist[0]['name']} leads this period with {top_artist[0]['plays']} recorded plays.")
+        if top_artist := _rank(entities["artists"], "listening")[:1]:
+            if top_artist[0]["listening_ms"]:
+                insights.append(f"{top_artist[0]['name']} leads measured listening time this period.")
         if hours:
             insights.append(f"Most active hour: {hours.most_common(1)[0][0]:02d}:00 ({hours.most_common(1)[0][1]} plays).")
         new_artist_count = conn.execute(f"""
@@ -256,7 +310,7 @@ def summary(conn, kind, anchor=None, tz_name="UTC"):
         if previous_events:
             difference = basic["events"] - previous_events
             insights.append(f"{abs(difference)} {'more' if difference >= 0 else 'fewer'} recorded plays than the previous {kind} period. Coverage may differ.")
-    top = {entity: _rank(records, "plays")[:5] for entity, records in entities.items()}
+    top = {entity: _rank(records, "listening")[:5] for entity, records in entities.items()}
     for records in top.values():
         for rank, row in enumerate(records, 1):
             row["rank"] = rank
@@ -267,7 +321,7 @@ def summary(conn, kind, anchor=None, tz_name="UTC"):
             "unique_artists": len(entities["artists"]), "top": top,
             "insights": insights, "newly_recorded_artists": new_artist_count,
             "previous_events": previous_events,
-            "chart": [{"label": label, "plays": bins[label]} for label in labels],
+            "chart": [{"label": label, "plays": bins[label], "listening_ms": minute_bins[label]} for label in labels],
             "favorite_hour": hours.most_common(1)[0][0] if hours else None,
             "first_at": basic["first_at"], "last_at": basic["last_at"],
             "coverage": {"earliest_event": coverage[0], "latest_event": coverage[1],
@@ -349,11 +403,11 @@ def detail(conn, kind, anchor, tz_name, entity, key):
         raise ValueError("Invalid music detail")
     p = period(kind, anchor, tz_name)
     rows = _source(conn, p, entity)
-    chosen = next((row for row in _rank(rows[entity], "plays") if row["entity_key"] == key), None)
+    chosen = next((row for row in _rank(rows[entity], "listening") if row["entity_key"] == key), None)
     if chosen is None:
         raise LookupError("No listening data for this item in the selected period")
     chosen = dict(chosen)
-    chosen["rank"] = next(i for i, row in enumerate(_rank(rows[entity], "plays"), 1) if row["entity_key"] == key)
+    chosen["rank"] = next(i for i, row in enumerate(_rank(rows[entity], "listening"), 1) if row["entity_key"] == key)
     lifetime = next((row for row in _source(conn, period("lifetime", None, tz_name), entity)[entity] if row["entity_key"] == key), None)
     where, values = _where(p)
     clause = ("c.artist_key=?" if entity == "artists" else "l.track_key=?" if entity == "tracks" else

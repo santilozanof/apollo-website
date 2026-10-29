@@ -1,5 +1,6 @@
 import io
 import json
+import time
 import os
 import tempfile
 import unittest
@@ -179,7 +180,7 @@ class LiveResearchPipelineTests(unittest.TestCase):
                 answer = self.chat("Who won the latest UFC event?", opener)
                 self.assertIn(expected, answer)
                 self.assertNotIn("I have no live web access", answer)
-                self.assertEqual(len(calls), 1 if expected in {"unavailable", "authentication"} else 2)
+                self.assertEqual(len(calls), 1)
 
     def test_zurich_dst_and_local_date_are_calculated_from_utc(self):
         self.assertEqual(live.localize_utc_markers("[[UTC:2026-10-24T23:00:00Z]]", "Europe/Zurich"),
@@ -189,7 +190,7 @@ class LiveResearchPipelineTests(unittest.TestCase):
         self.assertEqual(live.localize_utc_markers("[[UTC:2026-03-29T01:00:00Z]]", "Europe/Zurich"),
                          "Sun 29 Mar 2026, 03:00 CEST")
 
-    def test_search_transport_failure_retries_and_reports_request_failure(self):
+    def test_search_transport_failure_reports_request_failure_without_repeating(self):
         calls = []
 
         def opener(req, timeout):
@@ -198,7 +199,7 @@ class LiveResearchPipelineTests(unittest.TestCase):
 
         answer = self.chat("What's the weather tomorrow?", opener)
         self.assertIn("request failed", answer)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 1)
 
     def test_gateway_down_has_distinct_explanation(self):
         def opener(req, timeout):
@@ -240,6 +241,40 @@ class LiveResearchPipelineTests(unittest.TestCase):
         self.assertEqual(live.live_query_kind("What's the breaking news in AI?"), "current")
         self.assertEqual(live.live_query_kind("What are the specs of the new phone?"), "current")
 
+    def test_collaboration_origin_uses_dated_source_research(self):
+        question = "When did Mike Dean start working with The Weeknd and why?"
+        self.assertEqual(live.live_query_kind(question), "research")
+        calls = []
+        cited = "https://www.grammy.com/artists/mike-dean/2701/"
+        source = {"status": "completed", "output": [
+            {"type": "function_call", "name": "web_search", "call_id": "search"},
+            {"type": "function_call_output", "call_id": "search", "output": json.dumps({
+                "success": True, "data": {"web": [{"url": cited,
+                    "title": "Mike Dean | GRAMMY.com", "description": "2016 Album of the Year nominee: The Weeknd, Beauty Behind the Madness"}]}})},
+            {"type": "message", "role": "assistant", "content": [{"type": "output_text",
+                "text": "Their documented collaboration reaches back to 2015's *Beauty Behind the Madness*. "
+                "The available credit does not establish why they first connected. "
+                f"[Recording Academy]({cited})"}]}
+        ]}
+        def opener(req, timeout):
+            calls.append(json.loads(req.data))
+            return FakeHTTP(source)
+        answer = self.chat(question, opener)
+        self.assertIn("2015", answer)
+        self.assertNotIn("2018", answer)
+        self.assertIn(cited, answer)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("dated credits", calls[0]["instructions"])
+
+    def test_gateway_deadline_covers_the_whole_response(self):
+        def opener(req, timeout):
+            time.sleep(.1)
+            return FakeHTTP(response())
+        started = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            live._gateway_json(object(), opener, .02)
+        self.assertLess(time.monotonic() - started, .08)
+
     def test_upcoming_sports_requires_a_utc_time_to_localize(self):
         calls = []
 
@@ -249,7 +284,7 @@ class LiveResearchPipelineTests(unittest.TestCase):
 
         answer = self.chat("when are the next good ufc fights? lausanne time", opener)
         self.assertIn("verifiable evidence", answer)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 1)
 
     def test_today_news_requires_explicit_as_of_date(self):
         calls = []
@@ -260,7 +295,7 @@ class LiveResearchPipelineTests(unittest.TestCase):
 
         answer = self.chat("What's happening in AI today?", opener)
         self.assertIn("verifiable evidence", answer)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

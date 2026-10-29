@@ -161,7 +161,7 @@ class GenerativeUITests(unittest.TestCase):
         source = (ROOT / "index.html").read_text()
         self.assertIn('href="/apollo_genui.css?v=', source)
         self.assertIn('src="/apollo_genui.js?v=', source)
-        self.assertEqual(source.count("createStreamRenderer?.("), 2)
+        self.assertEqual(source.count("createStreamRenderer?.("), 3)
         self.assertEqual(source.count("apolloStreamRenderer.update(assistantContent)"), 2)
         self.assertEqual(source.count("apolloStreamRenderer?.finish(assistantContent)"), 2)
         self.assertIn("window.ApolloGenUI?.copyText?.(content)", source)

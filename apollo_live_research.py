@@ -1,9 +1,11 @@
 """Evidence-gated research through Apollo's existing Hermes web toolset."""
 
 import json
+import time
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -13,6 +15,28 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 _URL = re.compile(r"https?://[^\s<>\]\[)\"']+", re.I)
 _UTC_MARKER = re.compile(r"\[\[UTC:([^\]]+)\]\]")
+
+
+def _gateway_json(request, opener, deadline):
+    """Bound a whole gateway response, not just each socket read."""
+    completed = threading.Event()
+    outcome = {}
+
+    def read():
+        try:
+            with opener(request, timeout=deadline) as response:
+                outcome['value'] = json.loads(response.read().decode('utf-8'))
+        except Exception as error:
+            outcome['error'] = error
+        finally:
+            completed.set()
+
+    threading.Thread(target=read, name='apollo-research-gateway', daemon=True).start()
+    if not completed.wait(deadline):
+        raise TimeoutError('Research gateway exceeded its deadline')
+    if 'error' in outcome:
+        raise outcome['error']
+    return outcome['value']
 
 
 def live_query_kind(message, recent_messages=()):
@@ -33,6 +57,11 @@ def live_query_kind(message, recent_messages=()):
         text,
     ):
         return None
+    # Origin-of-collaboration questions are easy to answer with an invented
+    # album era. Ground them in dated credits or interviews, regardless of
+    # which public artists or creators the user names.
+    if re.search(r"\bwhen did\b.{3,100}\b(?:start|first|begin)\b.{0,80}\b(?:work(?:ing)? with|collaborat(?:e|ing) with)\b", text):
+        return "research"
     if re.search(r"\b(open (?:now|today|tonight|tomorrow)|opening hours|closing time|restaurants? near|cafes? near|shops? near|near me|near lausanne)\b", text):
         return "local"
     if re.search(r"\b(weather|forecast|temperature|rain|snow)\b", text):
@@ -121,7 +150,27 @@ def _source_evidence(result):
     return sources, extracted
 
 
-def _extract_and_synthesize(result, query, instruction, api_key, hermes_url, opener):
+def _extract_pages(extractor, urls, deadline):
+    """Collect completed independent pages without waiting on a stuck page."""
+    if not urls:
+        return []
+    pool = ThreadPoolExecutor(max_workers=min(2, len(urls)))
+    futures = [pool.submit(extractor, url) for url in urls]
+    pages = []
+    try:
+        for future in as_completed(futures, timeout=deadline):
+            try:
+                pages.append(future.result())
+            except Exception:
+                continue
+    except TimeoutError:
+        pass
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return [page for page in pages if isinstance(page, dict) and page.get('content') and not page.get('error')]
+
+
+def _extract_and_synthesize(result, query, instruction, api_key, hermes_url, opener, progress_sink=None):
     """Augment genuine gateway search evidence with locally retrieved pages."""
     if os.environ.get('APOLLO_WEB_EXTRACT_BACKEND') != 'trafilatura':
         return result
@@ -131,9 +180,9 @@ def _extract_and_synthesize(result, query, instruction, api_key, hermes_url, ope
     from apollo_web_extract import extract_page
     candidates = list(sorted(_urls(answer) & search_urls))
     candidates += [url for url in sorted(search_urls) if url not in candidates]
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        pages = list(pool.map(extract_page, candidates[:3]))
-    pages = [page for page in pages if page.get('content') and not page.get('error')]
+    if progress_sink:
+        progress_sink("Verifying source pages…")
+    pages = _extract_pages(extract_page, candidates[:2], 12)
     if not pages:
         return result
     freshness_question = (re.search(r'\b(current|latest|newest|today|right now)\b', query, re.I)
@@ -144,9 +193,8 @@ def _extract_and_synthesize(result, query, instruction, api_key, hermes_url, ope
         # been superseded. Navigate actual official collection links before
         # asserting that it is the latest release or today's news.
         index_urls = list(dict.fromkeys(url for page in pages for url in page.get('index_links', []) if url not in visited))[:2]
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            indexes = list(pool.map(extract_page, index_urls))
-        pages += [{**page, 'freshness_index': True} for page in indexes if page.get('content') and not page.get('error')]
+        indexes = _extract_pages(extract_page, index_urls, 8)
+        pages += [{**page, 'freshness_index': True} for page in indexes]
     payload = {'provider': 'openai-codex', 'model': 'gpt-5.6-terra',
         'model_options': {'reasoning_effort': 'medium', 'disable_tools': True},
         'messages': [
@@ -162,8 +210,9 @@ def _extract_and_synthesize(result, query, instruction, api_key, hermes_url, ope
     request = urllib.request.Request(hermes_url, data=json.dumps(payload).encode(),
         headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + api_key}, method='POST')
     try:
-        with opener(request, timeout=120) as response:
-            response_data = json.loads(response.read().decode('utf-8'))
+        if progress_sink:
+            progress_sink("Writing sourced answer…")
+        response_data = _gateway_json(request, opener, 12)
         choice = response_data['choices'][0]
         text = str(choice['message'].get('content') or '').strip()
         allowed = {page[key] for page in pages for key in ('url', 'resolved_url') if page.get(key)}
@@ -247,7 +296,7 @@ def _inspect_response(result):
     return "succeeded", answer, sources
 
 
-def research(messages, query, kind, time_zone, api_key, hermes_url, now=None, opener=None, evidence_sink=None):
+def research(messages, query, kind, time_zone, api_key, hermes_url, now=None, opener=None, evidence_sink=None, progress_sink=None):
     """Return (status, verified answer). A tool call plus sourced links is required."""
     if not api_key:
         return "authentication_failure", ""
@@ -262,8 +311,10 @@ def research(messages, query, kind, time_zone, api_key, hermes_url, now=None, op
                           if item.get("role") == "system")
     instruction = (
         "CURRENT-INFORMATION RESEARCH REQUIRED. Call web_search before answering. "
-        "Use several short, targeted web_search queries to verify key facts; if one query returns no results, "
-        "try a broader search or an official organizer/venue name. Cross-check conflicting schedules against "
+        "Use one or two targeted web_search queries to verify key facts; search again only if evidence is missing. "
+        "For a first-collaboration question, seek dated credits or contemporary interviews rather than guessing an album era. "
+        "Distinguish a documented first credit from the artists' motive, and say when that motive is unverified. "
+        "Cross-check conflicting schedules against "
         "another source, preferably an organizer or official source. "
         "After search, try web_extract on the most relevant official source for key claims. "
         "If extraction fails or is unavailable, use only facts supported by successful search results, "
@@ -300,14 +351,15 @@ def research(messages, query, kind, time_zone, api_key, hermes_url, now=None, op
     endpoint = hermes_url.rsplit("/v1/chat/completions", 1)[0] + "/v1/responses"
     input_messages = [item for item in messages if item.get("role") in {"user", "assistant"}]
     status = "request_failed"
-    for attempt in range(2):
+    for attempt in range(1):
+        started = time.monotonic()
+        if progress_sink:
+            progress_sink("Searching relevant sources…")
         payload = {
             "provider": "openai-codex", "model": "gpt-5.6-terra",
             "model_options": {"reasoning_effort": "medium", "disable_tools": False,
                               "enabled_toolsets": ["web"]},
-            "instructions": instruction + ("\nPrevious attempt did not produce verified web evidence. Try different, shorter "
-                                           "web_search queries, including an official venue or organizer if relevant. "
-                                           "Cite only URLs in successful results." if attempt else ""),
+            "instructions": instruction,
             "input": input_messages,
             "store": False,
         }
@@ -315,9 +367,10 @@ def research(messages, query, kind, time_zone, api_key, hermes_url, now=None, op
                                          headers={"Content-Type": "application/json",
                                                   "Authorization": "Bearer " + api_key}, method="POST")
         try:
-            with opener(request, timeout=120) as response:
-                result = json.loads(response.read().decode("utf-8"))
-            result = _extract_and_synthesize(result, query, instruction, api_key, hermes_url, opener)
+            result = _gateway_json(request, opener, 25)
+            gateway_ms = round((time.monotonic() - started) * 1000)
+            result = _extract_and_synthesize(result, query, instruction, api_key, hermes_url, opener, progress_sink)
+            print(f"[Apollo Research Timing] kind={kind} gateway_ms={gateway_ms} elapsed_ms={round((time.monotonic()-started)*1000)}")
             status, answer, _ = _inspect_response(result)
             if status == "succeeded" and kind == "weather" and not _weather_numbers_supported(result, answer):
                 status, answer = "insufficient_evidence", ""
@@ -363,6 +416,6 @@ def failure_message(status):
         "endpoint_unavailable": "I tried to search, but this Hermes deployment does not have the structured research endpoint available.",
         "gateway_unavailable": "I tried to search, but the Hermes gateway is not reachable right now.",
         "request_failed": "I tried to search, but the live research request failed. I couldn't verify the answer; please retry shortly.",
-        "not_invoked": "I tried twice, but Hermes did not run web search, so I can't give you a verified live answer yet.",
+        "not_invoked": "Hermes did not run web search, so I can't give you a verified live answer yet.",
         "insufficient_evidence": "I searched, but the results did not provide enough verifiable evidence for a reliable answer yet.",
     }.get(status, "I couldn't verify the live answer yet.")

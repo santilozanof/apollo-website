@@ -51,7 +51,8 @@ def music_history_initial_args(message, client_context):
     entity = 'tracks' if re.search(r'\b(tracks?|songs?)\b', text) and not re.search(r'\bartists?\b', text) else 'albums' if re.search(r'\balbums?\b', text) and not re.search(r'\bartists?\b', text) else 'artists'
     count = re.search(r'\btop\s+(\d{1,2})\b', text)
     return {'period': kind, 'anchor': anchor.isoformat(), 'entity': entity,
-            'metric': 'plays', 'limit': min(50, max(1, int(count.group(1)))) if count else 10}
+            'metric': 'plays' if re.search(r'\b(?:play counts?|number of plays|most played)\b', text) else 'listening',
+            'limit': min(50, max(1, int(count.group(1)))) if count else 10}
 
 
 def store(server):
@@ -170,7 +171,7 @@ def decide(server, messages, schemas, results):
     return raw
 
 
-def tools_for(server, memory, user_message, message_id, client_context):
+def tools_for(server, memory, user_message, message_id, client_context, progress=None):
     string = {'type': 'string', 'maxLength': 2000}
     def research(query):
         try:
@@ -181,7 +182,7 @@ def tools_for(server, memory, user_message, message_id, client_context):
         status, answer = server.apollo_live_research.research(
             [{'role': 'user', 'content': query}], query, 'current',
             client_context.get('time_zone') or 'Europe/Zurich', key, server.HERMES_URL,
-            evidence_sink=evidence.update)
+            evidence_sink=evidence.update, progress_sink=progress)
         return {'status': status, 'answer': answer, 'sources': evidence, **({'error': status} if status != 'succeeded' else {})}
 
     def tasks():
@@ -193,7 +194,7 @@ def tools_for(server, memory, user_message, message_id, client_context):
                 'canvas_sync': server.calendar_subscription_status('canvas')}
 
     def spotify_history_read(period='weekly', anchor='', entity='artists',
-                             metric='plays', limit=10, start_date='', end_date=''):
+                             metric='listening', limit=10, start_date='', end_date=''):
         zone = str(client_context.get('time_zone') or 'Europe/Zurich')
         conn = server.db()
         try:
@@ -245,11 +246,11 @@ def tools_for(server, memory, user_message, message_id, client_context):
         Tool('tasks_read', 'Read saved tasks and Canvas-imported assignments plus Canvas sync status.', {}, tasks),
         Tool('whoop_read', 'Current WHOOP recovery, strain and sleep data.', {}, server.apollo_context_whoop),
         Tool('spotify_read', 'Current Spotify playback and connection state.', {}, server.apollo_context_spotify),
-        Tool('spotify_history_read', 'Read Apollo Music Insights recorded listening history. Supports daily, weekly, monthly, yearly or lifetime rankings, or an inclusive custom local-date range with start_date and end_date. Returns real play counts, known/estimated duration and coverage; missing duration must not be treated as zero.',
+        Tool('spotify_history_read', 'Read Apollo Music Insights recorded listening history. Supports daily, weekly, monthly, yearly or lifetime rankings, or an inclusive custom local-date range with start_date and end_date. Default ranking is measured listening time (verified plus nonoverlapping observed estimates); play count is optional. Report durations as rounded integer minutes with thousands separators. Preserve verified, estimated, and unknown labels; missing duration is not zero.',
              {'period': {'type': 'string', 'enum': ['daily','weekly','monthly','yearly','lifetime']},
               'anchor': {'type': 'string', 'maxLength': 10},
               'entity': {'type': 'string', 'enum': ['artists','tracks','albums']},
-              'metric': {'type': 'string', 'enum': ['plays','verified','estimated']},
+              'metric': {'type': 'string', 'enum': ['listening','plays','verified','estimated']},
               'limit': {'type': 'integer', 'minimum': 1, 'maximum': 50},
               'start_date': {'type': 'string', 'maxLength': 10},
               'end_date': {'type': 'string', 'maxLength': 10}},
@@ -266,7 +267,7 @@ def tools_for(server, memory, user_message, message_id, client_context):
     ]
 
 
-def enrich(server, messages, user_message, plan, message_id, client_context):
+def enrich(server, messages, user_message, plan, message_id, client_context, progress=None):
     """Working context -> durable facts -> history, only when relevant.
 
     Simple chats incur no model call here. The runtime may reformulate searches,
@@ -287,7 +288,7 @@ def enrich(server, messages, user_message, plan, message_id, client_context):
         if facts:
             messages.insert(1, context_message({'status': 'completed', 'results': [{'tool': 'memory_search', 'status': 'succeeded', 'data': facts}]}))
         return None
-    runtime = AgentRuntime(tools_for(server, memory, user_message, message_id, client_context),
+    runtime = AgentRuntime(tools_for(server, memory, user_message, message_id, client_context, progress),
                            lambda *args: decide(server, *args))
     initial = []
     if plan.get('connections'):
@@ -306,7 +307,15 @@ def enrich(server, messages, user_message, plan, message_id, client_context):
         initial.append(('web_research', {'query': plan['research_query']}))
     trace_token = CURRENT_TRACE.set(runtime.trace)
     try:
-        result = runtime.run(messages, initial)
+        # A single requested read does not need another model call to decide
+        # whether to repeat it. Preserve the agent loop for recall and
+        # genuinely multi-step investigations.
+        if len(initial) == 1 and initial[0][0] in {'web_research', 'spotify_history_read', 'calendar_read', 'tasks_read', 'whoop_read', 'spotify_read', 'connections'}:
+            runtime.call(*initial[0])
+            runtime.trace.record('finished', status='completed')
+            result = {'status': 'completed', 'results': runtime.results, 'trace': runtime.trace.export()}
+        else:
+            result = runtime.run(messages, initial)
     finally:
         CURRENT_TRACE.reset(trace_token)
     messages.insert(1, context_message(result))

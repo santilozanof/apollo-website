@@ -78,7 +78,20 @@ class MusicAnalyticsTests(unittest.TestCase):
         report = music_analytics.summary(self.conn, "daily", "2026-10-27", "UTC")
         self.assertEqual(report["verified_ms"], 0)
         self.assertEqual(report["estimated_ms"], 60000)
+        self.assertEqual(sum(row["listening_ms"] for row in report["chart"]), 60000)
+        self.assertEqual(next(row for row in report["chart"] if row["label"] == "12:00")["listening_ms"], 60000)
         self.assertEqual(music_analytics.rankings(self.conn, "daily", "2026-10-27", "UTC", "tracks", "estimated")["items"][0]["estimated_ms"], 60000)
+
+    def test_chart_splits_estimated_minutes_at_period_boundary(self):
+        music_history.insert_records(self.conn, [play("2026-10-27T00:01:00Z")])
+        self.conn.execute("""INSERT INTO music_observed_intervals(track_id,start_at,end_at,estimated_ms)
+            VALUES(?,?,?,?)""", (TRACK_A, "2026-10-26T23:59:00+00:00",
+                              "2026-10-27T00:01:00+00:00", 120000))
+        self.conn.commit()
+        today = music_analytics.summary(self.conn, "daily", "2026-10-27", "UTC")
+        self.assertEqual(today["estimated_ms"], 60000)
+        self.assertEqual(sum(row["listening_ms"] for row in today["chart"]), 60000)
+        self.assertEqual(today["chart"][0]["listening_ms"], 60000)
 
     def test_custom_range_reuses_real_listening_rankings(self):
         music_history.insert_records(self.conn, [
@@ -105,9 +118,11 @@ class MusicAnalyticsTests(unittest.TestCase):
                           ("https://i.scdn.co/image/portrait", ARTIST_A))
         report = music_analytics.recap_art(self.conn, music_analytics.summary(self.conn, "monthly", "2026-10-22"))
         name_only_track = next(row for row in report["top"]["tracks"] if not row["spotify_url"])
-        name_only_artist = next(row for row in report["top"]["artists"] if not row["spotify_url"])
+        merged_artist = next(row for row in report["top"]["artists"] if row["spotify_url"])
         self.assertEqual(name_only_track["image_url"], "https://i.scdn.co/image/test")
-        self.assertEqual(name_only_artist["image_url"], "https://i.scdn.co/image/portrait")
+        self.assertEqual(merged_artist["image_url"], "https://i.scdn.co/image/portrait")
+        self.assertEqual(merged_artist["plays"], 2)
+        self.assertEqual(report["unique_artists"], 1)
         self.assertEqual(report["events"], 2)
         self.assertEqual(sum(row["plays"] for row in report["top"]["tracks"]), 2)
 

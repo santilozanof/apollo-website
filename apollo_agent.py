@@ -8,6 +8,7 @@ from contextvars import ContextVar
 import json
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 import uuid
 
 
@@ -113,10 +114,17 @@ class AgentRuntime:
         return result
 
     def run(self, messages, initial=()):
-        for name, arguments in initial:
-            if len(self.results) >= self.max_calls:
-                break
-            self.call(name, arguments)
+        initial = list(initial)[:self.max_calls]
+        if len(initial) > 1 and all(name in self.tools and not self.tools[name].mutation for name, _ in initial):
+            # These read-only adapters are independent. Keep the evidence in
+            # request order even though slow providers complete later.
+            with ThreadPoolExecutor(max_workers=min(4, len(initial))) as pool:
+                futures = [pool.submit(self.call, name, arguments) for name, arguments in initial]
+                ordered = [future.result() for future in futures]
+            self.results[:len(ordered)] = ordered
+        else:
+            for name, arguments in initial:
+                self.call(name, arguments)
         status = 'budget_exhausted'
         for step in range(self.max_steps):
             if len(self.results) >= self.max_calls or time.monotonic() - self.trace.started >= self.deadline_seconds:

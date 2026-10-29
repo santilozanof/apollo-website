@@ -216,14 +216,17 @@ html[data-theme="light"] .apollo-ui-button.primary { background: #171717; color:
 .apollo-ui-card-copy { padding: 12px 14px 14px; }
 .apollo-ui-card-copy p { margin: var(--apollo-space-1, 4px) 0 0; font-size: 12px; line-height: 1.45; opacity: .64; }
 
-.apollo-ui-gallery { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--apollo-space-2, 8px); padding: 0; border: 0; background: transparent; }
+.apollo-ui-gallery { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; padding: 0; border: 0; background: transparent; }
 .apollo-ui-gallery.one { grid-template-columns: 1fr; }
 .apollo-ui-figure { min-width: 0; margin: 0; }
 .apollo-ui-image { display: block; width: 100%; aspect-ratio: 4/3; object-fit: cover; border: 0; border-radius: 12px; background: rgba(127,127,127,.08); opacity: 0; cursor: zoom-in; transition: opacity .22s ease, transform .22s cubic-bezier(.22,1,.36,1); }
 .apollo-ui-figure.is-loaded .apollo-ui-image { opacity: 1; }
 .apollo-ui-image:hover { transform: scale(1.008); }
 .apollo-ui-figure figcaption { padding: 7px 2px 1px; font-size: 11px; line-height: 1.4; opacity: .54; }
-.apollo-ui-gallery .apollo-ui-image:first-child:nth-last-child(3) { grid-row: span 2; height: 100%; }
+.apollo-ui-gallery .apollo-ui-figure { display: grid; align-content: start; }
+.apollo-ui-gallery .apollo-ui-image { height: 260px; max-height: none; aspect-ratio: 4/3; object-fit: contain; background: rgba(127,127,127,.055); }
+.apollo-ui-gallery.one .apollo-ui-image { height: min(52vw,420px); }
+.apollo-ui-gallery figcaption { font-size: 12px; line-height: 1.35; opacity: .7; }
 
 .apollo-ui-chart { padding: var(--apollo-space-4, 16px); }
 .apollo-ui-chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
@@ -395,6 +398,15 @@ html[data-theme="light"] .apollo-ui-segment.active { background: rgba(0,0,0,.08)
 .apollo-ui-lightbox { position: fixed; z-index: 10000; inset: 0; display: grid; place-items: center; padding: max(20px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(20px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left)); background: rgba(0,0,0,.88); backdrop-filter: blur(18px); }
 .apollo-ui-lightbox img { display: block; max-width: 100%; max-height: 100%; border-radius: 12px; object-fit: contain; }
 .apollo-ui-lightbox button { position: absolute; top: max(16px,env(safe-area-inset-top)); right: max(16px,env(safe-area-inset-right)); width: 42px; height: 42px; border: 1px solid rgba(255,255,255,.18); border-radius: 50%; background: rgba(20,20,20,.55); color: #fff; font-size: 22px; cursor: pointer; }
+.apollo-ui-lightbox-stage { display: grid; place-items: center; width: min(90vw,1180px); height: min(72vh,900px); }
+.apollo-ui-lightbox-stage img { max-width: 100%; max-height: 100%; }
+.apollo-ui-lightbox-details { position: absolute; left: max(24px,env(safe-area-inset-left)); right: max(24px,env(safe-area-inset-right)); bottom: max(22px,env(safe-area-inset-bottom)); display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 15px; color: #fff; font-size: 12px; line-height: 1.4; }
+.apollo-ui-lightbox-details strong { width: 100%; font-size: 15px; font-weight: 600; }
+.apollo-ui-lightbox-details span { opacity: .65; }
+.apollo-ui-lightbox-details a { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+.apollo-ui-lightbox .apollo-ui-lightbox-previous, .apollo-ui-lightbox .apollo-ui-lightbox-next { top: 50%; right: auto; left: 15px; transform: translateY(-50%); }
+.apollo-ui-lightbox .apollo-ui-lightbox-next { left: auto; right: 15px; }
+.apollo-ui-lightbox button[hidden], .apollo-ui-lightbox .apollo-ui-media-unavailable[hidden] { display: none; }
 
 @media (max-width: 760px) {
     .apollo-rich-message { width: 100%; gap: 10px; }
@@ -403,7 +415,9 @@ html[data-theme="light"] .apollo-ui-segment.active { background: rgba(0,0,0,.08)
     .apollo-ui-checklist-head { padding: 13px 14px 9px; }
     .apollo-ui-check { min-height: 40px; padding: 8px 14px; }
     .apollo-ui-card { flex-basis: min(232px,84vw); }
-    .apollo-ui-gallery { gap: 4px; padding: 4px; }
+    .apollo-ui-gallery { gap: 6px; padding: 0; }
+    .apollo-ui-gallery .apollo-ui-image { height: 190px; }
+    .apollo-ui-lightbox-stage { height: 68vh; }
     .apollo-ui-actions .apollo-ui-button { min-height: 42px; }
     .apollo-ui-table th,
     .apollo-ui-table td { padding: 9px 10px; }
@@ -438,6 +452,19 @@ html[data-theme="light"] .apollo-ui-segment.active { background: rgba(0,0,0,.08)
 .apollo-ui-figure.has-error img { height: 48px; opacity: .5; }
 .apollo-image-retry { margin: 0 12px 12px; padding: 7px 12px; border-radius: 9px; color: inherit; background: transparent; border: 1px solid rgba(127,127,127,.3); cursor: pointer; }
 .apollo-ui-lightbox .apollo-ui-media-unavailable { color: white; }
+.apollo-ui-gallery .apollo-ui-figure .apollo-ui-image { width: 100%; height: 260px; max-height: none; aspect-ratio: 4/3; object-fit: contain; }
+.apollo-ui-image-sources { margin-top: 8px; font-size: 11px; color: inherit; opacity: .72; }
+.apollo-ui-image-sources > summary { width: max-content; cursor: pointer; padding: 5px 0; }
+.apollo-ui-image-sources[open] > .apollo-ui-sources { margin-top: 6px; }
+@media (max-width: 760px) { .apollo-ui-gallery .apollo-ui-figure .apollo-ui-image { height: 190px; } }
+@media (max-width: 440px) { .apollo-ui-gallery { grid-template-columns: 1fr; } .apollo-ui-gallery .apollo-ui-figure .apollo-ui-image { height: 240px; } }
+#apolloView .apollo-followups { display: flex; flex-wrap: wrap; gap: 7px; margin: 18px 0 4px; animation: apolloFollowupsIn .24s cubic-bezier(.22,1,.36,1) both; }
+#apolloView .apollo-followups > span { flex-basis: 100%; margin-bottom: 2px; font-size: 11px; letter-spacing: .02em; opacity: .52; }
+#apolloView .apollo-followups > button { max-width: 100%; padding: 8px 12px; border: 1px solid rgba(127,127,127,.26); border-radius: 12px; background: transparent; color: inherit; font: inherit; font-size: 12px; line-height: 1.35; text-align: left; cursor: pointer; transition: background .18s ease,border-color .18s ease; }
+#apolloView .apollo-followups > button:hover { background: rgba(127,127,127,.07); border-color: rgba(127,127,127,.4); }
+#apolloView .apollo-followups > button:disabled { opacity: .45; cursor: default; }
+@keyframes apolloFollowupsIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { #apolloView .apollo-followups { animation: none; } }
 
 /* Chat 2.1 long-form readability. Rich prose needs a book-like text face,
    while code and the rest of Jarvis chrome retain their technical type. */

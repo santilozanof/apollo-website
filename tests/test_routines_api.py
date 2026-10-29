@@ -3,6 +3,7 @@ import sys
 from types import SimpleNamespace
 import io
 import json
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -92,6 +93,7 @@ class RoutinesApiRegressionTests(unittest.TestCase):
                 "apollo_intelligence": SimpleNamespace(handle_api=lambda *_: False),
                 "BaseHTTPRequestHandler": BaseHTTPRequestHandler,
                 "urllib": urllib,
+                "re": re,
                 "datetime": datetime,
                 "timedelta": timedelta,
                 "routines": routines,

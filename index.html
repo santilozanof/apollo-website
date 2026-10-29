@@ -17159,48 +17159,49 @@ html[data-theme="light"]
 
     grid-template-areas:
         "attachments actions"
-        "pulse pulse"
         "composer composer";
 
     column-gap: 10px;
     row-gap: 7px;
 
     align-items: end;
+    position: relative !important;
 }
 
 #apolloView .apollo-pulse {
-    grid-area: pulse;
+    position: absolute;
+    z-index: 4;
+    left: 0;
+    right: 155px;
+    bottom: calc(var(--apollo-composer-height, 58px) + 7px);
     display: flex;
-    flex-wrap: wrap;
-    gap: 7px 15px;
+    flex-wrap: nowrap;
+    gap: 5px 10px;
     align-items: center;
     min-width: 0;
-    max-height: 86px;
-    margin-bottom: 4px;
-    overflow: hidden;
+    max-height: 56px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
     opacity: 1;
-    transition: max-height 280ms cubic-bezier(.22,1,.36,1),
-                margin-bottom 280ms cubic-bezier(.22,1,.36,1),
-                opacity 180ms ease;
+    transition: opacity 240ms ease;
 }
 
 #apolloView .apollo-pulse.is-hidden {
-    max-height: 0;
-    margin-bottom: 0;
     opacity: 0;
     pointer-events: none;
 }
 
-#apolloView .apollo-pulse:empty {
-    max-height: 0;
-    margin-bottom: 0;
-}
+#apolloView .apollo-pulse:empty { opacity: 0; }
+
+#apolloView .apollo-pulse-entry { display: inline-flex; align-items: center; min-width: 0; flex: 0 0 auto; }
 
 #apolloView .apollo-pulse-item {
     display: inline-flex;
     align-items: center;
     gap: 7px;
     max-width: 100%;
+    white-space: nowrap;
     border: 0;
     padding: 4px 2px;
     background: transparent;
@@ -17212,7 +17213,7 @@ html[data-theme="light"]
     cursor: pointer;
     opacity: 0;
     transform: translateY(5px);
-    animation: apolloPulseIn 300ms cubic-bezier(.22,1,.36,1) forwards;
+    animation: apolloPulseIn 260ms cubic-bezier(.22,1,.36,1) forwards;
     animation-delay: var(--pulse-delay, 0ms);
     transition: color 160ms ease;
 }
@@ -17231,22 +17232,26 @@ html[data-theme="light"]
 #apolloView .apollo-pulse-icon {
     display: inline-grid;
     place-items: center;
-    flex: 0 0 16px;
-    width: 16px;
-    height: 16px;
-    border: 1px solid currentColor;
-    border-radius: 50%;
-    font-size: 9px;
-    font-weight: 600;
-    opacity: .75;
+    flex: 0 0 17px;
+    width: 17px;
+    height: 17px;
+    opacity: .9;
 }
+#apolloView .apollo-pulse-icon svg,
+#apolloView .apollo-pulse-icon img { display: block; width: 17px; height: 17px; }
+#apolloView .apollo-pulse-icon svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+#apolloView .apollo-pulse-dismiss { border: 0; background: none; color: var(--muted); padding: 4px; cursor: pointer; opacity: .6; }
+#apolloView .apollo-pulse-dismiss:hover,
+#apolloView .apollo-pulse-dismiss:focus-visible { opacity: 1; color: var(--text); }
+#apolloView .apollo-pulse-dismiss svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 
 @keyframes apolloPulseIn {
     to { opacity: 1; transform: translateY(0); }
 }
 
 @media (max-width: 700px) {
-    #apolloView .apollo-pulse { gap: 4px 12px; max-height: 120px; }
+    #apolloView .apollo-pulse { right: 0; gap: 0; max-height: 52px; flex-wrap: wrap; overflow: hidden; }
+    #apolloView .apollo-pulse-entry { flex: 0 0 100%; }
     #apolloView .apollo-pulse-item { font-size: 11px; }
 }
 
@@ -22420,6 +22425,213 @@ let apolloChatId = null;
 window.apolloGetActiveChatId = () => apolloChatId;
 let apolloSending = false;
 let apolloActiveStreamController = null;
+let apolloActiveGenerationId = null;
+let apolloActiveGenerationChatId = null;
+
+function apolloFollowupCandidates(question, answer) {
+    const prompt = String(question || "").trim();
+    const response = String(answer || "");
+    if (response.length < 220 || /^(I (?:can't|cannot|couldn't)|Generation stopped|The response could not)/i.test(response)) return [];
+    const collaboration = prompt.match(/^when did\s+(.{3,70}?)\s+(?:first\s+)?start working with\s+(.{3,70}?)(?:\s+and why)?[?.!]*$/i);
+    if (collaboration) {
+        const first = collaboration[1].trim(), second = collaboration[2].trim();
+        const year = response.match(/\b(?:19|20)\d{2}\b/)?.[0];
+        return [
+            `What did ${first} and ${second} create together after ${year || "their first collaboration"}?`,
+            `How did ${first}'s role in ${second}'s music evolve?`
+        ];
+    }
+    if (/\b(images?|pictures?|photos?|artwork)\b/i.test(prompt) && /(?:"type"\s*:\s*"image(?:_gallery)?"|!\[[^\]]*\]\()/i.test(response)) {
+        const subject = prompt.replace(/^(?:can you\s+)?(?:show|find|search for|give me)\s+(?:me\s+)?(?:some\s+|more\s+)?(?:images?|pictures?|photos?|artwork)\s+(?:of|for|from)?\s*/i, "").replace(/[?.!]+$/, "").trim();
+        return subject.length >= 3 && subject.length <= 90 ? [`Show more verified images of ${subject} from different angles`] : [];
+    }
+    if (/\b(compare|difference between|versus|vs\.?|pros and cons)\b/i.test(prompt) && response.includes("|")) {
+        return [`Which differences matter most for ${prompt.replace(/[?.!]+$/, "").slice(0, 90)}?`];
+    }
+    return [];
+}
+
+function apolloMaybeAddFollowups(message, question, answer) {
+    if (!message || !message.isConnected) return;
+    const suggestions = apolloFollowupCandidates(question, answer).slice(0, 2);
+    if (!suggestions.length) return;
+    requestAnimationFrame(() => {
+        if (!message.isConnected || message.querySelector(".apollo-followups")) return;
+        const area = document.createElement("div"); area.className = "apollo-followups";
+        const label = document.createElement("span"); label.textContent = "Continue exploring"; area.append(label);
+        for (const suggestion of suggestions) {
+            const button = document.createElement("button"); button.type = "button"; button.textContent = suggestion;
+            button.addEventListener("click", () => {
+                if (area.dataset.used || apolloSending) return;
+                area.dataset.used = "true";
+                area.querySelectorAll("button").forEach(item => { item.disabled = true; });
+                apolloInput.value = suggestion;
+                apolloInput.dispatchEvent(new Event("input", {bubbles: true}));
+                apolloSendMessage();
+            });
+            area.append(button);
+        }
+        message.querySelector(".apollo-message-body")?.append(area);
+    });
+}
+
+function apolloGenerationRequestId() {
+    return crypto.randomUUID();
+}
+
+function apolloDetachGenerationView(nextChatId) {
+    if (!apolloSending || (apolloActiveGenerationChatId
+        && Number(apolloActiveGenerationChatId) === Number(nextChatId))) return;
+    // Only the browser's progress reader is detached. The server-owned job
+    // keeps generating and can be resumed from History.
+    apolloActiveStreamController?.abort();
+    apolloActiveStreamController = null;
+    apolloActiveGenerationId = null;
+    apolloActiveGenerationChatId = null;
+    apolloSetGenerationActive(false);
+}
+
+async function apolloGenerationResponse(chatId, payload, signal, existingId = null) {
+    let generationId = existingId;
+    if (!generationId) {
+        sessionStorage.setItem("apolloPendingGenerationChat", String(chatId));
+        const start = await fetch(`/api/chats/${chatId}/generations`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "X-Apollo-Request": "chat-generation"},
+            body: JSON.stringify({...payload, request_id: apolloGenerationRequestId()}),
+            signal
+        });
+        const started = await start.json();
+        if (!start.ok) throw new Error(started.error || `Request failed (${start.status})`);
+        generationId = started.id;
+    }
+    if (Number(apolloChatId) !== Number(chatId)) throw new DOMException("View changed", "AbortError");
+    apolloActiveGenerationId = generationId;
+    apolloActiveGenerationChatId = Number(chatId);
+    sessionStorage.setItem("apolloPendingGenerationChat", String(chatId));
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+        start(controller) {
+            (async () => {
+            let previousContent = "";
+            let previousStatus = "";
+            let failures = 0;
+            const emit = event => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+            while (!signal.aborted) {
+                try {
+                    const response = await fetch(`/api/chats/${chatId}/generations/${generationId}`, {cache: "no-store", signal});
+                    if (!response.ok) throw new Error(`Progress unavailable (${response.status})`);
+                    const job = await response.json();
+                    failures = 0;
+                    if (job.status && job.status !== previousStatus) {
+                        emit({type: "status", status: job.status});
+                        previousStatus = job.status;
+                    }
+                    if (job.content && job.content !== previousContent) {
+                        if (job.content.startsWith(previousContent)) {
+                            emit({type: "content", content: job.content.slice(previousContent.length)});
+                        } else {
+                            emit({type: "content", content: job.content});
+                        }
+                        previousContent = job.content;
+                    }
+                    if (job.state === "complete") {
+                        emit({type: "done", message: job.message || {content: job.content || "", attachments: []}});
+                        sessionStorage.removeItem("apolloPendingGenerationChat");
+                        controller.close();
+                        break;
+                    }
+                    if (job.state === "silent") {
+                        emit({type: "silent"});
+                        sessionStorage.removeItem("apolloPendingGenerationChat");
+                        controller.close();
+                        break;
+                    }
+                    if (["error", "stopped", "interrupted"].includes(job.state)) {
+                        emit({type: "error", error: job.error || (job.state === "stopped" ? "Generation stopped" : "Generation interrupted")});
+                        sessionStorage.removeItem("apolloPendingGenerationChat");
+                        controller.close();
+                        break;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                } catch (error) {
+                    if (signal.aborted) break;
+                    failures += 1;
+                    apolloSetBackendStatus("Connection lost. Reconnecting to your response…");
+                    await new Promise(resolve => setTimeout(resolve, Math.min(5000, 500 * failures)));
+                }
+            }
+            if (signal.aborted) controller.close();
+            })().catch(error => controller.error(error));
+        }
+    });
+    return new Response(stream, {status: 200, headers: {"Content-Type": "text/event-stream"}});
+}
+
+async function apolloStopGeneration() {
+    const jobId = apolloActiveGenerationId;
+    const chatId = apolloActiveGenerationChatId;
+    if (!jobId || !chatId) return;
+    const response = await fetch(`/api/chats/${chatId}/generations/${jobId}/stop`, {
+        method: "POST", headers: {"X-Apollo-Request": "chat-generation"}
+    });
+    if (!response.ok) throw new Error(`Could not stop generation (${response.status})`);
+    apolloActiveStreamController?.abort();
+}
+
+async function apolloResumeChatGeneration(chatId) {
+    const response = await fetch(`/api/chats/${chatId}/generations/active`, {cache: "no-store"});
+    if (!response.ok) return;
+    const {generation: job} = await response.json();
+    if (!job || job.id === apolloActiveGenerationId) return;
+    const controller = new AbortController();
+    apolloActiveStreamController = controller;
+    apolloActiveGenerationId = job.id;
+    apolloActiveGenerationChatId = Number(chatId);
+    apolloSetGenerationActive(true);
+    if (Number(apolloChatId) === Number(chatId)) apolloShowTyping("Continuing response", false);
+    let rendered = null;
+    let renderer = null;
+    let priorContent = "";
+    while (!controller.signal.aborted) {
+        try {
+            const progress = await fetch(`/api/chats/${chatId}/generations/${job.id}`, {cache: "no-store", signal: controller.signal});
+            if (!progress.ok) throw new Error(`Progress unavailable (${progress.status})`);
+            const current = await progress.json();
+            if (Number(apolloChatId) === Number(chatId) && current.content && current.content !== priorContent) {
+                if (!rendered) {
+                    const promoted = apolloPromotePendingAssistant();
+                    if (promoted) {
+                        rendered = promoted.message;
+                        renderer = window.ApolloGenUI?.createStreamRenderer?.(promoted.text, {scrollElement: apolloMessages}) || null;
+                    }
+                }
+                if (renderer) renderer.update(current.content);
+                else if (rendered) rendered.querySelector(".apollo-message-text").textContent = current.content;
+            }
+            priorContent = current.content || priorContent;
+            if (current.state !== "running") {
+                sessionStorage.removeItem("apolloPendingGenerationChat");
+                if (Number(apolloChatId) === Number(chatId)) {
+                    apolloHideTyping();
+                    await apolloHistoryOpenChat(chatId);
+                }
+                break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 700));
+        } catch (error) {
+            if (controller.signal.aborted) break;
+            apolloSetBackendStatus("Connection lost. Reconnecting to your response…");
+            await new Promise(resolve => setTimeout(resolve, 2500));
+        }
+    }
+    if (apolloActiveStreamController === controller) {
+        apolloActiveStreamController = null;
+        apolloActiveGenerationId = null;
+        apolloActiveGenerationChatId = null;
+        apolloSetGenerationActive(false);
+    }
+}
 
 /* APOLLO CHAT SESSION FRESHNESS */
 const APOLLO_CHAT_IDLE_MS =
@@ -22485,12 +22697,7 @@ function apolloSetGenerationActive(active) {
 }
 const apolloMessages = document.getElementById("apolloMessages");
 const apolloWelcome = document.getElementById("apolloWelcome");
-new MutationObserver(() => {
-    if (!apolloView.classList.contains("active") && apolloActiveStreamController) {
-        apolloActiveStreamController.abort();
-        apolloHideTyping();
-    }
-}).observe(apolloView, {attributes: true, attributeFilter: ["class"]});
+// Generations belong to the server and continue through view changes.
 
 
 /* =========================================================
@@ -22539,14 +22746,107 @@ const apolloComposer =
 
 const apolloPulse = document.getElementById("apolloPulse");
 let apolloPulseDismissed = false;
-let apolloPulseLoaded = false;
+let apolloPulseLastRefresh = 0;
 let apolloPulseSignature = "";
 let apolloPulseRefreshGeneration = 0;
+const apolloPulseFeedbackKey = "apolloPulseFeedbackV2";
+const apolloPulseIconPaths = {
+    tasks: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="m8 10 1.5 1.5L12 9M14 10h4M8 16h10"/>',
+    canvas: '<path d="M12 7v14M3 18V5a2 2 0 0 1 2-2h4a3 3 0 0 1 3 3 3 3 0 0 1 3-3h4a2 2 0 0 1 2 2v13a2 2 0 0 0-2-2h-4a3 3 0 0 0-3 3 3 3 0 0 0-3-3H5a2 2 0 0 0-2 2Z"/>',
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01"/>',
+    whoop: '<path d="M22 12h-4l-3 8-5-16-3 8H2"/>',
+    planning: '<circle cx="12" cy="12" r="9"/><path d="m16 8-2.5 5.5L8 16l2.5-5.5L16 8Z"/>',
+    analysis: '<path d="M3 3v18h18M7 16l4-4 3 2 5-6"/>',
+    evening: '<path d="M20.9 13a9 9 0 0 1-9.9-9.9A9 9 0 1 0 20.9 13Z"/>',
+    close: '<path d="M18 6 6 18M6 6l12 12"/>'
+};
+
+function apolloPulseIcon(kind) {
+    const holder = document.createElement("span");
+    holder.className = "apollo-pulse-icon";
+    holder.setAttribute("aria-hidden", "true");
+    if (kind === "spotify") {
+        const image = document.createElement("img");
+        image.src = "/vendor/spotify/icon-green.svg";
+        image.alt = "";
+        holder.append(image);
+    } else {
+        holder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">${apolloPulseIconPaths[kind] || apolloPulseIconPaths.planning}</svg>`;
+    }
+    return holder;
+}
+
+function apolloPulseFeedback() {
+    try {
+        const value = JSON.parse(localStorage.getItem(apolloPulseFeedbackKey) || "{}");
+        return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    }
+    catch { return {}; }
+}
+
+function apolloPulseSuppresses(suggestion, feedback, now = Date.now()) {
+    const previous = feedback[suggestion.id];
+    return Boolean(previous && previous.fingerprint === suggestion.fingerprint
+        && now - previous.at < (previous.kind === "selected" ? 24 : 12) * 3600000);
+}
+
+function apolloPulseRemember(suggestion, kind) {
+    const feedback = apolloPulseFeedback();
+    feedback[suggestion.id] = {kind, fingerprint: suggestion.fingerprint, at: Date.now()};
+    try { localStorage.setItem(apolloPulseFeedbackKey, JSON.stringify(feedback)); } catch {}
+}
+
+function apolloPulseRank(data, now = new Date()) {
+    const suggestions = [];
+    const add = (id, icon, label, prompt, score, fingerprint) =>
+        suggestions.push({id, icon, label, prompt, score, fingerprint: String(fingerprint)});
+    const active = (data.tasks || []).filter(task => task.active !== false && !task.completed);
+    const canvas = active.filter(task => task.source === "canvas");
+    const personal = active.filter(task => task.source !== "canvas");
+    const nextDue = rows => rows.map(task => Date.parse(task.due_at || task.due_date || ""))
+        .filter(Number.isFinite).sort((a, b) => a - b)[0];
+    const canvasDue = nextDue(canvas), taskDue = nextDue(personal);
+    if (canvas.length && Number.isFinite(canvasDue) && canvasDue - now < 3 * 86400000)
+        add("canvas-due", "canvas", `${canvas.length} Canvas assignment${canvas.length === 1 ? "" : "s"} to plan`,
+            "Review my upcoming Canvas assignments and help me plan what to do next.", 95,
+            `${canvas.length}:${canvasDue}`);
+    if (personal.length) add("tasks", "tasks", Number.isFinite(taskDue) && taskDue - now < 86400000
+        ? "Plan my tasks due soon" : `Prioritize my ${personal.length} open task${personal.length === 1 ? "" : "s"}`,
+        "Review my open tasks and help me prioritize the next steps.",
+        Number.isFinite(taskDue) && taskDue - now < 86400000 ? 90 : 60,
+        `${personal.length}:${taskDue || "none"}`);
+    const upcoming = (data.events || []).map(event => ({event, at: Date.parse(event.start?.dateTime || event.start?.date || "")}))
+        .filter(item => Number.isFinite(item.at) && item.at >= now - 3600000).sort((a, b) => a.at - b.at)[0];
+    if (upcoming) add("calendar", "calendar", upcoming.at - now < 86400000
+        ? "Prepare for my next Google Calendar event" : "Review my Google Calendar",
+        "Review my upcoming Google Calendar events and help me prepare for the next one.",
+        upcoming.at - now < 86400000 ? 85 : 55, upcoming.at);
+    const whoop = data.whoop;
+    const recovery = Number(whoop?.summary?.recovery?.score);
+    if (whoop?.status === "ready" && Number.isFinite(recovery))
+        add("whoop", "whoop", recovery < 34 ? "Plan around low recovery" : "Review my WHOOP recovery",
+            "Review my latest WHOOP recovery and sleep data and help me plan today.",
+            recovery < 34 ? 92 : 48, `${now.toDateString()}:${recovery < 34 ? "low" : "normal"}`);
+    const music = data.music;
+    const topArtist = music?.top?.artists?.[0]?.name;
+    if (music?.events > 0 && data.spotifyConnected)
+        add("spotify", "spotify", topArtist ? `Explore Spotify listening to ${topArtist}` : "Explore this week's Spotify listening",
+            "Explore my recent Spotify listening patterns, using my recorded history and its coverage limits.",
+            45, `${music.period?.first_date}:${music.events}`);
+    const hour = now.getHours();
+    add("planning", hour >= 18 ? "evening" : "planning", hour >= 18 ? "Plan tomorrow" : "Plan my day",
+        hour >= 18 ? "Help me plan tomorrow based on what I need to do." : "Help me make a practical plan for today. Ask what matters if you need context.",
+        25, now.toDateString() + (hour >= 18 ? ":evening" : ":day"));
+    add("analysis", "analysis", "Talk through a decision", "Help me think through a decision. Ask me what I am deciding.", 15, now.toDateString());
+    const feedback = apolloPulseFeedback();
+    return suggestions.filter(item => !apolloPulseSuppresses(item, feedback, now.getTime()))
+        .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)).slice(0, 3);
+}
 
 function apolloPulseSync() {
     if (!apolloPulse) return;
     const empty = !apolloMessages.querySelector(".apollo-message")
-        && !apolloInput.value.trim();
+        && !apolloInput.value.trim() && !apolloAttachmentTray.classList.contains("has-items");
     apolloPulse.classList.toggle("is-hidden", !empty || apolloPulseDismissed);
     apolloPulse.setAttribute("aria-hidden", !empty || apolloPulseDismissed ? "true" : "false");
     apolloPulse.inert = !empty || apolloPulseDismissed;
@@ -22556,79 +22856,79 @@ function apolloPulseSync() {
 }
 
 async function apolloPulseRefresh(force = false) {
-    if (!apolloPulse || (apolloPulseLoaded && !force)) return;
-    apolloPulseLoaded = true;
+    if (!apolloPulse || Date.now() - apolloPulseLastRefresh < (force ? 20000 : 300000)) return;
+    apolloPulseLastRefresh = Date.now();
     const generation = ++apolloPulseRefreshGeneration;
-    const [tasksResult, connectionsResult] = await Promise.allSettled([
-        fetch("/api/tasks", {cache: "no-store"}).then(response => {
-            if (!response.ok) throw new Error("Tasks unavailable");
-            return response.json();
-        }),
-        fetch("/api/connections", {cache: "no-store"}).then(response => {
-            if (!response.ok) throw new Error("Connections unavailable");
-            return response.json();
-        })
-    ]);
+    const get = async path => { const response = await fetch(path, {cache: "no-store", signal: AbortSignal.timeout(5000)});
+        if (!response.ok) throw new Error(`Pulse source unavailable (${response.status})`);
+        return response.json(); };
+    const [tasksResult, connectionsResult] = await Promise.allSettled([get("/api/tasks"), get("/api/connections")]);
     if (generation !== apolloPulseRefreshGeneration) return;
-    const suggestions = [];
     const tasks = tasksResult.status === "fulfilled"
         && Array.isArray(tasksResult.value.tasks) ? tasksResult.value.tasks : [];
-    const openTasks = tasks.filter(task => task.active !== false && !task.completed);
-    if (openTasks.length) suggestions.push({
-        icon: "✓", label: `Prioritize my ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}`,
-        prompt: "Review my open tasks and help me prioritize them."
-    });
     const integrations = connectionsResult.status === "fulfilled"
         && Array.isArray(connectionsResult.value.integrations)
         ? connectionsResult.value.integrations : [];
     const connected = id => integrations.some(item => item.id === id && item.connected);
-    if (connected("google_calendar") || connected("canvas_calendar")) suggestions.push({
-        icon: "▦", label: "Review my upcoming calendar",
-        prompt: "Review my upcoming calendar events and help me prepare."
-    });
-    if (connected("spotify")) suggestions.push({
-        icon: "♫", label: "Explore my listening trends",
-        prompt: "Explore my recent Spotify listening trends."
-    });
-    if (suggestions.length < 2) suggestions.push({
-        icon: "↗", label: "Help me plan today",
-        prompt: "Help me make a practical plan for today. Ask what matters if you need context."
-    });
-    if (suggestions.length < 2) suggestions.push({
-        icon: "◇", label: "Talk through a decision",
-        prompt: "Help me think through a decision. Ask me what I am deciding."
-    });
-    const signature = JSON.stringify(suggestions.slice(0, 3));
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const reads = await Promise.allSettled([
+        connected("google_calendar") ? get(`/api/calendar/events?days=7&time_zone=${encodeURIComponent(zone)}`) : Promise.resolve(null),
+        connected("spotify") ? get(`/api/music/analytics?period=weekly&timezone=${encodeURIComponent(zone)}`) : Promise.resolve(null),
+        connected("whoop") ? get("/api/whoop/summary") : Promise.resolve(null)
+    ]);
+    if (generation !== apolloPulseRefreshGeneration) return;
+    const value = index => reads[index].status === "fulfilled" ? reads[index].value : null;
+    const suggestions = apolloPulseRank({tasks, events: value(0)?.events || [], music: value(1),
+        whoop: value(2), spotifyConnected: connected("spotify")})
+        .slice(0, window.innerWidth <= 700 ? 2 : 3);
+    const signature = JSON.stringify(suggestions);
     if (signature === apolloPulseSignature) {
         apolloPulseSync();
         return;
     }
     apolloPulseSignature = signature;
     apolloPulse.replaceChildren();
-    suggestions.slice(0, 3).forEach((suggestion, index) => {
+    suggestions.forEach((suggestion, index) => {
+        const entry = document.createElement("span");
+        entry.className = "apollo-pulse-entry";
         const button = document.createElement("button");
         button.type = "button";
         button.className = "apollo-pulse-item";
         button.style.setProperty("--pulse-delay", `${index * 65}ms`);
-        const icon = document.createElement("span");
-        icon.className = "apollo-pulse-icon";
-        icon.setAttribute("aria-hidden", "true");
-        icon.textContent = suggestion.icon;
         const label = document.createElement("span");
         label.textContent = suggestion.label;
-        button.append(icon, label);
+        button.append(apolloPulseIcon(suggestion.icon), label);
+        button.setAttribute("aria-label", suggestion.label);
         button.addEventListener("click", () => {
             if (apolloSending) return;
+            apolloPulseRemember(suggestion, "selected");
+            apolloPulseLastRefresh = 0;
             apolloPulseDismissed = true;
             apolloInput.value = suggestion.prompt;
             apolloPulseSync();
             apolloSendMessage();
         });
-        apolloPulse.appendChild(button);
+        const dismiss = document.createElement("button");
+        dismiss.type = "button";
+        dismiss.className = "apollo-pulse-dismiss";
+        dismiss.setAttribute("aria-label", `Dismiss ${suggestion.label}`);
+        dismiss.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">${apolloPulseIconPaths.close}</svg>`;
+        dismiss.addEventListener("click", () => {
+            apolloPulseRemember(suggestion, "dismissed");
+            apolloPulseLastRefresh = 0;
+            apolloPulseRefresh(true).catch(() => {});
+        });
+        entry.append(button, dismiss);
+        apolloPulse.appendChild(entry);
     });
     apolloPulseSync();
 }
 
+if (apolloComposer && apolloPulse) {
+    const measure = () => apolloPulse.parentElement?.style.setProperty("--apollo-composer-height", `${apolloComposer.getBoundingClientRect().height}px`);
+    measure();
+    new ResizeObserver(measure).observe(apolloComposer);
+}
 apolloPulseSync();
 apolloPulseRefresh().catch(() => {});
 new MutationObserver(() => {
@@ -22638,6 +22938,12 @@ new MutationObserver(() => {
     }
     apolloPulseSync();
 }).observe(apolloMessages, {childList: true});
+document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) apolloPulseRefresh().catch(() => {});
+});
+setInterval(() => {
+    if (!document.hidden && !apolloPulse?.classList.contains("is-hidden")) apolloPulseRefresh().catch(() => {});
+}, 300000);
 
 
 let apolloPendingAttachments =
@@ -23522,8 +23828,6 @@ function openApollo() {
 }
 
 function openHome() {
-    apolloActiveStreamController?.abort();
-    apolloHideTyping();
     apolloView.classList.remove("active");
     apolloHome.classList.remove("hidden");
 
@@ -24558,21 +24862,15 @@ async function apolloRetryMessage(message) {
             false
         );
 
-        const response = await fetch(
-            `/api/chats/${requestChatId}/messages`,
-            {
-                method: "POST",
-                signal: streamController.signal,
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
+        const response = await apolloGenerationResponse(
+            requestChatId,
+                {
                     content: userMessage,
                     retry: true,
                     client_context:
                         apolloGetClientContext()
-                })
-            }
+                },
+            streamController.signal
         );
 
         if (!response.ok) {
@@ -24692,6 +24990,12 @@ async function apolloRetryMessage(message) {
                         );
                     }
 
+                    if (data.type === "silent") {
+                        streamCompleted = true;
+                        if (isRequestChatVisible()) apolloHideTyping();
+                        continue;
+                    }
+
                     if (data.type === "done") {
                         streamCompleted = true;
 
@@ -24722,6 +25026,7 @@ async function apolloRetryMessage(message) {
                             if (streamedRoot && finalRendered?.isConnected) {
                                 finalRendered.replaceWith(streamedRoot);
                             }
+                            apolloMaybeAddFollowups(newMessage || finalRendered?.closest(".apollo-message"), userMessage, assistantContent);
                             newMessage?.classList.remove("apollo-response-fade");
                         } else {
                             newMessage?.remove();
@@ -24742,7 +25047,7 @@ async function apolloRetryMessage(message) {
 
     } catch (error) {
 
-        apolloHideTyping();
+        if (isRequestChatVisible()) apolloHideTyping();
         apolloFinalizeInterruptedStream(
             apolloStreamRenderer,
             apolloStreamingMessage,
@@ -24769,8 +25074,12 @@ async function apolloRetryMessage(message) {
 
     } finally {
 
-        if (apolloActiveStreamController === streamController) apolloActiveStreamController = null;
-        apolloSetGenerationActive(false);
+        if (apolloActiveStreamController === streamController) {
+            apolloActiveStreamController = null;
+            apolloActiveGenerationId = null;
+            apolloActiveGenerationChatId = null;
+            apolloSetGenerationActive(false);
+        }
         if (typeof apolloRefreshHistory === "function") {
             apolloRefreshHistory().catch(() => {});
         }
@@ -25889,15 +26198,9 @@ if (apolloChatIsStale()) {
             );
         }
 
-        const response = await fetch(
-            `/api/chats/${apolloChatId}/messages`,
-            {
-                method: "POST",
-                signal: streamController.signal,
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
+        const response = await apolloGenerationResponse(
+            requestChatId,
+                {
                     content:
                         content
                         || "Please inspect the attached file.",
@@ -25910,8 +26213,8 @@ if (apolloChatIsStale()) {
 
                     client_context:
                         apolloGetClientContext()
-                })
-            }
+                },
+            streamController.signal
         );
 
         /*
@@ -26053,6 +26356,12 @@ if (!response.ok) {
                         );
                     }
 
+                    if (data.type === "silent") {
+                        streamCompleted = true;
+                        if (isRequestChatVisible()) apolloHideTyping();
+                        continue;
+                    }
+
                     if (data.type === "done") {
                         streamCompleted = true;
 
@@ -26088,6 +26397,7 @@ if (!response.ok) {
                             if (streamedRoot && finalRendered?.isConnected) {
                                 finalRendered.replaceWith(streamedRoot);
                             }
+                            apolloMaybeAddFollowups(message || finalRendered?.closest(".apollo-message"), content, assistantContent);
                             message?.classList.remove("apollo-response-fade");
 
                         } else {
@@ -26118,7 +26428,7 @@ if (!response.ok) {
 
     } catch (error) {
 
-        apolloHideTyping();
+        if (requestIsVisible()) apolloHideTyping();
         if (!userMessageAdded && content) {
             apolloInput.value = content;
             apolloInput.dispatchEvent(new Event("input", {bubbles: true}));
@@ -26139,8 +26449,12 @@ if (!response.ok) {
 
     } finally {
 
-        if (apolloActiveStreamController === streamController) apolloActiveStreamController = null;
-        apolloSetGenerationActive(false);
+        if (apolloActiveStreamController === streamController) {
+            apolloActiveStreamController = null;
+            apolloActiveGenerationId = null;
+            apolloActiveGenerationChatId = null;
+            apolloSetGenerationActive(false);
+        }
         if (typeof apolloRefreshHistory === "function") {
             /*
              * The visible `done` event intentionally arrives before optional
@@ -26168,7 +26482,7 @@ if (navButtons[1]) {
 apolloSend.addEventListener(
     "click",
     () => {
-        if (apolloSending) apolloActiveStreamController?.abort();
+        if (apolloSending) apolloStopGeneration().catch(error => console.error("Apollo stop:", error));
         else apolloSendMessage();
     }
 );
@@ -26806,8 +27120,6 @@ async function apolloRefreshHistory() {
 
 
 async function apolloHistoryOpenChat(id) {
-    apolloActiveStreamController?.abort();
-    apolloHideTyping();
 
     if (
         typeof window.apolloCloseHistory
@@ -26833,6 +27145,7 @@ async function apolloHistoryOpenChat(id) {
 
         const data = await response.json();
 
+        apolloDetachGenerationView(data.chat.id);
         apolloChatId = data.chat.id;
 
         apolloMessages.innerHTML = "";
@@ -26874,6 +27187,7 @@ async function apolloHistoryOpenChat(id) {
         await apolloRefreshHistory();
 
         apolloInput.focus();
+        apolloResumeChatGeneration(id).catch(error => console.error("Apollo resume:", error));
 
     } catch (error) {
 
@@ -26886,8 +27200,6 @@ async function apolloHistoryOpenChat(id) {
 
 
 function apolloHistoryNewChat() {
-    apolloActiveStreamController?.abort();
-    apolloHideTyping();
 
     const view =
         document.getElementById(
@@ -26944,6 +27256,7 @@ function apolloHistoryNewChat() {
     window.setTimeout(
         () => {
 
+            apolloDetachGenerationView(null);
             apolloChatId = null;
             apolloChatCreatePromise = null;
 
@@ -27123,6 +27436,8 @@ if (
 requestAnimationFrame(() => {
     setTimeout(() => {
         apolloRefreshHistory().catch(() => {});
+        const pendingChat = Number(sessionStorage.getItem("apolloPendingGenerationChat"));
+        if (pendingChat > 0) apolloHistoryOpenChat(pendingChat);
     }, 250);
 });
 
