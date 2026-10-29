@@ -38,13 +38,13 @@ const origin = process.env.APOLLO_TEST_URL || 'http://127.0.0.1:8895';
       await page.waitForFunction(() => !document.documentElement.classList.contains('apollo-security-pending'));
       await page.evaluate(() => window.openSettings());
       const disclosure = name => page.locator('.apollo-settings-disclosure').filter({hasText:name}).first();
-      for (const name of ['Memory & conversation history','Notifications','Notification history','Privacy & Security · Tab Locks']) {
+      for (const name of ['Memory & conversation history','Notifications','Notification history','Privacy & Security']) {
         const button = disclosure(name);
         await button.waitFor();
         assert.equal(await button.getAttribute('aria-expanded'), 'false', name);
       }
-      await disclosure('Privacy & Security · Tab Locks').click();
-      assert.equal(await disclosure('Privacy & Security · Tab Locks').getAttribute('aria-expanded'), 'true');
+      await disclosure('Privacy & Security').click();
+      assert.equal(await disclosure('Privacy & Security').getAttribute('aria-expanded'), 'true');
       const token = page.getByPlaceholder('Operator setup token');
       await token.waitFor({state:'visible'});
       assert.equal(await token.getAttribute('type'), 'password');

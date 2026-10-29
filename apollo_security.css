@@ -16,10 +16,10 @@ body.apollo-security-conceal .main > :not(#apolloSecurityLock) {
     color: var(--text, #fff);
 }
 body.apollo-security-conceal #apolloSecurityLock { display: flex; }
-.apollo-security-card { width: min(100%, 360px); text-align: center; }
+.apollo-security-card { width: min(100%, 380px); text-align: center; }
 .apollo-security-card svg { width: 28px; height: 28px; stroke: currentColor; fill: none; stroke-width: 1.6; }
-.apollo-security-card h2 { margin: 20px 0 8px; font-size: 22px; font-weight: 600; letter-spacing: -.03em; }
-.apollo-security-card p { margin: 0 0 24px; color: var(--muted, #aaa); font-size: 13px; line-height: 1.55; }
+.apollo-security-card h2 { margin: 16px 0 6px; font-size: 22px; font-weight: 600; letter-spacing: -.03em; }
+.apollo-security-card p { margin: 0 0 22px; color: var(--muted, #aaa); font-size: 13px; line-height: 1.55; }
 .apollo-security-card button, .apollo-security-settings button {
     cursor: pointer; border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
     background: var(--surface, #222); color: inherit; border-radius: 10px;
@@ -27,24 +27,53 @@ body.apollo-security-conceal #apolloSecurityLock { display: flex; }
 }
 .apollo-security-card button:focus-visible, .apollo-security-settings button:focus-visible,
 .apollo-security-card input:focus-visible, .apollo-security-settings input:focus-visible,
-.apollo-security-settings select:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.apollo-security-settings select:focus-visible, .apollo-security-card summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .apollo-security-card button:disabled { opacity: .5; cursor: default; }
 .apollo-security-card .apollo-security-primary { width: 100%; background: var(--text, #fff); color: var(--bg, #111); }
 .apollo-security-card .apollo-security-secondary { margin-top: 10px; width: 100%; }
+.apollo-security-card .apollo-security-methods { margin-top: 12px; text-align: left; }
+.apollo-security-card .apollo-security-methods summary { cursor: pointer; text-align: center; list-style: none; padding: 9px; color: var(--muted, #aaa); font-size: 13px; }
+.apollo-security-card .apollo-security-methods summary::-webkit-details-marker { display: none; }
+.apollo-security-card .apollo-security-methods summary:hover { color: var(--text, #fff); }
+.apollo-security-card .apollo-security-methods[open] summary { margin-bottom: 8px; }
+.apollo-security-card .apollo-security-secret-label { display: block; margin: 0 0 7px; font-size: 12px; color: var(--muted, #aaa); }
+.apollo-security-card .apollo-security-link { display: block; margin: 8px auto 0; min-height: 36px; padding: 6px 9px; border: 0; background: transparent; color: var(--muted, #aaa); font-size: 12px; }
+.apollo-security-card .apollo-security-link:hover { color: var(--text, #fff); }
 .apollo-security-card input, .apollo-security-settings input, .apollo-security-settings select {
     width: 100%; min-height: 42px; padding: 9px 12px; border-radius: 9px;
     border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
     background: var(--surface, #222); color: inherit; font: inherit;
 }
 .apollo-security-card .apollo-security-feedback { margin-top: 14px; min-height: 20px; font-size: 12px; }
-.apollo-security-settings { display: grid; gap: 16px; }
+.apollo-security-settings { display: grid; gap: 12px; max-width: 680px; }
+.apollo-security-settings form { display: grid; gap: 12px; }
+.apollo-security-settings .apollo-security-group { padding: 15px 17px; border: 1px solid color-mix(in srgb, currentColor 10%, transparent); border-radius: 12px; }
+.apollo-security-settings .apollo-security-group h3 { margin: 0 0 5px; font-size: 14px; font-weight: 600; letter-spacing: -.015em; }
+.apollo-security-settings .apollo-security-group p { margin: 0 0 12px; color: var(--muted, #aaa); font-size: 12px; line-height: 1.5; }
+.apollo-security-settings .apollo-security-verify { min-height: 36px; padding: 7px 11px; font-size: 12px; }
+.apollo-security-settings .apollo-security-tab-group fieldset { display: grid; gap: 3px; }
+.apollo-security-settings .apollo-security-credentials-group fieldset { display: grid; gap: 8px; margin-top: 10px; }
+.apollo-security-settings .apollo-security-privacy-group > label { margin: 4px 0; }
+.apollo-security-settings .apollo-security-privacy-group button[type="submit"] { margin-top: 10px; }
+.apollo-security-settings .apollo-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .apollo-security-settings fieldset { border: 0; padding: 0; margin: 0; }
 .apollo-security-settings legend { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
 .apollo-security-settings label { display: flex; align-items: center; gap: 10px; min-height: 38px; font-size: 13px; }
 .apollo-security-settings label input[type="checkbox"] { width: 18px; min-height: 18px; }
 .apollo-security-settings label select { width: auto; margin-left: auto; }
+.apollo-security-settings label select[hidden] { display: none; }
 .apollo-security-settings .apollo-security-row { display: flex; align-items: center; gap: 12px; }
 .apollo-security-settings .apollo-security-row > * { flex: 1; }
 .apollo-security-settings .apollo-security-message { white-space: pre-wrap; font-size: 12px; line-height: 1.5; }
 .apollo-security-settings .apollo-security-codes { overflow-wrap: anywhere; user-select: all; }
-@media (max-width: 760px) { #apolloSecurityLock { position: fixed; left: 0; right: 0; top: 0; bottom: 0; z-index: 1000; } }
+@media (max-width: 760px) {
+    #apolloSecurityLock { position: fixed; left: 0; right: 0; top: 0; bottom: 0; z-index: 1000; }
+    .apollo-security-settings .apollo-security-group { padding: 13px 14px; }
+    .apollo-security-settings .apollo-security-tab-group label { flex-wrap: wrap; }
+    .apollo-security-settings .apollo-security-tab-group label select:not([hidden]) { width: 100%; margin: 0 0 8px 28px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+    .apollo-security-card .apollo-security-methods[open] input,
+    .apollo-security-card .apollo-security-methods[open] button { animation: apollo-security-reveal .2s ease-out both; }
+    @keyframes apollo-security-reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+}

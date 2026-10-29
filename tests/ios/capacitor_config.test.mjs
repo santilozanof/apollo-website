@@ -15,11 +15,22 @@ const oledCSS = await readFile(new URL("../../apollo_oled.css", import.meta.url)
 const originalA = await readFile(new URL("../../ios/Artwork/apollo-original-a.svg", import.meta.url), "utf8");
 const artworkGenerator = await readFile(new URL("../../scripts/generate-ios-artwork.swift", import.meta.url), "utf8");
 const sceneDelegate = await readFile(new URL("../../ios/App/App/SceneDelegate.swift", import.meta.url), "utf8");
+const entitlements = await readFile(new URL("../../ios/App/App/App.entitlements", import.meta.url), "utf8");
+const project = await readFile(new URL("../../ios/App/App.xcodeproj/project.pbxproj", import.meta.url), "utf8");
+const association = JSON.parse(await readFile(new URL("../../.well-known/apple-app-site-association", import.meta.url), "utf8"));
 
 test("uses the private HTTPS Tailscale origin without cleartext fallback", () => {
   assert.match(config, /https:\/\/ubuntu-2gb-hel1-1\.tailc5eaaa\.ts\.net/);
   assert.match(config, /cleartext:\s*false/);
   assert.doesNotMatch(config, /allowNavigation/);
+});
+
+test("binds native passkeys to Apollo's exact private origin and existing app ID", () => {
+  assert.match(entitlements, /webcredentials:ubuntu-2gb-hel1-1\.tailc5eaaa\.ts\.net\?mode=developer/);
+  assert.deepEqual(association, {webcredentials: {apps: ["9XP7Z4T89D.com.santilozano.apollo"]}});
+  assert.equal((project.match(/CODE_SIGN_ENTITLEMENTS = App\/App\.entitlements/g) || []).length, 1);
+  assert.match(config, /appId: "com\.santilozano\.apollo"/);
+  assert.doesNotMatch(entitlements, /applinks:/);
 });
 
 test("keeps native integration optional for the production website", () => {

@@ -9,6 +9,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -21,12 +22,16 @@ from http.cookies import SimpleCookie
 from pathlib import Path
 
 
-TABS = frozenset({'chat', 'music', 'calendar', 'tasks', 'routines', 'debrief', 'studio'})
+TABS = frozenset({'chat', 'music', 'calendar', 'tasks', 'routines', 'debrief', 'studio', 'settings'})
 POLICIES = frozenset({'leave', '5m', '15m'})
 LEVELS = frozenset({'standard', 'enhanced', 'maximum'})
+LEAVE_LEASE_SECONDS = 3600  # Crash/network fallback; active pages renew, navigation revokes.
+SETTINGS_MUTATION_FRESH_SECONDS = 90
+LOGGER = logging.getLogger(__name__)
 ORIGIN = os.environ.get('APOLLO_SECURITY_ORIGIN', 'https://ubuntu-2gb-hel1-1.tailc5eaaa.ts.net').rstrip('/')
 RP_ID = urllib.parse.urlparse(ORIGIN).hostname
 COOKIE = '__Host-apollo-stepup'
+TAB_HEADER = 'X-Apollo-Security-Tab'
 
 
 def init_schema(conn):
@@ -71,6 +76,15 @@ def _digest(token):
     return hashlib.sha256(token.encode('utf-8')).digest()
 
 
+def _grant_resource(handler, resource):
+    if resource != 'settings':
+        return resource
+    tab = handler.headers.get(TAB_HEADER, '')
+    if not re.fullmatch(r'[0-9a-f]{32}', tab):
+        return None
+    return 'settings:' + tab
+
+
 def _cookie(handler):
     try:
         cookies = SimpleCookie(handler.headers.get('Cookie', ''))
@@ -85,11 +99,12 @@ def _grant(conn, handler, resource):
 
 def _grant_details(conn, handler, resource):
     token = _cookie(handler)
-    if not token:
+    grant_resource = _grant_resource(handler, resource)
+    if not token or not grant_resource:
         return None
     row = conn.execute('SELECT expires_at FROM apollo_security_grants WHERE token_digest=? AND resource=?',
-                       (_digest(token), resource)).fetchone()
-    return (_digest(token), row[0], resource) if row and row[0] > int(time.time()) else None
+                       (_digest(token), grant_resource)).fetchone()
+    return (_digest(token), row[0], grant_resource) if row and row[0] > int(time.time()) else None
 
 
 def generation_grant_active(job):
@@ -202,8 +217,11 @@ def _verified(conn):
 
 def _issue(conn, handler, resource, config):
     now = int(time.time())
+    grant_resource = _grant_resource(handler, resource)
+    if not grant_resource:
+        raise ValueError('A secure browser tab identifier is required')
     duration = config.get('tabs', {}).get(resource, '5m')
-    ttl = 30 if duration == 'leave' else 900 if duration == '15m' else 300
+    ttl = LEAVE_LEASE_SECONDS if duration == 'leave' else 900 if duration == '15m' else 300
     existing = _cookie(handler)
     known = bool(existing and conn.execute(
         'SELECT 1 FROM apollo_security_grants WHERE token_digest=? AND expires_at>? LIMIT 1',
@@ -212,12 +230,24 @@ def _issue(conn, handler, resource, config):
     conn.execute('DELETE FROM apollo_security_grants WHERE expires_at<?', (now,))
     conn.execute('INSERT INTO apollo_security_grants(token_digest,resource,verified_at,expires_at) VALUES(?,?,?,?) '
                  'ON CONFLICT(token_digest,resource) DO UPDATE SET verified_at=excluded.verified_at,expires_at=excluded.expires_at',
-                 (_digest(token), resource, now, now + ttl))
+                 (_digest(token), grant_resource, now, now + ttl))
     return token, now + ttl
 
 
+def _recent_settings_grant(conn, handler):
+    token = _cookie(handler)
+    grant_resource = _grant_resource(handler, 'settings')
+    if not token or not grant_resource:
+        return False
+    now = int(time.time())
+    return bool(conn.execute(
+        'SELECT 1 FROM apollo_security_grants WHERE token_digest=? AND resource=? '
+        'AND expires_at>? AND verified_at>=?',
+        (_digest(token), grant_resource, now, now - SETTINGS_MUTATION_FRESH_SECONDS)).fetchone())
+
+
 def _valid_resource(resource):
-    return resource in TABS or resource in {'whoop', 'notifications', 'connections', 'settings'}
+    return resource in TABS or resource in {'whoop', 'notifications', 'connections'}
 
 
 def _challenge(conn, purpose, resource):
@@ -314,6 +344,8 @@ def _security_api(server, handler, method, path):
                              'protect_spotify': bool(config.get('protect_spotify')),
                              'enrolled': enrolled,
                              'passkeys': conn.execute('SELECT COUNT(*) FROM apollo_security_webauthn').fetchone()[0],
+                             'recovery_available': conn.execute('SELECT COUNT(*) FROM apollo_security_recovery WHERE used_at IS NULL').fetchone()[0]
+                                 if _grant(conn, handler, 'settings') else None,
                              'unlocked': unlocked})
             return True
         if method == 'GET' and path == '/api/security/passkeys':
@@ -389,16 +421,36 @@ def _security_api(server, handler, method, path):
             if resource and not _valid_resource(resource):
                 raise ValueError('Unknown protected resource')
             if resource:
+                grant_resource = _grant_resource(handler, resource)
+                if not grant_resource:
+                    raise ValueError('A secure browser tab identifier is required')
                 conn.execute('DELETE FROM apollo_security_grants WHERE token_digest=? AND resource=?',
-                             (_digest(_cookie(handler)), resource))
+                             (_digest(_cookie(handler)), grant_resource))
             else:
                 conn.execute('DELETE FROM apollo_security_grants WHERE token_digest=?', (_digest(_cookie(handler)),))
             conn.commit()
+            LOGGER.info('Apollo security grant revoked: resource=%s', resource or 'all')
             _reply(handler, {'revoked': True}, clear=not resource)
             return True
+        if path == '/api/security/heartbeat':
+            resource = str(payload.get('resource') or '')
+            if resource not in TABS or config.get('tabs', {}).get(resource) != 'leave':
+                _reply(handler, {'error': 'No leave-policy grant to renew'}, 400)
+                return True
+            if not _grant(conn, handler, resource):
+                LOGGER.info('Apollo security lease renewal denied: resource=%s', resource)
+                _reply(handler, {'error': 'verification_required', 'resource': resource}, 423)
+                return True
+            expiry = int(time.time()) + LEAVE_LEASE_SECONDS
+            grant_resource = _grant_resource(handler, resource)
+            conn.execute('UPDATE apollo_security_grants SET expires_at=? WHERE token_digest=? AND resource=?',
+                         (expiry, _digest(_cookie(handler)), grant_resource))
+            conn.commit()
+            _reply(handler, {'resource': resource, 'expires_at': expiry})
+            return True
         if path == '/api/security/policy':
-            if not _grant(conn, handler, 'settings'):
-                _reply(handler, {'error': 'verification_required', 'resource': 'settings'}, 423)
+            if not _recent_settings_grant(conn, handler):
+                _reply(handler, {'error': 'recent_verification_required', 'resource': 'settings'}, 423)
                 return True
             tabs = payload.get('tabs')
             level = payload.get('privacy')
@@ -408,14 +460,14 @@ def _security_api(server, handler, method, path):
                 raise ValueError('Invalid privacy policy')
             next_config = {'tabs': tabs, 'privacy': level, 'protect_spotify': payload['protect_spotify']}
             conn.execute('UPDATE apollo_security_policy SET policy_json=? WHERE id=1', (json.dumps(next_config),))
-            conn.execute('DELETE FROM apollo_security_grants WHERE resource!=?', ('settings',))
+            conn.execute("DELETE FROM apollo_security_grants WHERE resource NOT LIKE 'settings:%'")
             conn.commit()
             _reply(handler, next_config)
             return True
         if path in {'/api/security/passphrase/change', '/api/security/recovery/regenerate',
                     '/api/security/passkey/delete'}:
-            if not _grant(conn, handler, 'settings'):
-                _reply(handler, {'error': 'verification_required', 'resource': 'settings'}, 423)
+            if not _recent_settings_grant(conn, handler):
+                _reply(handler, {'error': 'recent_verification_required', 'resource': 'settings'}, 423)
                 return True
             if path == '/api/security/passkey/delete':
                 from webauthn import base64url_to_bytes
@@ -437,7 +489,7 @@ def _security_api(server, handler, method, path):
                 salt = secrets.token_bytes(24)
                 conn.execute('UPDATE apollo_security_password SET salt=?,digest=? WHERE id=1',
                              (salt, _password_hash(next_secret, salt)))
-                conn.execute('DELETE FROM apollo_security_grants WHERE resource!=?', ('settings',))
+                conn.execute("DELETE FROM apollo_security_grants WHERE resource NOT LIKE 'settings:%'")
                 conn.commit()
                 _reply(handler, {'changed': True})
             else:
@@ -446,8 +498,8 @@ def _security_api(server, handler, method, path):
                 _reply(handler, {'recovery_codes': codes})
             return True
         if path == '/api/security/passkey/register/options':
-            if not _grant(conn, handler, 'settings'):
-                _reply(handler, {'error': 'verification_required', 'resource': 'settings'}, 423)
+            if not _recent_settings_grant(conn, handler):
+                _reply(handler, {'error': 'recent_verification_required', 'resource': 'settings'}, 423)
                 return True
             from webauthn import generate_registration_options, options_to_json
             from webauthn.helpers.structs import AuthenticatorSelectionCriteria, UserVerificationRequirement
@@ -459,8 +511,8 @@ def _security_api(server, handler, method, path):
             _reply(handler, {'challenge_id': ident, 'options': json.loads(options_to_json(options))})
             return True
         if path == '/api/security/passkey/register/finish':
-            if not _grant(conn, handler, 'settings'):
-                _reply(handler, {'error': 'verification_required', 'resource': 'settings'}, 423)
+            if not _recent_settings_grant(conn, handler):
+                _reply(handler, {'error': 'recent_verification_required', 'resource': 'settings'}, 423)
                 return True
             from webauthn import verify_registration_response
             challenge, _ = _consume(conn, str(payload.get('challenge_id') or ''), 'register')

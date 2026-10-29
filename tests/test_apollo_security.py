@@ -32,13 +32,15 @@ class SecurityTests(unittest.TestCase):
             os.environ['APOLLO_SECURITY_SETUP_TOKEN'] = self.old_token
         self.temp.cleanup()
 
-    def call(self, method, path, payload=None, *, cookie=True, origin=True):
+    def call(self, method, path, payload=None, *, cookie=True, origin=True, tab=True):
         handler = object.__new__(server.ApolloHandler)
         body = json.dumps(payload).encode() if payload is not None else b''
         handler.path = path
         handler.headers = {'Content-Length': str(len(body)),
                            'Origin': security.ORIGIN if origin else 'https://attacker.example',
                            'X-Apollo-Request': 'security',
+                           security.TAB_HEADER: ('1234567890abcdef1234567890abcdef' if tab is True
+                                                 else tab if isinstance(tab, str) else ''),
                            'Cookie': self.cookie if cookie else ''}
         handler.rfile, handler.wfile = io.BytesIO(body), io.BytesIO()
         handler.send_response = lambda status, *_: setattr(handler, 'status', status)
@@ -97,6 +99,67 @@ class SecurityTests(unittest.TestCase):
         conn.execute('UPDATE apollo_security_grants SET expires_at=? WHERE resource=?', (int(time.time())-1, 'chat'))
         conn.commit(); conn.close()
         self.assertEqual(self.call('GET', '/api/chats')[0], 423)
+
+    def test_studio_leave_lease_renews_during_ten_minutes_and_relocks_on_navigation(self):
+        self.enroll()
+        self.policy({'studio': 'leave'})
+        start = int(time.time())
+        with mock.patch.object(security.time, 'time', return_value=start):
+            self.assertEqual(self.call('POST', '/api/security/authenticate',
+                {'resource':'studio', 'passphrase':'this is a long test passphrase'})[0], 200)
+        for elapsed in range(10, 601, 10):
+            with mock.patch.object(security.time, 'time', return_value=start + elapsed):
+                self.assertEqual(self.call('POST', '/api/security/heartbeat', {'resource':'studio'})[0], 200)
+                self.assertEqual(self.call('GET', '/api/studio/projects')[0], 200)
+        with mock.patch.object(security.time, 'time', return_value=start + 601):
+            self.assertEqual(self.call('POST', '/api/security/revoke', {'resource':'studio'})[0], 200)
+            self.assertEqual(self.call('GET', '/api/studio/projects')[0], 423)
+
+    def test_timed_grants_expire_at_exact_elapsed_boundaries(self):
+        self.enroll()
+        self.policy({'studio':'5m', 'music':'15m'})
+        start = int(time.time())
+        with mock.patch.object(security.time, 'time', return_value=start):
+            for resource in ('studio', 'music'):
+                self.assertEqual(self.call('POST', '/api/security/authenticate',
+                    {'resource':resource, 'passphrase':'this is a long test passphrase'})[0], 200)
+        for seconds, path, expected in ((299, '/api/studio/projects', 200),
+                                        (300, '/api/studio/projects', 423),
+                                        (899, '/api/music/history', 200),
+                                        (900, '/api/music/history', 423)):
+            with mock.patch.object(security.time, 'time', return_value=start + seconds):
+                self.assertEqual(self.call('GET', path)[0], expected)
+        with mock.patch.object(security.time, 'time', return_value=start + 901):
+            self.assertEqual(self.call('POST', '/api/security/heartbeat', {'resource':'studio'})[0], 400)
+
+    def test_settings_lock_blocks_management_and_requires_fresh_verification(self):
+        codes = self.enroll()
+        self.policy({'settings':'leave'})
+        self.assertEqual(self.call('POST', '/api/security/revoke', {'resource':'settings'})[0], 200)
+        self.assertEqual(self.call('GET', '/api/security/passkeys')[0], 423)
+        status, state = self.call('GET', '/api/security/state')
+        self.assertEqual(status, 200)
+        self.assertIsNone(state['recovery_available'])
+        self.assertEqual(self.call('POST', '/api/security/policy',
+            {'tabs':{}, 'privacy':'standard', 'protect_spotify':False})[0], 423)
+        start = int(time.time())
+        with mock.patch.object(security.time, 'time', return_value=start):
+            self.assertEqual(self.call('POST', '/api/security/authenticate',
+                {'resource':'settings', 'method':'recovery', 'code':codes[0]})[0], 200)
+        with mock.patch.object(security.time, 'time', return_value=start + security.SETTINGS_MUTATION_FRESH_SECONDS + 1):
+            self.assertEqual(self.call('GET', '/api/security/passkeys')[0], 200)
+            self.assertEqual(self.call('GET', '/api/security/passkeys', tab=False)[0], 423)
+            self.assertEqual(self.call('GET', '/api/security/passkeys',
+                tab='fedcba0987654321fedcba0987654321')[0], 423)
+            status, body = self.call('POST', '/api/security/policy',
+                {'tabs':{}, 'privacy':'standard', 'protect_spotify':False})
+            self.assertEqual((status, body['error']), (423, 'recent_verification_required'))
+            self.assertEqual(self.call('POST', '/api/security/authenticate',
+                {'resource':'settings', 'passphrase':'this is a long test passphrase'})[0], 200)
+            self.assertEqual(self.call('POST', '/api/security/policy',
+                {'tabs':{}, 'privacy':'standard', 'protect_spotify':False}, tab=False)[0], 423)
+            self.assertEqual(self.call('POST', '/api/security/policy',
+                {'tabs':{}, 'privacy':'standard', 'protect_spotify':False})[0], 200)
 
     def test_generation_stops_after_grant_revoke_or_policy_upgrade(self):
         self.enroll()
