@@ -20,7 +20,7 @@ assert hashlib.sha256(pathlib.Path('/opt/apollo/models/all-MiniLM-L6-v2/model.sa
 assert subprocess.check_output(['git','status','--porcelain','--untracked-files=no']).strip()==b'', 'Preserve unexpected production edits before deploying'
 PY
 /opt/apollo/venv/bin/python -m pip check
-/opt/apollo/venv/bin/python -c 'import PIL,pillow_heif,pywebpush,sentence_transformers,trafilatura'
+/opt/apollo/venv/bin/python -c 'import PIL,pillow_heif,pywebpush,sentence_transformers,trafilatura,webauthn'
 systemctl is-active --quiet hermes-gateway
 previous=$(git rev-parse HEAD)
 if [[ "$previous" == "$revision" ]]; then

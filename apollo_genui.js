@@ -2294,17 +2294,14 @@
     indicator.setAttribute("role", "status");
     indicator.setAttribute("aria-label", "Apollo is continuing the response");
     indicator.append(el("i"), el("i"), el("i"));
-    const scrollElement = options.scrollElement || document.getElementById("apolloMessages");
     let segments = [];
     let lastSource = "";
     let finished = false;
     host.replaceChildren(root);
 
-    const nearBottom = () => !scrollElement
-      || scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight < 140;
-    const settleScroll = anchored => {
-      if (anchored && scrollElement) scrollElement.scrollTop = scrollElement.scrollHeight;
-    };
+    // The chat viewport owns follow state. A stream renderer cannot infer
+    // intent from distance alone: the reader may have just scrolled upward.
+    const settleScroll = () => options.onContentChange?.();
     const refreshCitations = () => {
       compactImageSources(root);
       const sources = [...root.querySelectorAll(".apollo-ui-sources li[id]")];
@@ -2326,7 +2323,6 @@
     const update = (value, isFinal = false) => {
       if (finished) return root;
       const source = String(value || "");
-      const anchored = nearBottom();
       const next = completeStreamSegments(source, isFinal).segments;
       const diverged = !source.startsWith(lastSource)
         || segments.some((segment, index) => next[index] !== segment);
@@ -2339,18 +2335,17 @@
       indicator.remove();
       if (!isFinal) root.appendChild(indicator);
       else finished = true;
-      settleScroll(anchored);
+      settleScroll();
       return root;
     };
     return {
       update: value => update(value, false),
       finish: value => update(value, true),
       interrupt(message = "Response interrupted") {
-        const anchored = nearBottom();
         indicator.remove();
         if (!finished) root.appendChild(el("div", "apollo-stream-interrupted", message));
         finished = true;
-        settleScroll(anchored);
+        settleScroll();
         return root;
       },
       root

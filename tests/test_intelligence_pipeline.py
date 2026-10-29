@@ -182,6 +182,30 @@ class PipelineTests(unittest.TestCase):
         self.assertIn('Aster', evidence)
         self.assertIn('"plays": 1', evidence)
 
+    def test_spotify_history_coverage_uses_all_recorded_months(self):
+        import music_history
+        conn = server.db()
+        try:
+            music_history.insert_records(conn, [
+                {'ts':'2024-03-11T12:00:00Z', 'ms_played':175000,
+                 'master_metadata_track_name':'Earlier Track',
+                 'master_metadata_album_artist_name':'Earlier Artist'},
+                {'ts':'2026-10-27T12:00:00Z', 'ms_played':180000,
+                 'master_metadata_track_name':'Recent Track',
+                 'master_metadata_album_artist_name':'Recent Artist'},
+            ])
+            conn.commit()
+        finally:
+            conn.close()
+        prompt = 'Which months of my Spotify listening history are available in Apollo?'
+        self.assertTrue(intelligence.personal_music_history_request(prompt))
+        self.assertEqual(intelligence.music_history_initial_args(prompt, {'time_zone':'Europe/Zurich'})['period'], 'coverage')
+        captured, _ = self.turn(prompt, plan={'intent':'personal_query','primary_domain':'spotify','spotify':True})
+        evidence = next(m['content'] for m in captured if 'VERIFIED TOOL CONTEXT' in m['content'])
+        self.assertIn('2024-03', evidence)
+        self.assertIn('2026-10', evidence)
+        self.assertIn('recorded_months_utc', evidence)
+
     def test_exact_planning_prompt_reads_three_sources_and_tasks(self):
         prompt = 'Check my Google Calendar, Canvas assignments, and WHOOP data. Make me a realistic plan for tomorrow based on my commitments and recovery.'
         plan = server.apollo_fast_context_plan([], prompt)

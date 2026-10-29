@@ -290,10 +290,24 @@ def _inspect_response(result):
                        for part in item.get("content", []) if isinstance(part, dict)
                        and part.get("type") == "output_text").strip()
     cited = _urls(answer)
-    if (not answer or not sources or not cited or not cited.issubset(sources)
+    if (not answer or re.match(r'^I\s+(?:couldn.t|can.t|cannot|was unable to)\s+verify\b', answer, re.I)
+            or not sources or not cited or not cited.issubset(sources)
             or re.search(r"\b(i (?:do not|don't|cannot|can't) have (?:live )?(?:web|internet) access|no live web access)\b", answer, re.I)):
         return "insufficient_evidence", "", sources
     return "succeeded", answer, sources
+
+
+def _collaboration_sources_supported(query, result, answer):
+    """A collaboration claim needs a cited result naming both participants."""
+    names = re.findall(r'\b(?:[A-Z][a-z]+|[A-Z]{2,})(?:\s+(?:[A-Z][a-z]+|[A-Z]{2,})){1,3}\b', query)
+    if len(names) < 2:
+        return True
+    # The first two named entities are the collaborators in this route's
+    # question grammar; later capitalized names can be titles or locations.
+    sources, _ = _source_evidence(result)
+    wanted = [name.casefold() for name in names[:2]]
+    return any(all(name in sources.get(url, '').casefold() for name in wanted)
+               for url in _urls(answer))
 
 
 def research(messages, query, kind, time_zone, api_key, hermes_url, now=None, opener=None, evidence_sink=None, progress_sink=None):
@@ -355,9 +369,10 @@ def research(messages, query, kind, time_zone, api_key, hermes_url, now=None, op
         started = time.monotonic()
         if progress_sink:
             progress_sink("Searching relevant sources…")
+        fast_factual = kind == 'research'
         payload = {
-            "provider": "openai-codex", "model": "gpt-5.6-terra",
-            "model_options": {"reasoning_effort": "medium", "disable_tools": False,
+            "provider": "openai-codex", "model": "gpt-5.6-luna" if fast_factual else "gpt-5.6-terra",
+            "model_options": {"reasoning_effort": "low" if fast_factual else "medium", "disable_tools": False,
                               "enabled_toolsets": ["web"]},
             "instructions": instruction,
             "input": input_messages,
@@ -367,11 +382,15 @@ def research(messages, query, kind, time_zone, api_key, hermes_url, now=None, op
                                          headers={"Content-Type": "application/json",
                                                   "Authorization": "Bearer " + api_key}, method="POST")
         try:
-            result = _gateway_json(request, opener, 25)
+            result = _gateway_json(request, opener, 18 if fast_factual else 25)
             gateway_ms = round((time.monotonic() - started) * 1000)
-            result = _extract_and_synthesize(result, query, instruction, api_key, hermes_url, opener, progress_sink)
+            if not fast_factual:
+                result = _extract_and_synthesize(result, query, instruction, api_key, hermes_url, opener, progress_sink)
             print(f"[Apollo Research Timing] kind={kind} gateway_ms={gateway_ms} elapsed_ms={round((time.monotonic()-started)*1000)}")
             status, answer, _ = _inspect_response(result)
+            if (status == 'succeeded' and fast_factual
+                    and not _collaboration_sources_supported(query, result, answer)):
+                status, answer = 'insufficient_evidence', ''
             if status == "succeeded" and kind == "weather" and not _weather_numbers_supported(result, answer):
                 status, answer = "insufficient_evidence", ""
             if (status == "succeeded" and kind in {"sports", "events"}

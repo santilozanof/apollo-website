@@ -18,9 +18,9 @@ MEMORY_ACTION = re.compile(r'^(?:please\s+)?(?:remember (?:that |this:)|save (?:
 def personal_music_history_request(message):
     text = str(message or "").casefold()
     return bool(
-        re.search(r'\b(my|mine)\b', text)
+        re.search(r'\b(my|mine|me|i|apollo)\b', text)
         and re.search(r'\b(spotify|listening|plays?|artists?|tracks?|albums?)\b', text)
-        and re.search(r'\b(history|listening|most played|top|rank(?:ing)?s?|plays?)\b', text)
+        and re.search(r'\b(history|listening|most played|top|rank(?:ing)?s?|plays?|months?|years?|coverage|available|data)\b', text)
     )
 
 
@@ -35,7 +35,10 @@ def music_history_initial_args(message, client_context):
             today = datetime.now(ZoneInfo(zone)).date()
         except (KeyError, ValueError):
             today = datetime.now(timezone.utc).date()
-    kind = ('lifetime' if re.search(r'\b(all time|lifetime|ever)\b', text) else
+    coverage_request = bool(re.search(r'\b(months?|years?|date range|coverage|how far back|earliest)\b', text)
+                            and re.search(r'\b(available|have|history|data|cover|import|recorded)\b', text))
+    kind = ('coverage' if coverage_request else
+            'lifetime' if re.search(r'\b(all time|lifetime|ever)\b', text) else
             'yearly' if 'year' in text else
             'monthly' if 'month' in text else
             'daily' if re.search(r'\b(today|yesterday)\b', text) else 'weekly')
@@ -201,6 +204,13 @@ def tools_for(server, memory, user_message, message_id, client_context, progress
             conn.execute('PRAGMA query_only=ON')
             if bool(start_date) != bool(end_date):
                 return {'error': 'Provide both start_date and end_date for a custom range'}
+            if period == 'coverage' and not start_date:
+                coverage = server.music_analytics.summary(conn, 'lifetime', None, zone)['coverage']
+                months = conn.execute("SELECT substr(event_at,1,7), COUNT(*) FROM music_listens "
+                                      "GROUP BY substr(event_at,1,7) ORDER BY 1").fetchall()
+                return {'period': 'coverage', 'coverage': coverage,
+                        'recorded_months_utc': [{'month': row[0], 'events': row[1]} for row in months],
+                        'note': 'Month inventory uses event UTC dates; local-zone period rankings may differ at month boundaries. Missing months are not inferred.'}
             if start_date:
                 ranking = server.music_analytics.range_rankings(
                     conn, start_date, end_date, zone, entity, metric, limit)
@@ -246,8 +256,8 @@ def tools_for(server, memory, user_message, message_id, client_context, progress
         Tool('tasks_read', 'Read saved tasks and Canvas-imported assignments plus Canvas sync status.', {}, tasks),
         Tool('whoop_read', 'Current WHOOP recovery, strain and sleep data.', {}, server.apollo_context_whoop),
         Tool('spotify_read', 'Current Spotify playback and connection state.', {}, server.apollo_context_spotify),
-        Tool('spotify_history_read', 'Read Apollo Music Insights recorded listening history. Supports daily, weekly, monthly, yearly or lifetime rankings, or an inclusive custom local-date range with start_date and end_date. Default ranking is measured listening time (verified plus nonoverlapping observed estimates); play count is optional. Report durations as rounded integer minutes with thousands separators. Preserve verified, estimated, and unknown labels; missing duration is not zero.',
-             {'period': {'type': 'string', 'enum': ['daily','weekly','monthly','yearly','lifetime']},
+        Tool('spotify_history_read', 'Read Apollo Music Insights recorded listening history. Use period=coverage to list actual recorded months and imported earliest/latest dates before claiming a limited history. Supports daily, weekly, monthly, yearly or lifetime rankings, or an inclusive custom local-date range with start_date and end_date. Default ranking is measured listening time (verified plus nonoverlapping observed estimates); play count is optional. Report durations as rounded integer minutes with thousands separators. Preserve verified, estimated, and unknown labels; missing duration is not zero.',
+             {'period': {'type': 'string', 'enum': ['daily','weekly','monthly','yearly','lifetime','coverage']},
               'anchor': {'type': 'string', 'maxLength': 10},
               'entity': {'type': 'string', 'enum': ['artists','tracks','albums']},
               'metric': {'type': 'string', 'enum': ['listening','plays','verified','estimated']},

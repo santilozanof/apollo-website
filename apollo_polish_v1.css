@@ -416,19 +416,33 @@
     gap: 4px !important;
     align-self: flex-start !important;
     box-sizing: border-box !important;
-    width: 100% !important;
+    width: max-content !important;
     height: auto !important;
     margin: 8px 0 0 !important;
     padding-left: 0 !important;
-    opacity: .72 !important;
+    opacity: 0 !important;
     visibility: visible !important;
-    pointer-events: auto !important;
-    transform: none !important;
+    pointer-events: none !important;
+    transform: translateY(4px) !important;
+    transition: opacity 180ms cubic-bezier(.22,1,.36,1), transform 180ms cubic-bezier(.22,1,.36,1) !important;
 }
 
+#apolloView .apollo-message.assistant > .apollo-message-actions::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -8px;
+    height: 8px;
+}
+
+#apolloView .apollo-message.assistant > .apollo-message-body:hover + .apollo-message-actions,
 #apolloView .apollo-message.assistant > .apollo-message-actions:hover,
-#apolloView .apollo-message.assistant > .apollo-message-actions:focus-within {
+#apolloView .apollo-message.assistant > .apollo-message-actions:focus-within,
+#apolloView .apollo-message.assistant:focus-within > .apollo-message-actions {
     opacity: 1 !important;
+    pointer-events: auto !important;
+    transform: translateY(0) !important;
 }
 
 #apolloView .apollo-message.assistant > .apollo-message-actions .apollo-message-action {
@@ -436,6 +450,9 @@
     height: 30px !important;
     min-width: 30px !important;
     min-height: 30px !important;
+    justify-content: flex-start !important;
+    justify-items: start !important;
+    padding: 0 !important;
 }
 
 @media (max-width: 640px) {
@@ -467,11 +484,35 @@ html.apollo-jarvis-mode #apolloView .apollo-message.assistant > .apollo-message-
     grid-column: 2 !important;
     position: static !important;
     inset: auto !important;
-    width: 100% !important;
+    width: max-content !important;
     height: auto !important;
     margin: var(--apollo-space-2) 0 0 !important;
-    opacity: .72 !important;
+    opacity: 0 !important;
     visibility: visible !important;
+    pointer-events: none !important;
+    transform: translateY(4px) !important;
+}
+
+html.apollo-jarvis-mode #apolloView .apollo-message.assistant > .apollo-message-body:hover + .apollo-message-actions,
+html.apollo-jarvis-mode #apolloView .apollo-message.assistant > .apollo-message-actions:hover,
+html.apollo-jarvis-mode #apolloView .apollo-message.assistant:focus-within > .apollo-message-actions {
+    opacity: 1 !important;
     pointer-events: auto !important;
-    transform: none !important;
+    transform: translateY(0) !important;
+}
+
+@media (hover: none) {
+    #apolloView .apollo-message.assistant > .apollo-message-actions,
+    html.apollo-jarvis-mode #apolloView .apollo-message.assistant > .apollo-message-actions {
+        opacity: .72 !important;
+        pointer-events: auto !important;
+        transform: none !important;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #apolloView .apollo-message.assistant > .apollo-message-actions {
+        transition-duration: 1ms !important;
+        transform: none !important;
+    }
 }

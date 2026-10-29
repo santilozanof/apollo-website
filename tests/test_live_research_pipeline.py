@@ -265,6 +265,19 @@ class LiveResearchPipelineTests(unittest.TestCase):
         self.assertIn(cited, answer)
         self.assertEqual(len(calls), 1)
         self.assertIn("dated credits", calls[0]["instructions"])
+        self.assertEqual(calls[0]["model"], "gpt-5.6-luna")
+        self.assertEqual(calls[0]["model_options"]["reasoning_effort"], "low")
+
+    def test_collaboration_rejects_individual_biographies_as_joint_evidence(self):
+        query = "When did Mike Dean first work with The Weeknd?"
+        result = response(answer="They first worked in 2015. [Biography](https://example.com/dean)",
+                          output=json.dumps({"success": True, "data": {"web": [
+                              {"url": "https://example.com/dean", "title": "Mike Dean biography",
+                               "description": "Mike Dean is a producer."}]}}))
+        self.assertFalse(live._collaboration_sources_supported(query, result, live._inspect_response(result)[1]))
+        refusal = response(answer="I couldn't verify a reliable first collaboration. [Bio](https://example.com/dean)",
+                           output="https://example.com/dean")
+        self.assertEqual(live._inspect_response(refusal)[0], "insufficient_evidence")
 
     def test_gateway_deadline_covers_the_whole_response(self):
         def opener(req, timeout):

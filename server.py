@@ -27,6 +27,8 @@ import music_history
 import music_analytics
 import apollo_entity
 import apollo_live_research
+import apollo_security
+import apollo_gmail
 from connection_health import HealthMonitor
 from apollo_media import visual_request, visual_response, image_mime, image_preview, persist_supported_images, public_subject_image
 from automation_engine import (
@@ -860,9 +862,13 @@ def init_db():
     debrief_personalization.init_schema(conn)
     apollo_intelligence.initialize(conn)
     music_history.init_schema(conn)
+    apollo_security.init_schema(conn)
 
     conn.commit()
     conn.close()
+    # OAuth refresh credentials share this backend-owned database. Keep the
+    # file private even if an older installation created it with umask 022.
+    os.chmod(DB_PATH, 0o600)
 
 
 def json_response(handler, data, status=200):
@@ -7535,7 +7541,7 @@ def send_wip_file(
 
     handler.send_header(
         "Cache-Control",
-        "private, max-age=3600"
+        "no-store"
     )
 
     if status == 206:
@@ -13285,6 +13291,7 @@ def apollo_connections_registry(force=False, wait=False):
 def _apollo_connections_probe():
     """Return every real user-facing integration and only supported actions."""
     google = apollo_google_health_probe()
+    gmail = apollo_gmail.status(sys.modules[__name__], verify=True)
     if google.get("connected"):
         google_status = "connected"
     elif google.get("reconnect"):
@@ -13326,6 +13333,27 @@ def _apollo_connections_probe():
 
     return {
         "integrations": [
+            {
+                "id": "gmail",
+                "name": "Gmail",
+                "description": "Search, summarize, and draft email replies in Apollo chat.",
+                "status": gmail["status"],
+                "connected": gmail["connected"],
+                "last_successful_sync": None,
+                "error": "Gmail needs reconnection." if gmail["status"] == "reconnection_required" else None,
+                "actions": ([{
+                    "id": "reconnect", "label": "Reconnect", "method": "GET",
+                    "url": "/api/gmail/connect",
+                }, {
+                    "id": "disconnect", "label": "Disconnect", "method": "POST",
+                    "url": "/api/gmail/disconnect",
+                    "confirm": "Disconnect Gmail from Apollo? Calendar will remain connected."
+                }] if gmail["connected"] else [{
+                    "id": "reconnect" if gmail["status"] == "reconnection_required" else "connect",
+                    "label": "Reconnect" if gmail["status"] == "reconnection_required" else "Connect",
+                    "method": "GET", "url": "/api/gmail/connect",
+                }]),
+            },
             {
                 "id": "google_calendar",
                 "name": "Google Calendar",
@@ -17708,17 +17736,19 @@ def apollo_send_web_push(notification):
         SELECT id, endpoint, p256dh, auth
         FROM push_subscriptions
     """).fetchall()
+    privacy_policy = apollo_security.policy(conn)
     conn.close()
 
     if not subscriptions:
         return "no_subscription"
 
+    conceal_payload = privacy_policy.get('privacy') != 'standard' or bool(privacy_policy.get('tabs'))
     payload = json.dumps({
-        "title": str(notification.get("title", "Apollo"))[:240],
-        "body": str(notification.get("body", ""))[:500],
-        "url": valid_deep_link(notification.get("deep_link")),
+        "title": "Apollo update" if conceal_payload else str(notification.get("title", "Apollo"))[:240],
+        "body": "Open Apollo to view this update." if conceal_payload else str(notification.get("body", ""))[:500],
+        "url": "/" if conceal_payload else valid_deep_link(notification.get("deep_link")),
         "notification_id": notification.get("id"),
-        "category": notification.get("category"),
+        "category": "private" if conceal_payload else notification.get("category"),
     }, ensure_ascii=False)
 
     delivered = 0
@@ -21156,7 +21186,7 @@ def apollo_generation_snapshot(job_id, chat_id):
     with CHAT_GENERATION_LOCK:
         live = CHAT_GENERATIONS.get(job_id)
         if live and live["chat_id"] == chat_id:
-            return {key: value for key, value in live.items() if key != "last_saved"}
+            return {key: value for key, value in live.items() if key != "last_saved" and not key.startswith('_')}
     conn = db()
     try:
         row = conn.execute(
@@ -21203,6 +21233,11 @@ class ApolloGenerationSink:
 
     def write(self, payload):
         with CHAT_GENERATION_LOCK:
+            if not apollo_security.generation_grant_active(self.job):
+                self.job['state'] = 'stopped'
+                self.job['error'] = 'Verification expired; unlock to continue'
+                apollo_generation_save(self.job, True)
+                raise ApolloGenerationStopped()
             if self.job["state"] == "stopped":
                 raise ApolloGenerationStopped()
             self.buffer += payload.decode("utf-8", errors="replace")
@@ -21243,6 +21278,7 @@ def apollo_generation_worker(job, payload):
         rfile=io.BytesIO(body), wfile=sink, command="POST",
         client_address=("127.0.0.1", 0),
         _apollo_generation_cancelled=lambda: job["state"] == "stopped",
+        _apollo_security_internal=True,
     )
     fake.send_response = lambda status, message=None: setattr(sink, "http_status", status)
     fake.send_header = lambda *args: None
@@ -21281,6 +21317,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
         print(f"[Apollo] {format % args}")
 
     def do_GET(self):
+
+        if apollo_security.handle(sys.modules[__name__], self, "GET"):
+            return
 
         if apollo_intelligence.handle_api(sys.modules[__name__], self, "GET"):
             return
@@ -21514,6 +21553,22 @@ class ApolloHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if route == "/api/gmail/status":
+            json_response(self, apollo_gmail.status(sys.modules[__name__], verify=True))
+            return
+
+        if route == "/api/gmail/connect":
+            try:
+                url = apollo_gmail.authorization_url(sys.modules[__name__])
+            except Exception:
+                json_response(self, {"error": "Gmail OAuth is not configured"}, 500)
+                return
+            self.send_response(302)
+            self.send_header("Location", url)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return
+
         if route == "/api/connections":
             json_response(
                 self,
@@ -21582,6 +21637,21 @@ class ApolloHandler(BaseHTTPRequestHandler):
                     [None]
                 )[0]
             )
+
+            if apollo_gmail.callback_matches(sys.modules[__name__], state):
+                app_state_delete("gmail_oauth_state")
+                app_state_delete("gmail_oauth_state_at")
+                try:
+                    apollo_gmail.exchange_code(sys.modules[__name__], code)
+                except (apollo_gmail.GmailAuthError, ValueError, RuntimeError):
+                    json_response(self, {"error": "Gmail authorization could not be verified. Reconnect Gmail in Settings."}, 400)
+                    return
+                CONNECTION_HEALTH.at = 0
+                self.send_response(302)
+                self.send_header("Location", "/?settings=connections&gmail=connected")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return
 
             expected_state = app_state_get(
                 "google_oauth_state"
@@ -22323,7 +22393,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", image_mime(payload[:64]) or "application/octet-stream")
             self.send_header("Content-Length", str(len(payload)))
-            self.send_header("Cache-Control", "private, max-age=86400")
+            self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(payload)
@@ -22438,7 +22508,7 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
             self.send_header(
                 "Cache-Control",
-                "private, max-age=3600"
+                "no-store"
             )
 
             self.end_headers()
@@ -22745,6 +22815,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
 
+        if apollo_security.handle(sys.modules[__name__], self, "POST"):
+            return
+
         generation_route = urllib.parse.urlparse(canonical_api_request_path(self.path)).path
         generation_start = re.fullmatch(r"/api/chats/(\d+)/generations", generation_route)
         generation_stop = re.fullmatch(r"/api/chats/(\d+)/generations/([0-9a-f]{32})/stop", generation_route)
@@ -22800,7 +22873,8 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 conn.commit()
             finally:
                 conn.close()
-            job = {"id": job_id, "chat_id": chat_id, "state": "running", "content": "", "status": "Preparing response…", "message": None, "error": None, "last_saved": 0.0}
+            job = {"id": job_id, "chat_id": chat_id, "state": "running", "content": "", "status": "Preparing response…", "message": None, "error": None, "last_saved": 0.0,
+                   "_security_grant": getattr(self, '_apollo_security_grant', None)}
             with CHAT_GENERATION_LOCK:
                 CHAT_GENERATIONS[job_id] = job
             payload.pop("request_id", None)
@@ -23458,6 +23532,12 @@ class ApolloHandler(BaseHTTPRequestHandler):
         if self.path == "/api/calendar/subscriptions/canvas/disconnect":
             calendar_subscription_disconnect("canvas")
             json_response(self, calendar_subscription_status("canvas"))
+            return
+
+        if self.path == "/api/gmail/disconnect":
+            apollo_gmail.disconnect(sys.modules[__name__])
+            CONNECTION_HEALTH.at = 0
+            json_response(self, apollo_gmail.status(sys.modules[__name__]))
             return
 
         # ─────────────────────────────
@@ -25212,6 +25292,25 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 else ""
             )
 
+            # Gmail is read through Apollo's own bounded API adapter. Mail
+            # contents never enter the general tool runtime as instructions;
+            # sending requires a separate explicit confirmation turn.
+            gmail_context = apollo_gmail._context(sys.modules[__name__], chat_id)
+            if gmail_context and not apollo_gmail.related(user_message, gmail_context):
+                # A topic change cancels a pending send; a later generic
+                # confirmation cannot revive an old draft.
+                app_state_delete(f"gmail_chat_{chat_id}")
+            if apollo_gmail.related(user_message, gmail_context):
+                apollo_open_sse(self)
+                apollo_send_status_sse(self, "Reading Gmail…")
+                try:
+                    gmail_reply = apollo_gmail.handle_chat(sys.modules[__name__], chat_id, user_message)
+                except Exception as error:
+                    print(f"[Apollo Gmail] Request failed: {type(error).__name__}")
+                    gmail_reply = "I couldn't complete that Gmail request. Check the connection in Settings and try again."
+                apollo_finish_direct_sse(self, chat_id, gmail_reply or "I couldn't find a matching email.")
+                return
+
 
             # Outside-world questions have a deterministic read-only route.
             # Resolve them before Apollo's action planner so "next UFC card"
@@ -26718,6 +26817,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
     def do_PATCH(self):
 
+        if apollo_security.handle(sys.modules[__name__], self, "PATCH"):
+            return
+
         # Tailscale Serve mounted at /api strips that prefix.
         if not self.path.startswith("/api"):
             self.path = "/api" + self.path
@@ -26811,6 +26913,9 @@ class ApolloHandler(BaseHTTPRequestHandler):
         )
 
     def do_DELETE(self):
+
+        if apollo_security.handle(sys.modules[__name__], self, "DELETE"):
+            return
 
         if apollo_intelligence.handle_api(sys.modules[__name__], self, "DELETE"):
             return

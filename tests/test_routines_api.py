@@ -91,6 +91,7 @@ class RoutinesApiRegressionTests(unittest.TestCase):
                 "__name__": __name__,
                 "sys": sys,
                 "apollo_intelligence": SimpleNamespace(handle_api=lambda *_: False),
+                "apollo_security": SimpleNamespace(handle=lambda *_: False),
                 "BaseHTTPRequestHandler": BaseHTTPRequestHandler,
                 "urllib": urllib,
                 "re": re,

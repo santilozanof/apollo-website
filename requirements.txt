@@ -5,3 +5,5 @@ Pillow>=10.4,<13
 pillow-heif>=0.18,<2
 # Public HTML main-text extraction; no hosted extraction credentials required.
 trafilatura>=2.3,<3
+# Server-verified passkey challenges for optional tab locks.
+webauthn==3.0.1

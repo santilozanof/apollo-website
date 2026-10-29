@@ -6,6 +6,8 @@
 <title>Apollo</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#000000">
+<script>document.documentElement.classList.add('apollo-security-pending');</script>
+<style>html.apollo-security-pending .main{visibility:hidden!important}</style>
 
 <script id="apollo-boot-theme-init">
 (() => {
@@ -1096,6 +1098,24 @@ stroke-width: 1.35;
     display: none;
 }
 
+.apollo-jump-latest {
+    position: absolute;
+    top: -44px;
+    right: max(12px, calc((100% - 900px) / 2));
+    z-index: 5;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 8px 13px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0,0,0,.12);
+}
+
+.apollo-jump-latest[hidden] { display: none; }
+
 .apollo-welcome {
     height: 100%;
 
@@ -1897,6 +1917,7 @@ stroke-width: 1.35;
 .apollo-typing-dots span {
     width: 4px;
     height: 4px;
+    flex: 0 0 4px;
 
     border-radius: 50%;
 
@@ -1923,6 +1944,10 @@ stroke-width: 1.35;
         opacity: 1;
         transform: translateY(-3px);
     }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .apollo-typing-dots span { animation: none; opacity: .7; transform: none; }
 }
 
 
@@ -7145,6 +7170,8 @@ html[data-theme="light"]
     </div>
 
     <div class="apollo-composer-wrap">
+
+        <button type="button" class="apollo-jump-latest" id="apolloJumpLatest" hidden>Jump to latest ↓</button>
 
         <div class="apollo-pulse" id="apolloPulse" aria-label="Suggested actions"></div>
 
@@ -17240,10 +17267,11 @@ html[data-theme="light"]
 #apolloView .apollo-pulse-icon svg,
 #apolloView .apollo-pulse-icon img { display: block; width: 17px; height: 17px; }
 #apolloView .apollo-pulse-icon svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-#apolloView .apollo-pulse-dismiss { border: 0; background: none; color: var(--muted); padding: 4px; cursor: pointer; opacity: .6; }
+#apolloView .apollo-pulse-dismiss { display:grid; place-items:center; flex:none; min-width:28px; min-height:28px; border:0; background:none; color:var(--muted); padding:6px; cursor:pointer; opacity:.7; }
 #apolloView .apollo-pulse-dismiss:hover,
 #apolloView .apollo-pulse-dismiss:focus-visible { opacity: 1; color: var(--text); }
 #apolloView .apollo-pulse-dismiss svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+#apolloView .apollo-pulse-entry.is-dismissing { opacity:0; transform:translateY(3px); transition:opacity 220ms ease,transform 220ms ease; pointer-events:none; }
 
 @keyframes apolloPulseIn {
     to { opacity: 1; transform: translateY(0); }
@@ -22603,11 +22631,14 @@ async function apolloResumeChatGeneration(chatId) {
                     const promoted = apolloPromotePendingAssistant();
                     if (promoted) {
                         rendered = promoted.message;
-                        renderer = window.ApolloGenUI?.createStreamRenderer?.(promoted.text, {scrollElement: apolloMessages}) || null;
+                        renderer = window.ApolloGenUI?.createStreamRenderer?.(promoted.text, {onContentChange: apolloChatScroll.changed}) || null;
                     }
                 }
                 if (renderer) renderer.update(current.content);
-                else if (rendered) rendered.querySelector(".apollo-message-text").textContent = current.content;
+                else if (rendered) {
+                    rendered.querySelector(".apollo-message-text").textContent = current.content;
+                    apolloChatScroll.changed();
+                }
             }
             priorContent = current.content || priorContent;
             if (current.state !== "running") {
@@ -22697,6 +22728,57 @@ function apolloSetGenerationActive(active) {
 }
 const apolloMessages = document.getElementById("apolloMessages");
 const apolloWelcome = document.getElementById("apolloWelcome");
+const apolloJumpLatest = document.getElementById("apolloJumpLatest");
+const apolloChatScroll = (() => {
+    let following = false;
+    let manual = false;
+    let programmatic = false;
+    let hasNewContent = false;
+    const distance = () => Math.max(0, apolloMessages.scrollHeight
+        - apolloMessages.clientHeight - apolloMessages.scrollTop);
+    const refresh = () => {
+        apolloJumpLatest.hidden = !hasNewContent || following || distance() < 100;
+    };
+    const input = event => {
+        if (event.type === "wheel" && event.deltaY === 0) return;
+        manual = true;
+        if (event.type !== "wheel" || event.deltaY < 0) following = false;
+        refresh();
+    };
+    apolloMessages.addEventListener("wheel", input, {passive: true});
+    apolloMessages.addEventListener("touchstart", input, {passive: true});
+    apolloMessages.addEventListener("pointerdown", input, {passive: true});
+    apolloMessages.addEventListener("keydown", input);
+    apolloMessages.addEventListener("scroll", () => {
+        if (!programmatic) {
+            if (distance() > 110) following = false;
+            else if (manual) following = true;
+        }
+        refresh();
+    }, {passive: true});
+    apolloMessages.addEventListener("load", event => {
+        if (event.target instanceof HTMLImageElement) changed();
+    }, true);
+    function changed() {
+        hasNewContent = true;
+        if (following) {
+            programmatic = true;
+            apolloMessages.scrollTop = apolloMessages.scrollHeight;
+            requestAnimationFrame(() => { programmatic = false; refresh(); });
+        } else refresh();
+    }
+    apolloJumpLatest.addEventListener("click", () => {
+        manual = true;
+        following = true;
+        hasNewContent = false;
+        changed();
+    });
+    return {
+        changed,
+        begin() { following = false; manual = false; hasNewContent = false; refresh(); },
+        finish() { refresh(); }
+    };
+})();
 // Generations belong to the server and continue through view changes.
 
 
@@ -22913,10 +22995,17 @@ async function apolloPulseRefresh(force = false) {
         dismiss.className = "apollo-pulse-dismiss";
         dismiss.setAttribute("aria-label", `Dismiss ${suggestion.label}`);
         dismiss.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">${apolloPulseIconPaths.close}</svg>`;
-        dismiss.addEventListener("click", () => {
+        dismiss.addEventListener("click", event => {
+            event.preventDefault();
+            event.stopPropagation();
             apolloPulseRemember(suggestion, "dismissed");
+            entry.classList.add("is-dismissing");
             apolloPulseLastRefresh = 0;
-            apolloPulseRefresh(true).catch(() => {});
+            apolloPulseSignature = "";
+            window.setTimeout(() => {
+                entry.remove();
+                apolloPulseRefresh(true).catch(() => {});
+            }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 220);
         });
         entry.append(button, dismiss);
         apolloPulse.appendChild(entry);
@@ -24092,7 +24181,7 @@ if (role === "assistant") {
     copyButton.title = "Copy response";
 
     copyButton.innerHTML = `
-        <svg viewBox="0 0 24 24" aria-hidden="true">
+        <svg viewBox="3 3 16 16" aria-hidden="true">
             <rect x="9" y="9" width="10" height="10" rx="2"
                 fill="none" stroke="currentColor" stroke-width="1.6"/>
             <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"
@@ -24124,7 +24213,7 @@ if (role === "assistant") {
             }
 
             copyButton.innerHTML = `
-                <svg viewBox="0 0 24 24" aria-hidden="true">
+                <svg viewBox="5 7 14 10" aria-hidden="true">
                     <path d="M5 12.5l4 4L19 7"
                         fill="none"
                         stroke="currentColor"
@@ -24136,7 +24225,7 @@ if (role === "assistant") {
 
             setTimeout(() => {
                 copyButton.innerHTML = `
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <svg viewBox="3 3 16 16" aria-hidden="true">
                         <rect x="9" y="9" width="10" height="10" rx="2"
                             fill="none" stroke="currentColor" stroke-width="1.6"/>
                         <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"
@@ -24160,7 +24249,7 @@ if (role === "assistant") {
     retryButton.title = "Retry response";
 
     retryButton.innerHTML = `
-        <svg viewBox="0 0 24 24" aria-hidden="true">
+        <svg viewBox="4 4 16 16" aria-hidden="true">
             <path
                 d="M20 11a8 8 0 0 0-14.9-4M4 5v4h4"
                 fill="none"
@@ -24317,7 +24406,7 @@ if (role === "assistant") {
 
                 apolloMessages.scrollTo({
                     top: targetScroll,
-                    behavior: "smooth"
+                    behavior: "instant"
                 });
 
             });
@@ -24427,48 +24516,6 @@ function apolloFinishUserSendViewport() {
     }
 
     /*
-     * Check BEFORE removing the temporary send spacer.
-     *
-     * If the latest message is already completely visible,
-     * it is safe to settle to the real end of the thread.
-     *
-     * If Apollo wrote a long answer extending below the
-     * viewport, leave the reader exactly where they are.
-     */
-    const visibleMessages =
-        Array.from(
-            apolloMessages.querySelectorAll(
-                ":scope > .apollo-message"
-            )
-        ).filter(
-            element =>
-                element.offsetParent !== null
-        );
-
-    const lastMessage =
-        visibleMessages.length
-            ? visibleMessages[
-                visibleMessages.length - 1
-            ]
-            : null;
-
-    let latestFullyVisible = true;
-
-    if (lastMessage) {
-
-        const viewportRect =
-            apolloMessages.getBoundingClientRect();
-
-        const messageRect =
-            lastMessage.getBoundingClientRect();
-
-        latestFullyVisible =
-            messageRect.bottom
-            <= viewportRect.bottom + 6;
-    }
-
-
-    /*
      * This is the ONLY artificial space we added in order
      * to put a newly-sent user message near the readable top.
      */
@@ -24481,41 +24528,9 @@ function apolloFinishUserSendViewport() {
     );
 
 
-    /*
-     * Let layout recalculate without the fake bottom room.
-     */
-    requestAnimationFrame(() => {
-
-        requestAnimationFrame(() => {
-
-            if (!latestFullyVisible) {
-                return;
-            }
-
-            /*
-             * The latest turn fit on screen.
-             *
-             * Move to the REAL maximum scroll position so
-             * the thread genuinely ends where its content
-             * ends instead of leaving the fake send area
-             * underneath it.
-             */
-            const realEnd =
-                Math.max(
-                    0,
-                    apolloMessages.scrollHeight
-                    - apolloMessages.clientHeight
-                );
-
-            apolloSmoothScrollTo(
-                apolloMessages,
-                realEnd,
-                560
-            );
-
-        });
-
-    });
+    // Removing the temporary send spacer may clamp a short answer to its
+    // natural end. Never start a second scroll animation after generation.
+    apolloChatScroll.finish();
 }
 
 
@@ -24565,6 +24580,9 @@ function apolloSetBackendStatus(status) {
 }
 
 function apolloShowTyping(content = "", hasAttachments = false) {
+    // Reconnect and status updates must reuse the pending indicator so CSS
+    // animation phases do not restart or briefly create duplicate rows.
+    if (document.getElementById("apolloTyping")) return;
     apolloHideTyping();
     const typing = document.createElement("div");
     typing.className = "apollo-message assistant";
@@ -24850,6 +24868,7 @@ async function apolloRetryMessage(message) {
     }
 
     apolloSetGenerationActive(true);
+    apolloChatScroll.begin();
     const streamController = new AbortController();
     apolloActiveStreamController = streamController;
     let apolloStreamRenderer = null;
@@ -24971,7 +24990,7 @@ async function apolloRetryMessage(message) {
                             apolloStreamRenderer =
                                 window.ApolloGenUI?.createStreamRenderer?.(
                                     text,
-                                    {scrollElement: apolloMessages}
+                                    {onContentChange: apolloChatScroll.changed}
                                 ) || null;
                         }
 
@@ -24979,6 +24998,7 @@ async function apolloRetryMessage(message) {
                             apolloStreamRenderer.update(assistantContent);
                         } else {
                             text.textContent = assistantContent;
+                            apolloChatScroll.changed();
                         }
 
                     }
@@ -26133,6 +26153,7 @@ async function apolloSendMessage() {
     }
 
     apolloSetGenerationActive(true);
+    apolloChatScroll.begin();
     const streamController = new AbortController();
     apolloActiveStreamController = streamController;
 
@@ -26338,7 +26359,7 @@ if (!response.ok) {
                             apolloStreamRenderer =
                                 window.ApolloGenUI?.createStreamRenderer?.(
                                     text,
-                                    {scrollElement: apolloMessages}
+                                    {onContentChange: apolloChatScroll.changed}
                                 ) || null;
                         }
 
@@ -26346,6 +26367,7 @@ if (!response.ok) {
                             apolloStreamRenderer.update(assistantContent);
                         } else {
                             text.textContent = assistantContent;
+                            apolloChatScroll.changed();
                         }
 
                     }
@@ -37961,6 +37983,15 @@ html.apollo-reduce-motion *::after {
         }
     });
 
+    if (new URLSearchParams(window.location.search).get("gmail") === "connected") {
+        window.openSettings();
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("gmail");
+        cleanUrl.searchParams.delete("settings");
+        window.history.replaceState(window.history.state, "", cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+        requestAnimationFrame(() => connectionPanel?.scrollIntoView({block: "center", behavior: "smooth"}));
+    }
+
 
     /* Expose settings for future Apollo features */
 
@@ -38275,6 +38306,7 @@ html[data-theme="light"] #apolloDebriefText ::selection {
 
     background-position: center;
     background-size: cover;
+    background-image: radial-gradient(circle at 35% 30%, #55485e, #18242b 72%);
 
     filter:
         blur(80px)
@@ -38617,7 +38649,8 @@ html[data-theme="light"]
     transition:opacity 220ms ease, transform 320ms var(--ease);
 }
 .apollo-play-queue.is-open { opacity:1; transform:translate3d(0,0,0); pointer-events:auto; }
-.apollo-music-view.queue-open .apollo-play-queue-scrim { opacity:1; pointer-events:auto; }
+body.apollo-music-queue-open .apollo-play-queue-scrim { opacity:1; pointer-events:auto; }
+body.apollo-music-queue-open { overflow:hidden; }
 body.apollo-music-queue-open #apolloPresence {
     opacity:0;
     visibility:hidden;
@@ -38692,7 +38725,7 @@ body.apollo-music-queue-open #apolloPresence {
         transform:translate3d(0,calc(100% + 12px),0);
     }
     .apollo-play-queue.is-open { transform:translate3d(0,0,0); }
-    .apollo-music-view.queue-open .apollo-play-queue-scrim { opacity:1; pointer-events:auto; }
+    body.apollo-music-queue-open .apollo-play-queue-scrim { opacity:1; pointer-events:auto; }
     body.apollo-music-queue-open #apolloPresence {
         opacity:0;
         visibility:hidden;
@@ -38850,7 +38883,7 @@ body.apollo-music-queue-open #apolloPresence {
     .apollo-queue-trigger span { display:none; }
     .apollo-now-empty .apollo-queue-trigger { margin:12px auto 0; }
     .apollo-music-view.queue-open .apollo-music-inner { transform:none; }
-    .apollo-music-view.queue-open .apollo-play-queue-scrim { opacity:1; pointer-events:auto; }
+    body.apollo-music-queue-open .apollo-play-queue-scrim { opacity:1; pointer-events:auto; }
 
     .apollo-music-inner {
         padding:
@@ -39318,6 +39351,16 @@ body.apollo-music-queue-open #apolloPresence {
     const queueResults = musicView.querySelector("#apolloQueueResults");
     const queueBuildStatus = musicView.querySelector("#apolloQueueBuildStatus");
     const queueBuildText = musicView.querySelector("#apolloQueueBuildText");
+    // Fixed overlays inside the scrolling Music view move with that view on
+    // Safari/Chrome because its containing block and clipping remain local.
+    // Portal both layers to the document viewport after collecting references.
+    document.body.append(queueScrim, queuePanel);
+    queuePanel.setAttribute("role", "dialog");
+    queuePanel.setAttribute("aria-modal", "true");
+    queuePanel.setAttribute("aria-label", "Spotify queue");
+    queuePanel.tabIndex = -1;
+    let queueSavedScroll = 0;
+    let queuePreviousFocus = null;
 
 
     /* =====================================================
@@ -39347,6 +39390,9 @@ body.apollo-music-queue-open #apolloPresence {
     let queueSearchTimer = null;
 
     let lastRenderedTrackId = null;
+    let artworkRequest = 0;
+    let desiredArtworkKey = "";
+    let pendingArtworkKey = "";
 
 
     function formatMs(ms) {
@@ -39697,9 +39743,6 @@ body.apollo-music-queue-open #apolloPresence {
                 nowRetry.style.display = "none";
             }
 
-            backdrop.style.backgroundImage =
-                "none";
-
             playButton.disabled = true;
             previousButton.disabled = true;
             nextButton.disabled = true;
@@ -39870,76 +39913,45 @@ body.apollo-music-queue-open #apolloPresence {
             ).href;
 
 
-        if (
-            artwork.src !== resolvedSrc
-        ) {
+        const artworkKey = `${nextTrackId}::${resolvedSrc}`;
+        if (artworkKey !== desiredArtworkKey) {
+            desiredArtworkKey = artworkKey;
+            ++artworkRequest;
+            pendingArtworkKey = "";
+        }
+        if (artwork.src !== resolvedSrc && pendingArtworkKey !== artworkKey) {
+            const request = artworkRequest;
+            pendingArtworkKey = artworkKey;
 
             artwork.classList.remove(
                 "loaded"
             );
 
-            const previousBackdropOpacity =
-                getComputedStyle(
-                    backdrop
-                ).opacity;
-
             artwork.style.transition =
                 "opacity 300ms ease, transform 420ms cubic-bezier(.22,1,.36,1)";
-
-            if (trackChanged) {
-
-                artwork.style.opacity =
-                    "0";
-
-                artwork.style.transform =
-                    "scale(.985)";
-
-                backdrop.style.opacity =
-                    "0";
-
-            }
 
 
             const preload =
                 new Image();
 
 
-            preload.onload =
-                () => {
-
-                    artwork.onload =
-                        () => {
-
-                            artwork.classList.add(
-                                "loaded"
-                            );
-
-                            requestAnimationFrame(
-                                () => {
-
-                                    artwork.style.opacity =
-                                        "";
-
-                                    artwork.style.transform =
-                                        "";
-
-                                    backdrop.style.opacity =
-                                        previousBackdropOpacity || "";
-
-                                }
-                            );
-
-                        };
-
-
-                    artwork.src =
-                        src;
-
-
-                    backdrop.style.backgroundImage =
-                        `url("${src}")`;
-
-                };
+            preload.onload = () => {
+                if (request !== artworkRequest || desiredArtworkKey !== artworkKey) return;
+                pendingArtworkKey = "";
+                artwork.src = src;
+                artwork.classList.add("loaded");
+                artwork.style.opacity = "";
+                artwork.style.transform = "";
+                backdrop.style.backgroundImage = `url("${src}")`;
+            };
+            preload.onerror = () => {
+                // Keep the last valid artwork atmosphere; a later poll can
+                // retry this same URL when Spotify or the image CDN recovers.
+                if (request === artworkRequest) {
+                    desiredArtworkKey = "";
+                    pendingArtworkKey = "";
+                }
+            };
 
 
             preload.src =
@@ -39990,11 +40002,9 @@ body.apollo-music-queue-open #apolloPresence {
                 error
             );
 
-            applyPlayback({
-                playing: false,
-                title: null,
-                playback_state: "error",
-                connection_state: "error",
+            if (!playback?.title) applyPlayback({
+                playing: false, title: null,
+                playback_state: "error", connection_state: "error",
             });
 
         }
@@ -40201,6 +40211,11 @@ body.apollo-music-queue-open #apolloPresence {
     function openQueue() {
         clearTimeout(queueTransitionTimer);
         const wasOpen = queuePanel.classList.contains("is-open");
+        if (!wasOpen) {
+            queueSavedScroll = musicView.scrollTop;
+            queuePreviousFocus = document.activeElement;
+            musicView.style.overflowY = "hidden";
+        }
         queuePanel.hidden = false;
         requestAnimationFrame(() => {
             queuePanel.classList.add("is-open");
@@ -40211,6 +40226,7 @@ body.apollo-music-queue-open #apolloPresence {
         queueTrigger.setAttribute("aria-label", "Close Spotify queue");
         startQueueJobPolling();
         if (!wasOpen) loadQueue();
+        queueClose.focus({preventScroll:true});
     }
 
     function closeQueue() {
@@ -40218,6 +40234,8 @@ body.apollo-music-queue-open #apolloPresence {
         queuePanel.classList.remove("is-open");
         musicView.classList.remove("queue-open");
         document.body.classList.remove("apollo-music-queue-open");
+        musicView.style.removeProperty("overflow-y");
+        musicView.scrollTop = queueSavedScroll;
         queueTrigger.setAttribute("aria-expanded", "false");
         queueTrigger.setAttribute("aria-label", "Open Spotify queue");
         queueTransitionTimer = window.setTimeout(() => {
@@ -40226,7 +40244,23 @@ body.apollo-music-queue-open #apolloPresence {
                 stopQueueJobPolling();
             }
         }, 320);
+        if (queuePreviousFocus?.isConnected) queuePreviousFocus.focus({preventScroll:true});
     }
+
+    document.addEventListener("keydown", event => {
+        if (!queuePanel.classList.contains("is-open")) return;
+        if (event.key === "Escape") {
+            event.preventDefault();
+            closeQueue();
+        } else if (event.key === "Tab") {
+            const controls = [...queuePanel.querySelectorAll('button:not([disabled]):not([hidden]),input:not([disabled]):not([hidden])')]
+                .filter(control => control.offsetParent !== null);
+            if (!controls.length) return;
+            const first = controls[0], last = controls[controls.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        }
+    });
 
     queueTrigger.addEventListener("click", event => {
         event.stopPropagation();
@@ -40694,6 +40728,7 @@ body.apollo-music-queue-open #apolloPresence {
         queuePanel.classList.remove("is-open");
         musicView.classList.remove("queue-open");
         document.body.classList.remove("apollo-music-queue-open");
+        musicView.style.removeProperty("overflow-y");
         queuePanel.hidden = true;
         queueTrigger.setAttribute("aria-expanded", "false");
         stopQueueJobPolling();
@@ -41230,8 +41265,28 @@ html[data-theme="light"] .apollo-now-control:hover {
    ========================================================= */
 
 .card[data-section="music"] {
+    position: relative;
+    isolation: isolate;
     overflow: hidden;
 }
+
+.card[data-section="music"]::before {
+    content: "";
+    position: absolute;
+    inset: -28px;
+    z-index: -1;
+    background-image: var(--apollo-home-artwork, none);
+    background-position: center;
+    background-size: cover;
+    filter: blur(30px) saturate(1.2);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 400ms cubic-bezier(.22,1,.36,1);
+}
+
+.card[data-section="music"].is-playing::before { opacity: .18; }
+html[data-theme="light"] .card[data-section="music"].is-playing::before { opacity: .11; }
+.card[data-section="music"] > * { position: relative; z-index: 1; }
 
 .apollo-home-music {
     width: 100%;
@@ -41808,6 +41863,41 @@ html[data-theme="light"]
 
     let state = null;
     let busy = false;
+    let homeArtworkKey = "";
+    let homeArtworkRequest = 0;
+
+    function updateHomeArtwork(data) {
+        // Temporary Spotify failures retain the last known playing state.
+        if (data.connection_state === "error" || data.playback_state === "error") return;
+        if (!data.title || !data.playing) {
+            ++homeArtworkRequest;
+            homeCard.classList.remove("is-playing");
+            return;
+        }
+        const source = data.artwork || "";
+        if (!source) {
+            // Keep a valid prior wash during a metadata gap.
+            if (homeArtworkKey) homeCard.classList.add("is-playing");
+            return;
+        }
+        const key = `${data.track_id || data.title}::${source}`;
+        if (key === homeArtworkKey) {
+            homeCard.classList.add("is-playing");
+            return;
+        }
+        const request = ++homeArtworkRequest;
+        const image = new Image();
+        image.onload = () => {
+            if (request !== homeArtworkRequest) return;
+            homeArtworkKey = key;
+            homeCard.style.setProperty("--apollo-home-artwork", `url("${source.replaceAll('"', '%22')}")`);
+            homeCard.classList.add("is-playing");
+        };
+        image.onerror = () => {
+            // No flash: the previous artwork remains until a later poll succeeds.
+        };
+        image.src = source;
+    }
 
 
     async function spotifyControl(
@@ -41912,6 +42002,8 @@ html[data-theme="light"]
     function renderHome(
         data
     ) {
+
+        updateHomeArtwork(data);
 
         if (
             data.connection_state
@@ -79005,4 +79097,6 @@ html.apollo-jarvis-mode
 <script src="/apollo_music_insights.js?v=20261027-3"></script>
 <script src="/apollo_brand.js?v=20261027-1"></script>
 <script src="/apollo_shortcuts.js?v=20261027-1"></script>
+<link rel="stylesheet" href="/apollo_security.css?v=20261029-1">
+<script src="/apollo_security.js?v=20261029-1"></script>
 <style>.apollo-shortcut-target { outline: 2px solid currentColor; outline-offset: 3px; }</style>

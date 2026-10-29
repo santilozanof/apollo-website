@@ -1,7 +1,9 @@
 import ast
 import re
+import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 SERVER = Path(__file__).resolve().parents[1] / "server.py"
@@ -20,7 +22,11 @@ def load_function(name, namespace):
 class ConnectionRegistryTests(unittest.TestCase):
     def registry(self, *, google=None, canvas=None, spotify=None, whoop=None):
         return load_function("_apollo_connections_probe", {
-            "Path": Path, "SPOTIFY_TOOL": str(SERVER), "re": re,
+            "Path": Path, "SPOTIFY_TOOL": str(SERVER), "re": re, "sys": sys,
+            "__name__": __name__,
+            "apollo_gmail": SimpleNamespace(status=lambda *_args, **_kwargs: {
+                "connected": True, "status": "connected",
+            }),
             "apollo_google_health_probe": lambda: google or {
                 "connected": True, "reconnect": False, "error": None,
             },
@@ -41,7 +47,7 @@ class ConnectionRegistryTests(unittest.TestCase):
         integrations = self.registry()["integrations"]
         self.assertEqual(
             [item["id"] for item in integrations],
-            ["google_calendar", "canvas_calendar", "spotify", "whoop"],
+            ["gmail", "google_calendar", "canvas_calendar", "spotify", "whoop"],
         )
         self.assertTrue(all("description" in item for item in integrations))
         self.assertNotIn("credentials", str(integrations).lower())
@@ -66,6 +72,10 @@ class ConnectionRegistryTests(unittest.TestCase):
                        "last_successful_sync": None, "error": "expired"},
             )["integrations"]
         }
+        self.assertEqual(
+            [action["id"] for action in integrations["gmail"]["actions"]],
+            ["reconnect", "disconnect"],
+        )
         self.assertEqual(
             [action["id"] for action in integrations["google_calendar"]["actions"]],
             ["reconnect"],
