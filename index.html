@@ -18728,6 +18728,8 @@ html.apollo-reduce-motion
             return;
         }
 
+        if (boot.classList.contains("apollo-boot-exit")) return;
+
         boot.classList.add(
             "apollo-boot-exit"
         );
@@ -18768,6 +18770,12 @@ html.apollo-reduce-motion
             once: true
         }
     );
+
+    // A large private artwork must not keep Apollo hidden while the browser
+    // waits for every image to finish before dispatching window.load.
+    document.addEventListener("DOMContentLoaded", () => {
+        setTimeout(finishApolloBoot, 2500);
+    }, {once: true});
 
 })();
 </script>
@@ -19371,6 +19379,7 @@ html.apollo-jarvis-mode .jv10-core-ring.inner::after {
                                         ? `
                                             <img
                                                 src="${escapeHTML(project.artwork_url)}"
+                                                loading="lazy" decoding="async"
                                                 alt=""
                                             >
                                         `
@@ -19497,6 +19506,7 @@ html.apollo-jarvis-mode .jv10-core-ring.inner::after {
                             ? `
                                 <img
                                     src="${escapeHTML(project.artwork_url)}"
+                                    loading="lazy" decoding="async"
                                     alt=""
                                 >
                             `
@@ -45039,6 +45049,7 @@ body.light
                         ? `
                             <img
                                 src="${project.artwork_url}"
+                                loading="lazy" decoding="async"
                                 alt=""
                             >
                         `
@@ -45692,6 +45703,7 @@ body.light
                 ? `
                     <img
                         src="${project.artwork_url}"
+                        loading="lazy" decoding="async"
                         alt=""
                     >
                 `
