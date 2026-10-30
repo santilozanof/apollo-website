@@ -41,6 +41,31 @@ class MemoryTests(unittest.TestCase):
         with self.db() as conn:
             return conn.execute('INSERT INTO messages(chat_id,role,content,created_at) VALUES (?,?,?,?)', (chat, role, text, date)).lastrowid
 
+    def test_sensitivity_migration_preserves_existing_embeddings(self):
+        conn = sqlite3.connect(':memory:')
+        conn.row_factory = sqlite3.Row
+        conn.executescript('''
+            CREATE TABLE chats(id INTEGER PRIMARY KEY,title TEXT);
+            CREATE TABLE messages(id INTEGER PRIMARY KEY,chat_id INTEGER,role TEXT,content TEXT,created_at TEXT);
+            CREATE TABLE personal_memories(id INTEGER PRIMARY KEY,owner TEXT,memory_key TEXT,
+                content TEXT,category TEXT,confidence REAL,source_message_id INTEGER,
+                source_quote TEXT,created_at TEXT,updated_at TEXT,status TEXT);
+            CREATE TABLE memory_embeddings(memory_id INTEGER PRIMARY KEY,model TEXT,vector TEXT);
+            CREATE TRIGGER memory_fact_update AFTER UPDATE ON personal_memories BEGIN
+                DELETE FROM memory_embeddings WHERE memory_id=old.id;
+            END;
+            INSERT INTO personal_memories VALUES
+                (1,'alice','coffee','Prefers oat milk','preference',1,NULL,'',
+                 '2026-01-01','2026-01-01','active');
+            INSERT INTO memory_embeddings VALUES (1,'local-model','[0.1,0.2]');
+        ''')
+        init_schema(conn)
+        self.assertEqual(conn.execute('SELECT sensitivity FROM personal_memories').fetchone()[0], 'ordinary')
+        self.assertEqual(conn.execute('SELECT vector FROM memory_embeddings').fetchone()[0], '[0.1,0.2]')
+        conn.execute("UPDATE personal_memories SET content='Prefers soy milk' WHERE id=1")
+        self.assertEqual(conn.execute('SELECT COUNT(*) FROM memory_embeddings').fetchone()[0], 0)
+        conn.close()
+
     def test_explicit_preference_persists_across_store_instances(self):
         self.store.save('I prefer concise answers', memory_key='answer_length')
         reopened = MemoryStore(self.db, 'alice')

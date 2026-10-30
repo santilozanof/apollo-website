@@ -77,7 +77,8 @@ def init_schema(conn):
     CREATE TRIGGER IF NOT EXISTS memory_fact_delete AFTER DELETE ON personal_memories BEGIN
         DELETE FROM memory_embeddings WHERE memory_id=old.id;
     END;
-    CREATE TRIGGER IF NOT EXISTS memory_fact_update AFTER UPDATE ON personal_memories BEGIN
+    DROP TRIGGER IF EXISTS memory_fact_update;
+    CREATE TRIGGER memory_fact_update AFTER UPDATE OF content,memory_key,category,source_quote,status ON personal_memories BEGIN
         DELETE FROM memory_embeddings WHERE memory_id=old.id;
     END;
     CREATE TABLE IF NOT EXISTS message_embeddings (

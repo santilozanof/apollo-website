@@ -9,7 +9,7 @@
 
 ## Verification
 
-- Python: 432 tests passed, 2 skipped, on isolated local SQLite after the application-awareness, music-scope, and prompt-routing changes. This macOS Python lacks hashlib.scrypt; the test runner used a test-only PBKDF2 shim. Production hashing was not substituted.
+- Python: 433 tests passed, 2 skipped, on isolated local SQLite after the application-awareness, music-scope, prompt-routing, and migration-preservation changes. This macOS Python lacks hashlib.scrypt; the test runner used a test-only PBKDF2 shim. Production hashing was not substituted.
 - iOS configuration: 17 passed.
 - JavaScript syntax (modified external modules), Python compilation, and git diff --check passed.
 - iOS production asset build passed.
@@ -21,7 +21,7 @@
 
 ## Release gates
 
-At QA capture, staging, fresh independent backup, restored-backup migration rehearsal, previous-backend compatibility rehearsal, rollback rehearsal, model fingerprint, and exact readiness manifest were still pending for this candidate. Do not push main or deploy until those gates pass. Existing backups and manifests belong to earlier revisions and must not be reused.
+The candidate is staged in an isolated server worktree. A first fresh backup and server-side restore passed for its preceding commit; the first migration rehearsal then detected that the sensitivity-column backfill cleared 148 existing memory embeddings. The migration now replaces the broad update trigger with one limited to content changes, and a regression test confirms existing vectors survive the backfill while content edits still invalidate them. Because this fix changes the release SHA, a fresh exact-SHA backup, independent Mac restore, migration and previous-backend compatibility rehearsals, rollback rehearsal, model fingerprint, and readiness manifest remain mandatory. Do not push main or deploy until they pass.
 
 Read-only production check: /root/Apollo remains at c231f0c78348923fa208c0a8810323ce5257d9f4. The actual apollo-backend.service and apollo-web.service were active; localhost /api/memory returned HTTP 200. An older /root/apollo-deployment-ready.json exists, but it does not prepare an uncommitted candidate.
 
@@ -33,4 +33,4 @@ The reproducible deterministic evaluation in scripts/evaluate-intelligence.py co
 
 The prompt audit measured a 16,156-character rich-component schema sent on every Chat turn. The candidate keeps it for visual, narrative and interactive questions and omits it for simple turns. Three controlled public-question calls per variant through the production answer gateway used the same fast model: the current prompt had median first token 1.07 s and total 1.76 s; the shorter candidate-selected prompt had median first token 1.12 s and total 1.49 s. All six produced nonempty answers. This small gateway-only sample does not establish a statistically reliable speed or quality gain and is not an end-to-end candidate deployment test.
 
-The broad intelligence directive is not yet fully verified. In particular, candidate model-level before/after evaluation, live connected cross-feature conversations, image generation through production Chat, and independent real-account privacy QA remain open. Production release gates below are still unsatisfied.
+The broad intelligence directive is not yet fully verified. In particular, candidate model-level before/after evaluation, live connected cross-feature conversations, image generation through production Chat, and independent real-account privacy QA remain open. Production release gates remain unsatisfied.
