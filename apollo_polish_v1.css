@@ -10,6 +10,41 @@
     --apollo-space-6: 24px;
     --apollo-space-8: 32px;
     --apollo-space-10: 40px;
+    --apollo-space-12: 48px;
+    --apollo-space-16: 64px;
+
+    /* The same type scale is used by page titles, sections, forms, and rich replies. */
+    --apollo-type-display: clamp(44px, 4.5vw, 58px);
+    --apollo-type-h1: clamp(32px, 3vw, 38px);
+    --apollo-type-h2: clamp(22px, 2.1vw, 26px);
+    --apollo-type-h3: 18px;
+    --apollo-type-h4: 15px;
+    --apollo-type-body: 15px;
+    --apollo-type-small: 13px;
+    --apollo-type-caption: 11px;
+    --apollo-leading-body: 1.58;
+    --apollo-leading-heading: 1.16;
+    --apollo-page-title-size: var(--apollo-type-h1);
+    --apollo-page-title-weight: 600;
+    --apollo-page-title-tracking: -.04em;
+    --apollo-page-subtitle-size: var(--apollo-type-small);
+
+    --apollo-color-page: var(--bg);
+    --apollo-color-surface: var(--surface);
+    --apollo-color-surface-hover: var(--surface-hover);
+    --apollo-color-text: var(--text);
+    --apollo-color-muted: var(--muted);
+    --apollo-color-border: var(--border);
+    --apollo-color-border-strong: var(--border-hover);
+    --apollo-color-focus: var(--text);
+    --apollo-radius-control: 10px;
+    --apollo-radius-card: 16px;
+    --apollo-radius-panel: 20px;
+    --apollo-radius-lg: var(--apollo-radius-panel);
+    --apollo-motion-fast: 160ms;
+    --apollo-motion-normal: 220ms;
+    --apollo-motion-slow: 320ms;
+    --apollo-motion-ease: cubic-bezier(.22, 1, .36, 1);
 
     --apollo-page-max: 1180px;
     --apollo-page-readable: 920px;

@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import tempfile
 import unittest
 from unittest import mock
@@ -37,6 +38,21 @@ def sse_events(raw):
         if line.startswith("data:"):
             events.append(json.loads(line[5:].strip()))
     return events
+
+
+def normalized_quiz_ids(content):
+    def replace(match):
+        try:
+            envelope = json.loads(match.group(1))
+        except ValueError:
+            return match.group(0)
+        if not isinstance(envelope, dict):
+            return match.group(0)
+        for block in envelope.get("blocks", []):
+            if isinstance(block, dict) and block.get("type") == "quiz":
+                block["id"] = "<saved-message-quiz-id>"
+        return json.dumps(envelope, sort_keys=True, ensure_ascii=False)
+    return re.sub(r"\x60{3}apollo-ui\s*\n([\s\S]*?)\n\x60{3}", replace, content)
 
 
 class GenerativeUILivePipelineTests(unittest.TestCase):
@@ -158,7 +174,8 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
                 + " in this response."
             )
         if not expect_decorated:
-            self.assertEqual(events[-1]["message"]["content"], expected)
+            self.assertEqual(normalized_quiz_ids(events[-1]["message"]["content"]),
+                             normalized_quiz_ids(expected))
 
         status, raw = request("GET", f"/api/chats/{chat_id}")
         self.assertEqual(status, 200)
@@ -206,6 +223,70 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         status, raw = request("GET", f"/api/chats/{chat_id}")
         self.assertEqual(status, 200)
         self.assertIn("image_gallery", json.loads(raw)["messages"][-1]["content"])
+
+    def test_existing_image_provider_result_is_captured_in_chat_history(self):
+        from PIL import Image
+        chat_id = self.create_chat()
+        generated = server.BASE_DIR / "test-generated-image.png"
+        Image.new("RGB", (32, 32), "blue").save(generated)
+        patches = {
+            "apollo_music_action_requested": lambda *_a, **_k: False,
+            "apollo_automation_chat_reply": lambda *_a, **_k: None,
+            "apollo_task_chat": lambda *_a, **_k: None,
+            "apollo_calendar_chat": lambda *_a, **_k: None,
+            "apollo_context_planner": lambda *_a, **_k: {},
+            "apollo_fetch_planned_context": lambda *_a, **_k: {},
+            "apollo_should_reply_semantically": lambda *_a, **_k: True,
+            "apollo_generate_with_existing_provider": lambda *_a: "Here is the generated image.\n\nMEDIA:" + str(generated),
+            "stream_hermes": lambda _messages: self.fail("explicit image creation should use the existing image provider"),
+            "generate_chat_title": lambda _history: "Generated image",
+        }
+        with mock.patch.multiple(server, **patches):
+            status, raw = request("POST", f"/api/chats/{chat_id}/messages", {
+                "content": "haz una imagen de un sigma looksmaxxer con toda la huzz",
+            })
+        self.assertEqual(status, 200)
+        final = sse_events(raw)[-1]["message"]
+        self.assertEqual(len(final["attachments"]), 1)
+        self.assertEqual(final["attachments"][0]["mime_type"], "image/png")
+        self.assertNotIn("MEDIA:", final["content"])
+        saved = json.loads(request("GET", f"/api/chats/{chat_id}")[1])["messages"][-1]
+        self.assertEqual(len(saved["attachments"]), 1)
+        self.assertEqual(request("GET", saved["attachments"][0]["url"])[0], 200)
+
+    def test_app_question_receives_validated_capabilities_and_screen_hint(self):
+        chat_id = self.create_chat()
+        captured = []
+        def answer(messages):
+            captured.extend(messages)
+            return iter(["Open the Settings tab to change that control."])
+        patches = {
+            "apollo_music_action_requested": lambda *_a, **_k: False,
+            "apollo_automation_chat_reply": lambda *_a, **_k: None,
+            "apollo_task_chat": lambda *_a, **_k: None,
+            "apollo_calendar_chat": lambda *_a, **_k: None,
+            "apollo_context_planner": lambda *_a, **_k: {},
+            "apollo_fetch_planned_context": lambda *_a, **_k: {},
+            "apollo_should_reply_semantically": lambda *_a, **_k: True,
+            "stream_hermes": answer,
+            "generate_chat_title": lambda _history: "Settings help",
+        }
+        with mock.patch.multiple(server, **patches):
+            status, raw = request("POST", f"/api/chats/{chat_id}/messages", {
+                "content": "What does this setting do?",
+                "client_context": {"ui_state": {
+                    "view": "settings", "panel": "terminal", "secret": "never leak",
+                }},
+            })
+        self.assertEqual(status, 200)
+        self.assertEqual(sse_events(raw)[-1]["message"]["content"],
+                         "Open the Settings tab to change that control.")
+        system = "\n".join(str(item.get("content") or "") for item in captured
+                           if item.get("role") == "system")
+        self.assertIn('"id":"settings"', system)
+        self.assertIn('"view":"settings"', system)
+        self.assertNotIn('"panel":"terminal"', system)
+        self.assertNotIn("never leak", system)
 
     def test_generated_image_is_copied_and_old_mime_is_repaired_on_reload(self):
         from PIL import Image
@@ -485,7 +566,8 @@ class GenerativeUILivePipelineTests(unittest.TestCase):
         self.assertNotIn("limit-explorer", final)
         self.assertNotIn("limit-check", final)
         self.assertIn("kinetic-energy-demo", final)
-        self.assertIn("kinetic-energy-check", final)
+        self.assertRegex(final, r'"id":"quiz-\d+-\d+-1"')
+        self.assertIn("What makes kinetic energy quadruple?", final)
         self.assertTrue(events[-1]["timings"]["ui_recovery_used"])
 
     def test_general_water_question_never_activates_personal_hydration(self):

@@ -12,6 +12,7 @@
     const originalNavigate = window.apolloNavigate;
     let state = null, current = document.body.dataset.apolloRoute || 'home';
     let pending = null, stateAt = 0, lockBusy = false;
+    const leaveRevocations = new Map();
     let refreshSequence = 0, routeSequence = 0, renderedSettingsKey = '';
     // Route markers are not credentials. Grants remain HttpOnly server-side cookies.
     const leftLocks = new Set((() => {
@@ -119,10 +120,32 @@
         const sequence = ++refreshSequence;
         const next = await request('state');
         if (sequence < refreshSequence) return state;
+        const wasPrivateUnlocked = !!state?.unlocked?.private;
+        const wasPrivateProtected = !!state?.protect_sensitive_chat;
         state = next;
         stateAt = Date.now();
+        const historySearch = document.querySelector('#apolloHistorySearch');
+        if (historySearch) {
+            historySearch.disabled = !!(state.protect_history && !state.unlocked?.history);
+            historySearch.placeholder = historySearch.disabled ? 'Unlock to search chats' : 'Search chats';
+        }
+        if (state.protect_sensitive_chat && !state.unlocked?.private &&
+                (wasPrivateUnlocked || !wasPrivateProtected)) {
+            window.apolloPulseClearPrivate?.();
+        } else if (state.protect_sensitive_chat && state.unlocked?.private && !wasPrivateUnlocked) {
+            window.apolloPulseUnlockRefresh?.();
+        }
+        if (state.protect_history && !state.unlocked?.history) {
+            window.apolloClearHomeRecent?.();
+            window.apolloClearJarvisHistory?.();
+            document.querySelector('#apolloHistoryTrack')
+                ?.querySelectorAll('.apollo-history-card, .apollo-history-group')
+                .forEach(node => node.remove());
+        }
         const key = JSON.stringify([state.enrolled, state.tabs, state.privacy,
-            state.protect_spotify, state.unlocked?.settings, state.passkeys, state.recovery_available]);
+            state.protect_spotify, state.protect_sensitive_chat, state.protect_history,
+            state.private_relock, state.history_relock,
+            state.unlocked?.settings, state.passkeys, state.recovery_available]);
         if (key !== renderedSettingsKey) {
             renderedSettingsKey = key;
             renderSettings();
@@ -187,6 +210,7 @@
         feedback.textContent = '';
         for (const button of lock.querySelectorAll('button')) button.disabled = true;
         try {
+            await leaveRevocations.get(pending.resource);
             const payload = method === 'recovery' ? {resource: pending.resource, method, code: value}
                 : {resource: pending.resource, method, passphrase: value};
             await request('authenticate', payload);
@@ -235,6 +259,133 @@
                     signature: encode(credential.response.signature),
                     userHandle: credential.response.userHandle ? encode(credential.response.userHandle) : null}}});
     }
+    window.apolloSecurityUnlockInline = (resource, mount, signal) => new Promise((resolve, reject) => {
+        if (!['private', 'history'].includes(resource) || !mount) {
+            reject(new Error('Inline verification is unavailable'));
+            return;
+        }
+        const old = mount.querySelector('.apollo-security-inline');
+        old?.remove();
+        const card = document.createElement('section');
+        card.className = 'apollo-security-inline';
+        card.setAttribute('role', 'group');
+        card.setAttribute('aria-label', resource === 'history' ? 'Unlock History' : 'Verify private Chat access');
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        icon.setAttribute('viewBox', '0 0 24 24');
+        icon.setAttribute('aria-hidden', 'true');
+        icon.innerHTML = '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>';
+        const title = document.createElement('h3');
+        title.textContent = resource === 'history' ? 'Private history' : 'Private response';
+        const description = document.createElement('p');
+        description.textContent = resource === 'history'
+            ? "Verify it's you to view your conversations."
+            : "Verify it's you to reveal this information.";
+        const passphrase = document.createElement('input');
+        passphrase.type = 'password';
+        passphrase.autocomplete = 'current-password';
+        passphrase.placeholder = 'Passphrase';
+        passphrase.setAttribute('aria-label', 'Security passphrase');
+        const message = document.createElement('p');
+        message.className = 'apollo-security-inline-feedback';
+        message.setAttribute('role', 'status');
+        const buttons = document.createElement('div');
+        buttons.className = 'apollo-security-inline-actions';
+        const confirm = document.createElement('button');
+        confirm.type = 'button';
+        confirm.textContent = 'Unlock with passphrase';
+        const deviceButton = document.createElement('button');
+        deviceButton.type = 'button';
+        deviceButton.textContent = 'Unlock with passkey';
+        deviceButton.hidden = !(state?.passkeys > 0 && window.PublicKeyCredential && window.isSecureContext);
+        (deviceButton.hidden ? confirm : deviceButton).classList.add('is-primary');
+        const recovery = document.createElement('button');
+        recovery.type = 'button';
+        recovery.textContent = 'Use recovery code';
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = 'Cancel';
+        buttons.append(deviceButton, confirm, recovery, cancel);
+        card.append(icon, title, description, passphrase, buttons, message);
+        mount.append(card);
+        let done = false, recoveryMode = false;
+        const finish = (error) => {
+            if (done) return;
+            done = true;
+            card.remove();
+            signal?.removeEventListener('abort', onAbort);
+            if (error) reject(error); else resolve();
+        };
+        const onAbort = () => finish(new DOMException('Verification interrupted', 'AbortError'));
+        signal?.addEventListener('abort', onAbort, {once: true});
+        const verify = async method => {
+            if (done) return;
+            for (const button of buttons.querySelectorAll('button')) button.disabled = true;
+            message.textContent = '';
+            try {
+                if (method === 'passkey') await passkey(resource);
+                else await request('authenticate', method === 'recovery'
+                    ? {resource, method, code: passphrase.value}
+                    : {resource, method, passphrase: passphrase.value});
+                passphrase.value = '';
+                await refresh();
+                if (!state.unlocked?.[resource]) throw new Error('Verification did not create an access grant');
+                finish();
+            } catch (error) {
+                message.textContent = method === 'passkey' ? passkeyFailure(error, 'verification')
+                    : error.message || 'Verification failed';
+            } finally {
+                for (const button of buttons.querySelectorAll('button')) button.disabled = false;
+            }
+        };
+        confirm.onclick = () => verify(recoveryMode ? 'recovery' : 'passphrase');
+        passphrase.onkeydown = event => { if (event.key === 'Enter') verify(recoveryMode ? 'recovery' : 'passphrase'); };
+        deviceButton.onclick = () => verify('passkey');
+        recovery.onclick = () => {
+            recoveryMode = !recoveryMode;
+            passphrase.value = '';
+            passphrase.placeholder = recoveryMode ? 'Recovery code' : 'Passphrase';
+            passphrase.setAttribute('aria-label', passphrase.placeholder);
+            recovery.textContent = recoveryMode ? 'Use passphrase' : 'Use recovery code';
+            passphrase.focus();
+        };
+        cancel.onclick = () => {
+            const error = new Error('Verification canceled');
+            error.name = 'SecurityVerificationCanceled';
+            finish(error);
+        };
+        passphrase.focus({preventScroll: true});
+    });
+    window.apolloSecurityLockedInline = (mount, retry) => {
+        if (!mount) return;
+        mount.replaceChildren();
+        const card = document.createElement('section');
+        card.className = 'apollo-security-inline';
+        card.setAttribute('role', 'group');
+        card.setAttribute('aria-label', 'Private response remains locked');
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        icon.setAttribute('viewBox', '0 0 24 24');
+        icon.setAttribute('aria-hidden', 'true');
+        icon.innerHTML = '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>';
+        const title = document.createElement('h3');
+        title.textContent = 'Private response';
+        const description = document.createElement('p');
+        description.textContent = "This response remains locked. Verify when you're ready.";
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Verify to continue';
+        button.addEventListener('click', () => retry?.());
+        card.append(icon, title, description, button);
+        mount.append(card);
+    };
+    window.apolloSecurityHistoryClosed = () => {
+        const track = document.querySelector('#apolloHistoryTrack');
+        track?.querySelectorAll('.apollo-history-card, .apollo-history-group, .apollo-security-inline').forEach(node => node.remove());
+        if (state?.history_relock === 'leave' && state.protect_history) {
+            if (state.unlocked) state.unlocked.history = false;
+            request('revoke', {resource: 'history'}).catch(error =>
+                console.warn('[Apollo Security] History revocation failed:', error.message));
+        }
+    };
     device.addEventListener('click', async () => {
         if (!pending || lockBusy) return;
         lockBusy = true;
@@ -276,24 +427,52 @@
     async function routeTo(route) {
         if (!opens[route]) return;
         const sequence = ++routeSequence;
-        conceal();
+        const fresh = state && Date.now() - stateAt <= 5000;
+        if (!fresh) {
+            document.body.classList.add('apollo-security-transition');
+            conceal();
+        }
         try {
-            if (!state || Date.now() - stateAt > 5000) await refresh();
+            if (!fresh) await refresh();
             if (sequence !== routeSequence) return;
             const previous = resourceFor(current);
+            if (previous === 'chat' && resourceFor(route) !== 'chat' &&
+                    state.protect_sensitive_chat && state.private_relock === 'leave' &&
+                    state.unlocked?.private) {
+                state.unlocked.private = false;
+                request('revoke', {resource: 'private'}).catch(error =>
+                    console.warn('[Apollo Security] Private access revocation failed:', error.message));
+            }
             if (previous && previous !== resourceFor(route) && state.tabs?.[previous] === 'leave') {
+                // Invalidate this tab immediately. Server revocation can finish
+                // after the destination is visible without exposing Studio.
                 rememberLeft(previous);
-                if (!await anotherTabUses(previous)) await request('revoke', {resource: previous});
                 state.unlocked[previous] = false;
+                const revokeLeaving = (async () => {
+                    try {
+                        if (!await anotherTabUses(previous)) await request('revoke', {resource: previous});
+                    } catch (error) {
+                        console.warn('[Apollo Security] Leave revocation failed:', error.message);
+                    }
+                })();
+                leaveRevocations.set(previous, revokeLeaving);
+                revokeLeaving.finally(() => {
+                    if (leaveRevocations.get(previous) === revokeLeaving) leaveRevocations.delete(previous);
+                });
             }
             if (sequence !== routeSequence) return;
+            document.body.classList.remove('apollo-security-transition');
             if (!canShow(route)) { showLock(route); return; }
             pending = null;
             current = route;
             originalNavigate?.(route);
             reveal();
             announcePresence();
-        } catch (error) { showLock(route); feedback.textContent = error.message || 'Security state unavailable'; }
+        } catch (error) {
+            document.body.classList.remove('apollo-security-transition');
+            showLock(route);
+            feedback.textContent = error.message || 'Security state unavailable';
+        }
     }
     document.addEventListener('click', event => {
         const button = event.target.closest('.nav-button');
@@ -328,6 +507,19 @@
         if (!document.hidden) checkCurrent();
     });
     setInterval(() => { if (!document.hidden && (protectedRoute(current) || pending)) checkCurrent(); }, 5000);
+    setInterval(() => {
+        if (document.hidden || !state?.protect_history ||
+                !document.querySelector('#apolloHistoryStrip.open')) return;
+        refresh().then(() => {
+            if (!state.unlocked?.history) {
+                document.querySelector('#apolloHistoryTrack')
+                    ?.querySelectorAll('.apollo-history-card, .apollo-history-group')
+                    .forEach(node => node.remove());
+                if (!document.querySelector('#apolloHistoryTrack .apollo-security-inline'))
+                    window.apolloRefreshHistory?.();
+            }
+        }).catch(() => {});
+    }, 5000);
     setInterval(() => {
         const resource = resourceFor(current);
         if (resource && state?.tabs?.[resource] === 'leave' && state.unlocked?.[resource] &&
@@ -388,7 +580,13 @@
         verify.className = 'apollo-security-verify';
         verify.textContent = state.unlocked?.settings ? 'Verify again for changes' : 'Verify to manage security';
         verify.onclick = () => showLock('settings', 'settings');
-        overview.append(verify);
+        const scopeStatus = document.createElement('p');
+        const statusText = scope => state.unlocked?.[scope]
+            ? (state[scope + '_relock'] === 'leave' ? 'unlocked until you leave' :
+                'unlocked until ' + new Date(state.scope_expires?.[scope] * 1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}))
+            : 'locked';
+        scopeStatus.textContent = 'Private Chat: ' + statusText('private') + ' · History: ' + statusText('history');
+        overview.append(scopeStatus, verify);
         settingsPanel.append(overview);
         if (!state.unlocked?.settings) return;
         const form = document.createElement('form');
@@ -403,6 +601,12 @@
                 <select name="privacy"><option value="standard">Standard</option>
                 <option value="enhanced">Enhanced Privacy</option><option value="maximum">Maximum Privacy</option></select></label>
                 <label><input type="checkbox" name="protect_spotify">Protect private Spotify history</label>
+                <label><input type="checkbox" name="protect_sensitive_chat">Verify before private Chat answers</label>
+                <label>Private Chat relock
+                    <select name="private_relock"><option value="leave">On leave</option><option value="5m">5 minutes</option><option value="15m">15 minutes</option></select></label>
+                <label><input type="checkbox" name="protect_history">Protect saved History and search</label>
+                <label>History relock
+                    <select name="history_relock"><option value="leave">On close</option><option value="5m">5 minutes</option><option value="15m">15 minutes</option></select></label>
                 <button type="submit">Save security settings</button>
             </section>
             <section class="apollo-security-group apollo-security-credentials-group">
@@ -436,6 +640,10 @@
         }
         form.elements.privacy.value = state.privacy;
         form.elements.protect_spotify.checked = state.protect_spotify;
+        form.elements.protect_sensitive_chat.checked = !!state.protect_sensitive_chat;
+        form.elements.protect_history.checked = !!state.protect_history;
+        form.elements.private_relock.value = state.private_relock || '5m';
+        form.elements.history_relock.value = state.history_relock || '5m';
         const message = form.querySelector('.apollo-security-message');
         const settingsFailure = (error, passkeyAction) => {
             if (error.code === 'recent_verification_required') {
@@ -451,7 +659,11 @@
             }
             try {
                 await request('policy', {tabs, privacy: form.elements.privacy.value,
-                    protect_spotify: form.elements.protect_spotify.checked});
+                    protect_spotify: form.elements.protect_spotify.checked,
+                    protect_sensitive_chat: form.elements.protect_sensitive_chat.checked,
+                    protect_history: form.elements.protect_history.checked,
+                    private_relock: form.elements.private_relock.value,
+                    history_relock: form.elements.history_relock.value});
                 await refresh(); routeTo(current);
             } catch (error) { settingsFailure(error); }
         };

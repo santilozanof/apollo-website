@@ -75,7 +75,7 @@ def visual_request(message, history=()):
     # "What does tomorrow/my workload look like?" asks for a plan, not
     # photographs. Keep explicit media requests and the existing physical/UI
     # appearance requests, but do not hijack temporal or personal-data prose.
-    if (not re.search(r'\b(images?|photos?|pictures?|screenshots?)\b', lower)
+    if (not re.search(r'\b(images?|photos?|pictures?|screenshots?|im[aá]genes?|fotos?|retratos?)\b', lower)
             and re.search(r'\b(today|tomorrow|yesterday|schedule|calendar|tasks?|assignments?|deadlines?|workload|agenda|week|plans?)\b', lower)):
         return None
     ordinal_subject = _ordinal_subject(str(message or ""), history)
@@ -85,7 +85,8 @@ def visual_request(message, history=()):
         r"\b(?:show|find|see|give|display)\b.{0,55}\b(?:images?|photos?|pictures?|screenshots?)\b"
         r"|\b(?:images?|photos?|pictures?|screenshots?)\s+of\b"
         r"|\bwhat\b.{0,45}\blooks? like\b"
-        r"|\bshow me\b.{0,35}\b(?:piano roll|fl studio)\b",
+        r"|\bshow me\b.{0,35}\b(?:piano roll|fl studio)\b"
+        r"|\b(?:ens[eé]ñame|mu[eé]strame|busca|quiero ver)\b.{0,55}\b(?:im[aá]genes?|fotos?|retratos?)\b",
         lower,
     ):
         return None
@@ -106,7 +107,40 @@ def visual_request(message, history=()):
     if match:
         subject = re.sub(r"[^\w\s'-]", "", match.group(1)).strip()
         return subject[:80] or None
+    match = re.search(r"\bde\s+(.{3,100}?)(?:[?.!]|$)", text, re.I)
+    if match:
+        subject = re.sub(r"[^\w\s#'-]", "", match.group(1)).strip()
+        return subject[:80] or None
+    # Resolve a short follow-up from the actual conversation, not from an
+    # unrelated image search. A distinctive named user subject is preferred.
+    for item in reversed(list(history)[-12:]):
+        if not isinstance(item, dict) or item.get("role") != "user":
+            continue
+        earlier = re.sub(r"\s+", " ", str(item.get("content") or "")).strip()
+        if earlier == text or len(earlier) > 120:
+            continue
+        hashtag = re.search(r"#[\w-]{2,60}", earlier)
+        if hashtag:
+            return hashtag.group(0)
+        if re.fullmatch(r"(?:it'?s|es)\s+(?:a|an|una?|el|la)\s+[\wáéíóúñ -]{2,35}[.!]?", earlier, re.I):
+            continue
+        if 2 <= len(earlier) <= 80 and not re.search(
+            r"\b(?:show|find|search|look|b[uú]sca(?:la|lo)?|ens[eé]ña|mu[eé]stra|foto|imagen)\b", earlier, re.I
+        ):
+            return earlier.strip(" .?!")
     return None
+
+
+def generation_request(message):
+    """Separate creation/editing from requests to retrieve an existing image."""
+    text = re.sub(r"\s+", " ", str(message or "")).strip().casefold()
+    return bool(re.search(
+        r"\b(?:generate|create|draw|make|paint|render|edit|modify)\b.{0,90}"
+        r"\b(?:image|picture|photo|illustration|artwork|portrait)\b"
+        r"|\b(?:genera|crea|haz|dibuja|pinta|edita|modifica)\b.{0,90}"
+        r"\b(?:imagen|foto|ilustraci[oó]n|retrato)\b",
+        text,
+    ))
 
 
 def _valid_image(url, timeout=5):
@@ -220,12 +254,22 @@ def public_subject_image(subject):
     return None
 
 
-def visual_response(subject):
+def visual_response(subject, verified_images=None, source_kind=None):
     if subject.startswith("fl-studio"):
         images = _official_fl_images(subject)
         label = "FL Studio’s Piano Roll" if subject.endswith("piano-roll") else "FL Studio"
         fallback = IMAGE_LINE_ROOT + ("pianoroll.htm" if subject.endswith("piano-roll") else "main_windows.htm")
         publisher = "Image-Line’s official manual"
+    elif verified_images:
+        images = verified_images[:4]
+        label = subject
+        fallback = images[0]["source_url"]
+        publisher = images[0]["publisher"]
+    elif source_kind == "music":
+        images = []
+        label = subject
+        fallback = "https://open.spotify.com/search/" + urllib.parse.quote(subject)
+        publisher = "Spotify"
     else:
         images = _commons_images(subject)
         label = subject

@@ -3,7 +3,7 @@ import re
 import unittest
 from unittest.mock import patch
 
-from apollo_media import visual_request, visual_response, public_subject_image
+from apollo_media import visual_request, visual_response, public_subject_image, generation_request
 
 
 class ApolloMediaTests(unittest.TestCase):
@@ -16,6 +16,17 @@ class ApolloMediaTests(unittest.TestCase):
         products = [{"role": "assistant", "content": "1. La Marzocco Linea Mini\n2. Rancilio Silvia\n3. Gaggia Classic Pro"}]
         self.assertEqual(visual_request("Show me the second one.", products), "Rancilio Silvia")
         self.assertIsNone(visual_request("What does MIDI stand for?", history))
+
+    def test_spanish_music_followup_keeps_the_original_subject(self):
+        history = [
+            {"role": "user", "content": "#tetas"},
+            {"role": "assistant", "content": "¿Te refieres a una canción?"},
+            {"role": "user", "content": "es una canción"},
+            {"role": "user", "content": "búscala"},
+        ]
+        self.assertEqual(visual_request("enséñame una foto", history), "#tetas")
+        self.assertFalse(generation_request("enséñame una foto"))
+        self.assertTrue(generation_request("haz una imagen de un sigma looksmaxxer con toda la huzz"))
 
     def test_gallery_contains_direct_images_and_attribution(self):
         image = {

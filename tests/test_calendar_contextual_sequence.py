@@ -3,6 +3,7 @@ import hashlib
 import json
 import unittest
 from pathlib import Path
+from apollo_media import generation_request
 
 
 SERVER = Path(__file__).resolve().parents[1] / "server.py"
@@ -67,6 +68,7 @@ class CalendarContextualSequenceTests(unittest.TestCase):
             {
                 "_apollo_latest_user_text": lambda messages: messages[-1]["content"],
                 "_apollo_turn_has_image": lambda _messages: False,
+                "generation_request": generation_request,
             },
         )
         messages = [

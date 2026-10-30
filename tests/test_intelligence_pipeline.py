@@ -182,6 +182,19 @@ class PipelineTests(unittest.TestCase):
         self.assertIn('Aster', evidence)
         self.assertIn('"plays": 1', evidence)
 
+    def test_named_month_stats_route_to_recorded_music_history(self):
+        prompt = 'Show me my Spotify stats from September.'
+        self.assertTrue(intelligence.personal_music_history_request(prompt))
+        args = intelligence.music_history_initial_args(prompt, {
+            'local_time': '2026-10-30T12:00:00+01:00', 'time_zone': 'Europe/Zurich'
+        })
+        self.assertEqual(args['period'], 'monthly')
+        self.assertEqual(args['anchor'], '2026-09-01')
+        self.assertEqual(intelligence.music_history_initial_args(
+            'Show me my Spotify stats from September 2025.',
+            {'local_time': '2026-10-30T12:00:00+01:00'},
+        )['anchor'], '2025-09-01')
+
     def test_spotify_history_coverage_uses_all_recorded_months(self):
         import music_history
         conn = server.db()

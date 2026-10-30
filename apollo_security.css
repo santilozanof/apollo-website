@@ -16,6 +16,7 @@ body.apollo-security-conceal .main > :not(#apolloSecurityLock) {
     color: var(--text, #fff);
 }
 body.apollo-security-conceal #apolloSecurityLock { display: flex; }
+body.apollo-security-conceal.apollo-security-transition #apolloSecurityLock { display: none; }
 .apollo-security-card { width: min(100%, 380px); text-align: center; }
 .apollo-security-card svg { width: 28px; height: 28px; stroke: currentColor; fill: none; stroke-width: 1.6; }
 .apollo-security-card h2 { margin: 16px 0 6px; font-size: 22px; font-weight: 600; letter-spacing: -.03em; }
@@ -76,4 +77,59 @@ body.apollo-security-conceal #apolloSecurityLock { display: flex; }
     .apollo-security-card .apollo-security-methods[open] input,
     .apollo-security-card .apollo-security-methods[open] button { animation: apollo-security-reveal .2s ease-out both; }
     @keyframes apollo-security-reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+}
+.apollo-security-inline {
+    display: grid;
+    gap: 9px;
+    max-width: 440px;
+    margin: 16px auto;
+    padding: 16px;
+    border: 1px solid var(--apollo-border, rgba(128, 128, 128, .25));
+    border-radius: var(--apollo-radius-lg, 18px);
+    background: var(--surface, var(--bg, #fff));
+    color: var(--text, #171717);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .12);
+}
+.apollo-security-inline h3,
+.apollo-security-inline p { margin: 0; }
+.apollo-security-inline > svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.apollo-security-inline h3 { font-size: 1rem; }
+.apollo-security-inline p { line-height: 1.45; }
+.apollo-security-inline input {
+    width: 100%;
+    min-height: 44px;
+    padding: 9px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--apollo-border, rgba(128, 128, 128, .3));
+    background: var(--bg, #fff);
+    color: inherit;
+}
+.apollo-security-inline-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.apollo-security-inline-actions button {
+    min-height: 40px;
+    padding: 8px 12px;
+    border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+    border-radius: 9px;
+    background: var(--surface, var(--bg, #fff));
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+.apollo-security-inline-actions button.is-primary {
+    background: var(--text, #171717);
+    color: var(--bg, #fff);
+}
+.apollo-security-inline-actions button:focus-visible,
+.apollo-security-inline input:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.apollo-security-inline-feedback:empty { display: none; }
+@media (max-width: 600px) {
+    .apollo-security-inline { margin: 12px; padding: 16px; }
 }

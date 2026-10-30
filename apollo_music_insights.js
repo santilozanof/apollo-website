@@ -23,6 +23,11 @@
     return number === 1 ? `${year - 1}-12` : `${year}-${String(number - 1).padStart(2, '0')}`;
   }
   const state = {tab: 'player', month: localMonth(), recapPeriod: 'monthly', recapAnchor: `${previousMonth(localMonth())}-01`, summary: null, recap: null, slide: 0, theme: 'noir', format: 'story', renderId: 0};
+  window.apolloMusicInsightsContext = () => ({
+    section: state.tab,
+    period: state.tab === 'recaps' ? state.recapPeriod : state.period,
+    anchor: state.tab === 'recaps' ? state.recapAnchor : state.anchor,
+  });
   const text = (tag, value, className) => {
     const node = document.createElement(tag);
     node.textContent = value;
@@ -126,7 +131,7 @@
   function heading(title, month, recap = false) {
     const top = text('header', '', 'topline music-heading');
     const left = text('div', '', 'music-heading-copy');
-    left.append(text('div', 'APOLLO / MUSIC', 'eyebrow'), text('h2', title));
+    left.append(text('div', 'APOLLO / MUSIC', 'eyebrow'), text('h1', title));
     top.append(left);
     if (recap) {
       const nav = text('div', '', 'music-period-nav');

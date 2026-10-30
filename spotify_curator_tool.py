@@ -703,6 +703,14 @@ def entity_search(spotify, kind, name, artist=None):
     payload = spotify_read(lambda: spotify.search(q=query, type=lookup[kind], limit=10)) or {}
     candidates = (payload.get(lookup[kind] + "s") or {}).get("items") or []
     exact = [item for item in candidates if entity_title_matches(name, item.get("name"))]
+    if not exact:
+        # Spotify's fielded/quoted search can ignore punctuation such as a
+        # leading #. A broad search is safe only after exact title filtering.
+        fallback = spotify_read(lambda: spotify.search(
+            q=str(name), type=lookup[kind], limit=10
+        )) or {}
+        candidates = (fallback.get(lookup[kind] + "s") or {}).get("items") or []
+        exact = [item for item in candidates if entity_title_matches(name, item.get("name"))]
     if artist:
         exact = [item for item in exact if any(
             normalized(person.get("name")) == normalized(artist)

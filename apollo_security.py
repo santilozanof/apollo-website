@@ -23,6 +23,7 @@ from pathlib import Path
 
 
 TABS = frozenset({'chat', 'music', 'calendar', 'tasks', 'routines', 'debrief', 'studio', 'settings'})
+PRIVATE_SCOPES = frozenset({'private', 'history'})
 POLICIES = frozenset({'leave', '5m', '15m'})
 LEVELS = frozenset({'standard', 'enhanced', 'maximum'})
 LEAVE_LEASE_SECONDS = 3600  # Crash/network fallback; active pages renew, navigation revokes.
@@ -64,12 +65,17 @@ def init_schema(conn):
         );
     ''')
     conn.execute('INSERT OR IGNORE INTO apollo_security_policy(id,policy_json) VALUES(1,?)',
-                 (json.dumps({'tabs': {}, 'privacy': 'standard', 'protect_spotify': False}),))
+                 (json.dumps({'tabs': {}, 'privacy': 'standard', 'protect_spotify': False,
+                              'protect_sensitive_chat': False, 'protect_history': False,
+                              'private_relock': '5m', 'history_relock': '5m'}),))
 
 
 def policy(conn):
     row = conn.execute('SELECT policy_json FROM apollo_security_policy WHERE id=1').fetchone()
-    return json.loads(row[0]) if row else {'tabs': {}, 'privacy': 'standard', 'protect_spotify': False}
+    defaults = {'tabs': {}, 'privacy': 'standard', 'protect_spotify': False,
+                'protect_sensitive_chat': False, 'protect_history': False,
+                'private_relock': '5m', 'history_relock': '5m'}
+    return {**defaults, **json.loads(row[0])} if row else defaults
 
 
 def _digest(token):
@@ -112,20 +118,31 @@ def generation_grant_active(job):
     import server
     conn = server.db()
     try:
-        if not details:
-            return not _requires(policy(conn), 'chat')
-        if details[1] <= int(time.time()):
+        config = policy(conn)
+        if not details and _requires(config, 'chat'):
             return False
-        row = conn.execute('SELECT 1 FROM apollo_security_grants WHERE token_digest=? AND resource=? AND expires_at>?',
-                           (details[0], details[2], int(time.time()))).fetchone()
-        return bool(row)
+        for grant in (details, job.get('_private_grant')):
+            if not grant:
+                continue
+            if grant[1] <= int(time.time()):
+                return False
+            row = conn.execute('SELECT 1 FROM apollo_security_grants WHERE token_digest=? AND resource=? AND expires_at>?',
+                               (grant[0], grant[2], int(time.time()))).fetchone()
+            if not row:
+                return False
+        if job.get('_private_required') and _requires(config, 'private') and not job.get('_private_grant'):
+            return False
+        return True
     finally:
         conn.close()
 
 
-def _resource(path):
+def _resource(path, method='GET'):
+    if re.fullmatch(r'/api/chats(?:/search|/\d+)?', path) and method != 'POST':
+        return 'history'
     for prefix, resource in (
         ('/api/chat', 'chat'), ('/api/chats', 'chat'), ('/api/memory', 'chat'),
+        ('/api/interactive', 'chat'),
         ('/api/music', 'music'), ('/api/spotify', 'music'), ('/api/now-playing', 'music'),
         ('/api/calendar', 'calendar'), ('/api/google', 'calendar'),
         ('/api/gmail', 'connections'),
@@ -133,6 +150,7 @@ def _resource(path):
         ('/api/debrief', 'debrief'), ('/api/studio', 'studio'), ('/api/wip', 'studio'),
         ('/api/whoop', 'whoop'), ('/api/notifications', 'notifications'),
         ('/api/connections', 'connections'), ('/api/client-context', 'chat'),
+        ('/api/developer/diagnostics', 'settings'),
         ('/api/automations', 'tasks'),
         ('/api/agent/traces', 'chat'),
     ):
@@ -142,6 +160,10 @@ def _resource(path):
 
 
 def _requires(config, resource):
+    if resource == 'history':
+        return bool(config.get('protect_history'))
+    if resource == 'private':
+        return bool(config.get('protect_sensitive_chat'))
     if resource in config.get('tabs', {}):
         return True
     level = config.get('privacy', 'standard')
@@ -153,6 +175,51 @@ def _requires(config, resource):
         return resource in {'chat', 'calendar', 'tasks', 'routines', 'debrief',
                             'studio', 'whoop', 'notifications', 'connections'}
     return False
+
+
+_PERSONAL_REQUEST = re.compile(
+    r'\b(?:my|mine|our|ours|myself|mi|mis|mío|mía|mios|mias|nuestro|nuestra|'
+    r'me\s+(?:about|what\s+i|who\s+i)|remember|recuerdas?|recuérdame|'
+    r'personal\s+(?:history|memory|data)|private|privado|privada|'
+    r'family|familia|relationship|relación|relaciones|'
+    r'admission|admisión|university\s+application|solicitud\s+universitaria|'
+    r'inbox|bandeja\s+de\s+entrada|gmail|whoop|canvas\s+assignment|'
+    r'calendar\s+event|my\s+spotify|listening\s+history|'
+    r'where\s+(?:do|did)\s+i\s+live|where\s+am\s+i\s+from|'
+    r'what\s+do\s+you\s+know\s+about\s+me|'
+    r'(?:d[oó]nde\s+vivo|qui[eé]n\s+soy|qu[eé]\s+sabes\s+de\s+m[ií]))\b', re.I
+)
+
+
+def private_access_mode(conn, handler, content, allow_public=False):
+    """Return allow, public, or locked before private retrieval or model execution."""
+    config = policy(conn)
+    if not _requires(config, 'private'):
+        return 'allow', None
+    grant = _grant_details(conn, handler, 'private')
+    if grant:
+        return 'allow', grant
+    if allow_public and isinstance(content, str) and content.strip() and not _PERSONAL_REQUEST.search(content):
+        return 'public', None
+    return 'locked', None
+
+
+def public_answer_text(server, question):
+    """Isolated general answer: no account context, history, retrieval, or tools."""
+    if not isinstance(question, str) or not question.strip() or len(question) > 1200:
+        raise ValueError('Enter a short public question')
+    request = urllib.request.Request(server.HERMES_URL,
+        data=json.dumps({'provider': 'openai-codex', 'model': 'gpt-5.6-luna',
+            'model_options': {'reasoning_effort': 'low', 'disable_tools': True},
+            'messages': [
+                {'role': 'system', 'content': 'Answer public, general questions only. You have no access to Apollo personal data, saved conversations, accounts or connected services. If asked for personal details, say verification is required. Do not imply you checked sources.'},
+                {'role': 'user', 'content': question}]}).encode('utf-8'),
+        headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + server.get_api_key()},
+        method='POST')
+    with urllib.request.urlopen(request, timeout=18) as response:
+        result = json.loads(response.read(262144))
+    answer = str(result.get('choices', [{}])[0].get('message', {}).get('content') or '').strip()
+    return answer[:8000] or 'I could not answer that public question.'
 
 
 def _reply(handler, data, status=200, token=None, clear=False):
@@ -220,7 +287,8 @@ def _issue(conn, handler, resource, config):
     grant_resource = _grant_resource(handler, resource)
     if not grant_resource:
         raise ValueError('A secure browser tab identifier is required')
-    duration = config.get('tabs', {}).get(resource, '5m')
+    duration = (config.get(resource + '_relock', '5m') if resource in PRIVATE_SCOPES
+                else config.get('tabs', {}).get(resource, '5m'))
     ttl = LEAVE_LEASE_SECONDS if duration == 'leave' else 900 if duration == '15m' else 300
     existing = _cookie(handler)
     known = bool(existing and conn.execute(
@@ -247,7 +315,7 @@ def _recent_settings_grant(conn, handler):
 
 
 def _valid_resource(resource):
-    return resource in TABS or resource in {'whoop', 'notifications', 'connections'}
+    return resource in TABS | PRIVATE_SCOPES or resource in {'whoop', 'notifications', 'connections'}
 
 
 def _challenge(conn, purpose, resource):
@@ -315,12 +383,20 @@ def handle(server, handler, method):
         return False
     if getattr(handler, '_apollo_security_internal', False):
         return False
-    resource = _resource(path)
+    resource = _resource(path, method)
     if not resource:
         return False
     conn = server.db()
     try:
         config = policy(conn)
+        if resource == 'history' and not config.get('protect_history'):
+            resource = 'chat'
+        if config.get('protect_history') and path.startswith('/api/memory'):
+            resource = 'history'
+        if config.get('protect_sensitive_chat') and path.startswith((
+                '/api/memory', '/api/interactive', '/api/chat-attachments',
+                '/api/chat-media', '/api/client-context', '/api/agent/traces')):
+            resource = 'private'
         if _requires(config, resource):
             grant = _grant_details(conn, handler, resource)
             if not grant:
@@ -339,9 +415,18 @@ def _security_api(server, handler, method, path):
         enrolled = bool(conn.execute('SELECT 1 FROM apollo_security_password WHERE id=1').fetchone())
         if method == 'GET' and path == '/api/security/state':
             unlocked = {resource: _grant(conn, handler, resource)
-                        for resource in TABS | {'whoop', 'notifications', 'connections', 'settings'}}
+                        for resource in TABS | PRIVATE_SCOPES | {'whoop', 'notifications', 'connections', 'settings'}}
+            scope_expires = {}
+            for scope in PRIVATE_SCOPES:
+                details = _grant_details(conn, handler, scope)
+                scope_expires[scope] = details[1] if details else None
             _reply(handler, {'tabs': config.get('tabs', {}), 'privacy': config.get('privacy', 'standard'),
                              'protect_spotify': bool(config.get('protect_spotify')),
+                             'protect_sensitive_chat': bool(config.get('protect_sensitive_chat')),
+                             'protect_history': bool(config.get('protect_history')),
+                             'private_relock': config.get('private_relock', '5m'),
+                             'history_relock': config.get('history_relock', '5m'),
+                             'scope_expires': scope_expires,
                              'enrolled': enrolled,
                              'passkeys': conn.execute('SELECT COUNT(*) FROM apollo_security_webauthn').fetchone()[0],
                              'recovery_available': conn.execute('SELECT COUNT(*) FROM apollo_security_recovery WHERE used_at IS NULL').fetchone()[0]
@@ -362,26 +447,12 @@ def _security_api(server, handler, method, path):
         payload = _read(handler)
         if path == '/api/security/public-answer':
             question = str(payload.get('question') or '').strip()
-            if not question or len(question) > 1200:
-                raise ValueError('Enter a short public question')
-            # This path receives no chat history, account data, tools, or private
-            # system context. It is deliberately separate from personal chat.
-            request = urllib.request.Request(server.HERMES_URL,
-                data=json.dumps({'provider': 'openai-codex', 'model': 'gpt-5.6-luna',
-                    'model_options': {'reasoning_effort': 'low', 'disable_tools': True},
-                    'messages': [
-                        {'role': 'system', 'content': 'Answer public, general questions only. You have no access to Apollo personal data, saved conversations, accounts or connected services. If asked for personal details, say verification is required. Do not imply you checked sources.'},
-                        {'role': 'user', 'content': question}]}).encode('utf-8'),
-                headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + server.get_api_key()},
-                method='POST')
             try:
-                with urllib.request.urlopen(request, timeout=18) as response:
-                    result = json.loads(response.read(262144))
+                answer = public_answer_text(server, question)
             except (TimeoutError, OSError, urllib.error.URLError, json.JSONDecodeError):
                 _reply(handler, {'error': 'Public answer temporarily unavailable'}, 503)
                 return True
-            answer = str(result.get('choices', [{}])[0].get('message', {}).get('content') or '').strip()
-            _reply(handler, {'answer': answer[:8000] or 'I could not answer that public question.'})
+            _reply(handler, {'answer': answer})
             return True
         if path == '/api/security/setup':
             setup = _setup_token()
@@ -458,7 +529,17 @@ def _security_api(server, handler, method, path):
                 raise ValueError('Invalid tab-lock policy')
             if level not in LEVELS or not isinstance(payload.get('protect_spotify'), bool):
                 raise ValueError('Invalid privacy policy')
-            next_config = {'tabs': tabs, 'privacy': level, 'protect_spotify': payload['protect_spotify']}
+            protect_sensitive_chat = payload.get('protect_sensitive_chat', config.get('protect_sensitive_chat', False))
+            protect_history = payload.get('protect_history', config.get('protect_history', False))
+            private_relock = payload.get('private_relock', config.get('private_relock', '5m'))
+            history_relock = payload.get('history_relock', config.get('history_relock', '5m'))
+            if (type(protect_sensitive_chat) is not bool or type(protect_history) is not bool
+                    or private_relock not in POLICIES or history_relock not in POLICIES):
+                raise ValueError('Invalid private-information policy')
+            next_config = {'tabs': tabs, 'privacy': level, 'protect_spotify': payload['protect_spotify'],
+                           'protect_sensitive_chat': protect_sensitive_chat,
+                           'protect_history': protect_history,
+                           'private_relock': private_relock, 'history_relock': history_relock}
             conn.execute('UPDATE apollo_security_policy SET policy_json=? WHERE id=1', (json.dumps(next_config),))
             conn.execute("DELETE FROM apollo_security_grants WHERE resource NOT LIKE 'settings:%'")
             conn.commit()

@@ -17,6 +17,28 @@ from datetime import datetime, timedelta, timezone
 CATEGORIES = {'preference', 'background', 'goal', 'project', 'routine', 'relationship', 'decision'}
 STOP = set('a an the i me my we our you your it that this was is are were do did does have had has what which where when about told tell remember previous earlier last week month year conversation chat continue working on in at to for of and with from please can could would'.split())
 SENSITIVE = re.compile(r'\b(password|secret|api.?key|access.?token|ssn|social security|credit card|diagnos\w*|medication|sexual\w*|religion|political affiliation|bank account)\b', re.I)
+RESTRICTED = re.compile(r'\b(?:password|passphrase|api.?key|access.?token|refresh.?token|'
+                        r'recovery.?code|verification.?code|one.?time.?code|private.?key|session.?cookie)\b', re.I)
+PRIVATE_FACT = re.compile(r'\b(?:diagnos\w*|medication|health|medical|financial|'
+                          r'bank account|credit card|family|familia|relationship|relación|'
+                          r'confidential|sexual\w*|religion|political affiliation)\b', re.I)
+RESIDENCE_QUERY = re.compile(r'\b(?:where (?:do|did) i live|where is my home|'
+                             r'(?:my|mi) (?:home|hometown|residence|city|address|casa|ciudad|domicilio)|'
+                             r'donde vivo|dónde vivo|where am i based)\b', re.I)
+RESIDENCE_FACT = re.compile(r'\b(?:live in|lives in|reside in|based in|home city|'
+                            r'hometown|residence|address|vivo en|vive en|resido en|ciudad natal)\b', re.I)
+TEMPORARY_LOCATION = re.compile(r'\b(?:visiting|travel(?:ing|ling)?|staying|trip to|'
+                                r'vacation|de viaje|visitando|alojad[oa])\b', re.I)
+
+
+def classify_memory(content, category):
+    if RESTRICTED.search(content):
+        return 'restricted'
+    if category == 'relationship' or PRIVATE_FACT.search(content):
+        return 'sensitive'
+    if category == 'preference':
+        return 'ordinary'
+    return 'personal'
 
 
 def now():
@@ -86,6 +108,13 @@ def init_schema(conn):
         DELETE FROM memory_chat_scope WHERE chat_id=old.id;
     END;
     ''')
+    if 'sensitivity' not in {row[1] for row in conn.execute('PRAGMA table_info(personal_memories)')}:
+        conn.execute("ALTER TABLE personal_memories ADD COLUMN sensitivity TEXT NOT NULL DEFAULT 'personal'")
+        # Preserve existing facts. Reclassify on this additive migration without
+        # logging or transferring their content.
+        for row in conn.execute('SELECT id,content,source_quote,category FROM personal_memories').fetchall():
+            conn.execute('UPDATE personal_memories SET sensitivity=? WHERE id=?',
+                         (classify_memory(row['content'] + ' ' + row['source_quote'], row['category']), row['id']))
     if 'chunk_index' not in {row[1] for row in conn.execute('PRAGMA table_info(message_embeddings)')}:
         conn.execute('DROP TABLE message_embeddings')
         conn.execute('CREATE TABLE message_embeddings(message_id INTEGER NOT NULL,chunk_index INTEGER NOT NULL,model TEXT NOT NULL,vector TEXT NOT NULL,PRIMARY KEY(message_id,chunk_index))')
@@ -193,6 +222,9 @@ class MemoryStore:
             raise ValueError('Invalid memory content or category')
         if automatic and SENSITIVE.search(content + ' ' + source_quote):
             return None
+        sensitivity = classify_memory(content + ' ' + source_quote, category)
+        if sensitivity == 'restricted':
+            raise ValueError('Authentication secrets cannot be saved as personal memories')
         memory_key = str(memory_key or hashlib.sha256(content.casefold().encode()).hexdigest())[:160]
         confidence = float(confidence)
         if not math.isfinite(confidence) or not 0 <= confidence <= 1:
@@ -229,13 +261,19 @@ class MemoryStore:
                 return previous['id']
             conn.execute("UPDATE personal_memories SET status='superseded' WHERE owner=? AND memory_key=? AND status='active'", (self.owner, memory_key))
             stamp = now()
-            cursor = conn.execute('''INSERT INTO personal_memories(owner,memory_key,content,category,confidence,source_message_id,source_quote,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?)''', (self.owner, memory_key, content, category, confidence, source_message_id, source_quote, stamp, stamp))
+            cursor = conn.execute('''INSERT INTO personal_memories(owner,memory_key,content,category,confidence,source_message_id,source_quote,created_at,updated_at,sensitivity)
+                VALUES (?,?,?,?,?,?,?,?,?,?)''', (self.owner, memory_key, content, category, confidence, source_message_id, source_quote, stamp, stamp, sensitivity))
             return cursor.lastrowid
 
     def list_memories(self):
         with self.connect() as conn:
-            return [dict(r) for r in conn.execute("SELECT p.*, m.chat_id, m.created_at AS source_created_at FROM personal_memories p LEFT JOIN messages m ON m.id=p.source_message_id WHERE p.owner=? AND p.status='active' ORDER BY p.id DESC", (self.owner,)) if self._allowed(conn, r['content'], r['source_message_id'])]
+            rows = [dict(r) for r in conn.execute("SELECT p.*, m.chat_id, m.created_at AS source_created_at FROM personal_memories p LEFT JOIN messages m ON m.id=p.source_message_id WHERE p.owner=? AND p.status='active' ORDER BY p.id DESC", (self.owner,)) if self._allowed(conn, r['content'], r['source_message_id'])]
+            for row in rows:
+                row['provenance'] = 'user_statement' if row['source_message_id'] else 'explicitly_saved'
+                if row['sensitivity'] == 'restricted':
+                    row['content'] = '[Restricted secret — remove this memory in Settings]'
+                    row['source_quote'] = ''
+            return rows
 
     def forget(self, memory_id=None, phrase=None):
         with self.connect() as conn:
@@ -271,9 +309,15 @@ class MemoryStore:
 
     def search_memories(self, query, limit=8, semantic=False):
         terms = set(re.findall(r'\w+', query.casefold())) - STOP
-        rows = self.list_memories()
+        rows = [row for row in self.list_memories() if row['sensitivity'] != 'restricted']
+        residence = bool(RESIDENCE_QUERY.search(query))
         for row in rows:
             row['relevance'] = len(terms & set(re.findall(r'\w+', row['content'].casefold() + ' ' + row['memory_key'].casefold())))
+            if residence and (RESIDENCE_FACT.search(row['content'] + ' ' + row['source_quote'])
+                              or re.search(r'(?:home|city|residen|address|location)', row['memory_key'], re.I)):
+                row['relevance'] += 3
+            if residence and TEMPORARY_LOCATION.search(row['content'] + ' ' + row['source_quote']):
+                row['relevance'] = 0
         if semantic and self.embeddings and self.embeddings.name:
             try:
                 vector = self.embeddings.encode([query])[0]
@@ -290,7 +334,7 @@ class MemoryStore:
                 pass  # Keyword matches remain usable; history reports semantic availability.
         return sorted((r for r in rows if r['relevance']), key=lambda r: (r['relevance'], r['updated_at']), reverse=True)[:limit]
 
-    def search(self, query, after=None, before=None, limit=8, exact=False, exclude_message_id=None):
+    def search(self, query, after=None, before=None, limit=8, exact=False, exclude_message_id=None, user_only=False):
         if not self.settings()['history_search']:
             return {'status': 'disabled', 'results': []}
         self.enforce_retention()
@@ -306,6 +350,8 @@ class MemoryStore:
         match = '"' + phrase.replace('"', '""') + '"' if exact else ' OR '.join('"' + t + '"' for t in terms)
         where = '''s.owner=? AND s.excluded=0 AND m.id != ? AND (? IS NULL OR julianday(m.created_at)>=julianday(?))
                    AND (? IS NULL OR julianday(m.created_at)<julianday(?))'''
+        if user_only:
+            where += " AND m.role='user'"
         params = (self.owner, exclude_message_id or -1, after, after, before, before)
         ranked = {}
         mode = 'keyword'
@@ -354,7 +400,9 @@ class MemoryStore:
             for row, score in sorted(ranked.values(), key=rank, reverse=True)[:limit]:
                 neighbors = conn.execute('SELECT * FROM messages WHERE chat_id=? AND id<? ORDER BY id DESC LIMIT 1', (row['chat_id'], row['id'])).fetchall()
                 neighbors += conn.execute('SELECT * FROM messages WHERE chat_id=? AND id>? ORDER BY id LIMIT 1', (row['chat_id'], row['id'])).fetchall()
-                context = [dict(r) for r in sorted(neighbors, key=lambda r: r['id']) if self._allowed(conn, r['content'], r['id'])]
+                context = [dict(r) for r in sorted(neighbors, key=lambda r: r['id'])
+                           if self._allowed(conn, r['content'], r['id'])
+                           and (not user_only or r['role'] == 'user')]
                 row.pop('rank', None)
                 full_text = row['content']
                 position = min((full_text.casefold().find(t) for t in (terms or [phrase]) if t in full_text.casefold()), default=row.get('chunk_index', 0) * 700)

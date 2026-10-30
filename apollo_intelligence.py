@@ -1,5 +1,6 @@
 """Production wiring for memory, integration discovery and bounded tool retrieval."""
 import json
+import calendar
 import re
 import threading
 import urllib.parse
@@ -13,6 +14,13 @@ EMBEDDINGS = LocalEmbeddings()
 OWNER = 'local'  # Existing Apollo is single-user, behind its private authenticated proxy.
 RECALL = re.compile(r'\b(remember|recall|told you|(?:tell|told) you about|did (?:i|we) (?:say|tell|choose|decide)|we (?:discussed|made|planned|worked)|last (?:week|month|year)|(?:weeks?|months?|years?) ago|(?:old|previous|earlier) (?:chat|conversation)s?|continue .*(?:working|project|plan))\b', re.I)
 MEMORY_ACTION = re.compile(r'^(?:please\s+)?(?:remember (?:that |this:)|save (?:this |my )?(?:preference|memory)|forget\b|don.t remember\b|do not remember\b)', re.I)
+PERSONAL_FACT_REQUEST = re.compile(
+    r'\b(?:where (?:do|did) i live|what (?:is|are|was|were) my|'
+    r'who (?:is|are) my|what do you know about me|tell me (?:the most private|about my)|'
+    r'dónde vivo|donde vivo|cuál es mi|cual es mi|quién es mi|quien es mi)\b', re.I
+)
+MONTH_NAMES = {calendar.month_name[number].casefold(): number for number in range(1, 13)}
+MONTH_RE = re.compile(r'\b(?:' + '|'.join(MONTH_NAMES) + r')\b', re.I)
 
 
 def personal_music_history_request(message):
@@ -20,7 +28,7 @@ def personal_music_history_request(message):
     return bool(
         re.search(r'\b(my|mine|me|i|apollo)\b', text)
         and re.search(r'\b(spotify|listening|plays?|artists?|tracks?|albums?)\b', text)
-        and re.search(r'\b(history|listening|most played|top|rank(?:ing)?s?|plays?|months?|years?|coverage|available|data)\b', text)
+        and re.search(r'\b(history|listening|most played|top|rank(?:ing)?s?|plays?|months?|years?|coverage|available|data|stats?|statistics|insights?|trends?|recaps?)\b', text)
     )
 
 
@@ -37,10 +45,12 @@ def music_history_initial_args(message, client_context):
             today = datetime.now(timezone.utc).date()
     coverage_request = bool(re.search(r'\b(months?|years?|date range|coverage|how far back|earliest)\b', text)
                             and re.search(r'\b(available|have|history|data|cover|import|recorded)\b', text))
+    month_match = MONTH_RE.search(text)
+    named_month = MONTH_NAMES[month_match.group().casefold()] if month_match else None
     kind = ('coverage' if coverage_request else
             'lifetime' if re.search(r'\b(all time|lifetime|ever)\b', text) else
             'yearly' if 'year' in text else
-            'monthly' if 'month' in text else
+            'monthly' if 'month' in text or named_month else
             'daily' if re.search(r'\b(today|yesterday)\b', text) else 'weekly')
     anchor = today
     if 'last week' in text:
@@ -51,6 +61,10 @@ def music_history_initial_args(message, client_context):
         anchor = today.replace(year=today.year - 1, day=min(today.day, 28) if today.month == 2 else today.day)
     elif 'yesterday' in text:
         anchor -= timedelta(days=1)
+    if named_month:
+        explicit_year = re.search(r'\b(?:19|20)\d{2}\b', text)
+        year = int(explicit_year.group()) if explicit_year else today.year - int(named_month > today.month)
+        anchor = date(year, named_month, 1)
     entity = 'tracks' if re.search(r'\b(tracks?|songs?)\b', text) and not re.search(r'\bartists?\b', text) else 'albums' if re.search(r'\balbums?\b', text) and not re.search(r'\bartists?\b', text) else 'artists'
     count = re.search(r'\btop\s+(\d{1,2})\b', text)
     return {'period': kind, 'anchor': anchor.isoformat(), 'entity': entity,
@@ -249,7 +263,7 @@ def tools_for(server, memory, user_message, message_id, client_context, progress
     return [
         Tool('memory_search', 'Relevant durable user facts, preferences, goals and project decisions with provenance.', {'query': string}, lambda query: memory.search_memories(query, semantic=True), ('query',)),
         Tool('history_search', 'Search all permitted conversations, including months ago. Hybrid semantic/keyword search with surrounding messages. Dates are inclusive after and exclusive before. Use exact=true for literal phrases.',
-             {'query': string, 'after': string, 'before': string, 'exact': {'type': 'boolean'}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 20}}, lambda **args: memory.search(**args, exclude_message_id=message_id), ('query',)),
+             {'query': string, 'after': string, 'before': string, 'exact': {'type': 'boolean'}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 20}}, lambda **args: memory.search(**args, exclude_message_id=message_id, user_only=bool(PERSONAL_FACT_REQUEST.search(user_message))), ('query',)),
         Tool('calendar_read', 'Read the real upcoming Google Calendar through the end of the requested local days ahead (days=1 includes all of tomorrow). Historical mentions are not current calendar evidence.',
              {'days': {'type': 'integer', 'minimum': 1, 'maximum': 30}},
              lambda days: server.apollo_context_calendar(days, time_zone=client_context.get('time_zone'), include_status=True), ('days',)),
@@ -287,6 +301,8 @@ def enrich(server, messages, user_message, plan, message_id, client_context, pro
     memory.enforce_retention()
     history_requested = personal_music_history_request(user_message)
     recall = bool((not history_requested and RECALL.search(user_message)) or plan.get('history_query'))
+    personal_fact_request = bool(PERSONAL_FACT_REQUEST.search(user_message))
+    recall = recall or personal_fact_request
     memory_action = bool(MEMORY_ACTION.search(user_message))
     query = plan.get('memory_query') or user_message
     facts = memory.search_memories(query)
@@ -298,6 +314,11 @@ def enrich(server, messages, user_message, plan, message_id, client_context, pro
         if facts:
             messages.insert(1, context_message({'status': 'completed', 'results': [{'tool': 'memory_search', 'status': 'succeeded', 'data': facts}]}))
         return None
+    if personal_fact_request:
+        messages.insert(1, {'role': 'system', 'content':
+            'For facts about this user, rely only on explicit user statements, verified saved memories, '
+            'or authorized connected records. Earlier assistant responses are not evidence. Distinguish '
+            'home residence from temporary travel. If the evidence is missing or conflicting, say so.'})
     runtime = AgentRuntime(tools_for(server, memory, user_message, message_id, client_context, progress),
                            lambda *args: decide(server, *args))
     initial = []

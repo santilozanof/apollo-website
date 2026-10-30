@@ -96,8 +96,16 @@ class AgentRuntime:
                                 status = 'empty' if value == [] else 'succeeded'
                                 if isinstance(value, dict):
                                     reported = value.get('status') or value.get('connection_state')
-                                    if reported in {'not_found', 'disabled', 'unavailable', 'not_configured', 'disconnected', 'reconnection_required', 'processing', 'temporary_error'}:
+                                    if reported in {'not_found', 'no_results', 'disabled', 'unavailable',
+                                                    'not_configured', 'disconnected', 'reconnection_required',
+                                                    'processing', 'temporary_error', 'authentication_failure',
+                                                    'rate_limited'}:
                                         status = reported
+                                    elif not reported and any(key in value for key in ('results', 'items', 'tracks', 'events', 'tasks', 'artists')):
+                                        lists = [value[key] for key in ('results', 'items', 'tracks', 'events', 'tasks', 'artists')
+                                                 if isinstance(value.get(key), list)]
+                                        if lists and all(not items for items in lists):
+                                            status = 'empty'
                                 result.update(status=status, data=value)
                             break
                         except (TimeoutError, ConnectionError) as exc:

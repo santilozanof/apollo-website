@@ -80,12 +80,35 @@ def live_query_kind(message, recent_messages=()):
         return "current"
     if re.search(r"\b(current|latest|recent|today|this week|now)\b", text) and re.search(r"\b(president|prime minister|ceo|mayor|minister|founder|artist|athlete|actor|politician|release|product|specs|features)\b", text):
         return "current"
-    if re.search(r"\b(search|google|look (?:it|them|that) up|check online|browse|verify|fact.check)\b", text):
+    if re.search(r"\b(search|google|look (?:it|them|that) up|check online|browse|verify|fact.check|"
+                 r"b[uú]scala|b[uú]scalo|b[uú]scar|investiga|consulta en internet)\b", text):
         return "research"
     # Contextual follow-ups go through the semantic planner. The preceding
     # sourced answer may already contain the requested fact; blindly repeating
     # research both wastes latency and can replace a known answer with failure.
     return None
+
+
+def contextual_research_query(query, recent_messages=()):
+    """Use the established subject for a short multilingual search follow-up."""
+    value = str(query or "").strip()
+    if not re.fullmatch(
+        r"(?:please\s+)?(?:search(?: it)?|look (?:it|that) up|find it|"
+        r"b[uú]scala|b[uú]scalo|b[uú]scalo en internet|investiga(?:lo|la)?)"
+        r"[.!?]?", value, re.I
+    ):
+        return value
+    previous = []
+    for item in reversed(list(recent_messages)[-10:]):
+        if not isinstance(item, dict) or item.get("role") != "user":
+            continue
+        text = re.sub(r"\s+", " ", str(item.get("content") or "")).strip()
+        if not text or text == value or len(text) > 140:
+            continue
+        previous.append(text)
+        if len(previous) == 2:
+            break
+    return " ".join(reversed(previous))[:280] or value
 
 
 def localize_utc_markers(answer, time_zone):
@@ -266,6 +289,8 @@ def _inspect_response(result):
         if re.search(r"\b(no search provider|not configured|missing api key|tool unavailable|web_search unavailable)\b", error_text, re.I):
             return "unavailable", "", set()
         if re.search(r"\bno results found\b", error_text, re.I):
+            return "insufficient_evidence", "", set()
+        if any(_tool_payload(value).get("success") is True for value in search_outputs):
             return "insufficient_evidence", "", set()
         return "request_failed", "", set()
     extracted_urls = set()

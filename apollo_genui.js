@@ -1268,7 +1268,7 @@
     return root;
   }
 
-  function renderQuiz(block) {
+  function renderLegacyQuiz(block) {
     const root = el("section", "apollo-ui-block apollo-ui-quiz");
     root.dataset.quizId = block.id;
     const state = stateGet(block);
@@ -1304,10 +1304,16 @@
         const totalAttempts = Object.values(state.attempts).reduce(
           (sum, values) => sum + (Array.isArray(values) ? values.length : 0), 0
         );
+        const firstAttemptScore = block.questions.filter(question => {
+          const first = state.attempts[question.id]?.[0];
+          return first === question.correct_answer_id;
+        }).length;
         const summary = header({
           title: block.title || "Quiz complete",
-          subtitle: `${completed} of ${block.questions.length} correct · ${totalAttempts} attempt${totalAttempts === 1 ? "" : "s"}`
+          subtitle: `${firstAttemptScore} of ${block.questions.length} correct on first attempt · ${totalAttempts} attempt${totalAttempts === 1 ? "" : "s"}`
         }, "apollo-ui-quiz-summary");
+        summary.appendChild(el("p", "apollo-ui-quiz-legacy-note",
+          "This older quiz saved progress on this device. Apollo cannot reliably recall it in chat."));
         const restart = el("button", "apollo-ui-button", "Restart quiz");
         restart.type = "button";
         restart.addEventListener("click", () => {
@@ -1406,6 +1412,185 @@
     return root;
   }
 
+  function renderPersistedQuiz(block) {
+    const root = el("section", "apollo-ui-block apollo-ui-quiz");
+    root.dataset.quizId = block.id;
+    root.setAttribute("aria-busy", "true");
+    root.appendChild(header({title: block.title || "Knowledge check", subtitle: "Loading saved progress…"}));
+    const navState = stateGet(block);
+    let quiz = null;
+    let current = Math.max(0, Number(navState.current) || 0);
+    let view = navState.view === "review" ? "review" : "question";
+    let pending = false;
+    let error = "";
+    const remember = () => stateSet(block, {current, view});
+    const endpoint = `/api/interactive/quizzes/${encodeURIComponent(block.id)}`;
+    const request = async (url, payload) => {
+      const response = await fetch(url, {
+        method: payload ? "POST" : "GET",
+        credentials: "same-origin",
+        headers: payload ? {"Content-Type": "application/json", "X-Apollo-Request": "interactive"} : {},
+        body: payload ? JSON.stringify(payload) : undefined,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Quiz state is unavailable (${response.status})`);
+      return data.quiz;
+    };
+    const load = async () => {
+      try {
+        quiz = await request(endpoint);
+        current = Math.max(0, Math.min(quiz.definition.questions.length, current));
+        if (quiz.current.summary.completed && !navState.hasVisited) {
+          current = quiz.definition.questions.length;
+        }
+        paint();
+      } catch (failure) {
+        error = failure.message || "Saved quiz progress is unavailable.";
+        paint();
+      }
+    };
+    const submit = async (action, payload) => {
+      if (pending) return;
+      pending = true;
+      error = "";
+      paint();
+      try {
+        quiz = await request(`${endpoint}/${action}`, {
+          event_id: crypto.randomUUID(),
+          ...payload,
+        });
+        if (action === "restart") { current = 0; view = "question"; }
+        remember();
+      } catch (failure) {
+        error = failure.message || "The answer could not be saved.";
+        try { quiz = await request(endpoint); } catch (_) {}
+      } finally {
+        pending = false;
+        paint();
+      }
+    };
+    const button = (label, onClick, primary = false) => {
+      const node = el("button", `apollo-ui-button${primary ? " primary" : ""}`, label);
+      node.type = "button";
+      node.disabled = pending;
+      node.addEventListener("click", onClick);
+      return node;
+    };
+    const paint = () => {
+      root.setAttribute("aria-busy", pending ? "true" : "false");
+      if (!quiz) {
+        const inside = header({
+          title: block.title || "Knowledge check",
+          subtitle: error || "Loading saved progress…",
+        });
+        if (error) inside.appendChild(button("Retry loading", load));
+        root.replaceChildren(inside);
+        return;
+      }
+      const definition = quiz.definition;
+      const session = quiz.current;
+      const score = session.summary;
+      const questions = definition.questions;
+      const inside = header({
+        title: quiz.title,
+        subtitle: view === "review" ? "Review first-attempt mistakes"
+          : current >= questions.length ? "Quiz results"
+          : `Question ${current + 1} of ${questions.length}`,
+      });
+      if (error) inside.appendChild(el("p", "apollo-ui-quiz-error", error));
+      if (view === "review") {
+        const mistakes = session.questions.filter(question => question.first_correct === false);
+        if (!mistakes.length) inside.appendChild(el("p", "apollo-ui-feedback", "No first-attempt mistakes in this session."));
+        mistakes.forEach((question, index) => {
+          const item = el("div", "apollo-ui-quiz-review-item");
+          item.appendChild(el("strong", null, `${index + 1}. ${question.question}`));
+          item.appendChild(el("span", null, `Correct answer: ${question.correct_answer}`));
+          if (question.explanation) item.appendChild(el("span", null, question.explanation));
+          inside.appendChild(item);
+        });
+        const nav = el("div", "apollo-ui-quiz-nav");
+        nav.appendChild(button("Back to results", () => { view = "question"; current = questions.length; remember(); paint(); }));
+        inside.appendChild(nav);
+      } else if (current >= questions.length) {
+        const results = el("div", "apollo-ui-quiz-results");
+        results.append(
+          el("strong", "apollo-ui-quiz-original-score",
+            `Original score ${score.first_attempt_score}/${score.total_questions}`),
+          el("span", null, `${score.corrected_after_mistake} corrected after a mistake`),
+          el("span", null, `${score.total_attempts} total attempts`),
+          el("span", null, score.completed ? "Complete" : "In progress")
+        );
+        inside.appendChild(results);
+        const nav = el("div", "apollo-ui-quiz-nav");
+        if (score.corrected_after_mistake || session.questions.some(q => q.first_correct === false)) {
+          nav.appendChild(button("Review mistakes", () => { view = "review"; remember(); paint(); }));
+        }
+        nav.appendChild(button("Restart quiz", () => submit("restart", {})));
+        inside.appendChild(nav);
+      } else {
+        const question = questions[current];
+        const saved = session.questions[current];
+        const attempted = saved.attempts.map(attempt => attempt.option_id);
+        const finished = saved.eventually_correct || (definition.allow_retry === false && attempted.length > 0);
+        const progress = el("div", "apollo-ui-progress-track apollo-ui-quiz-progress");
+        const fill = el("div", "apollo-ui-progress-fill");
+        fill.style.width = `${score.answered_questions / questions.length * 100}%`;
+        progress.appendChild(fill);
+        inside.appendChild(progress);
+        const questionNode = el("div", "apollo-ui-quiz-question");
+        appendInline(questionNode, question.question);
+        inside.appendChild(questionNode);
+        const options = el("div", "apollo-ui-quiz-options");
+        question.options.forEach(option => {
+          const choice = el("button", "apollo-ui-button apollo-ui-quiz-option");
+          choice.type = "button";
+          choice.dataset.optionId = option.id;
+          appendInline(choice, option.label);
+          choice.disabled = pending || finished || attempted.includes(option.id);
+          if (attempted.includes(option.id)) {
+            choice.classList.add(option.id === question.correct_answer_id ? "correct" : "incorrect");
+          }
+          choice.addEventListener("click", () => submit("attempts", {
+            session_no: quiz.current_session,
+            question_id: question.id,
+            option_id: option.id,
+          }));
+          options.appendChild(choice);
+        });
+        inside.appendChild(options);
+        const feedback = el("div", "apollo-ui-feedback");
+        feedback.setAttribute("aria-live", "polite");
+        if (saved.eventually_correct) {
+          const correct = question.options.find(option => option.id === question.correct_answer_id);
+          appendInline(feedback, correct?.explanation || question.explanation || "Correct.");
+          feedback.classList.add("correct");
+        } else if (attempted.length) {
+          appendInline(feedback, definition.allow_retry === false
+            ? question.explanation || "Not quite."
+            : question.hint || "Not quite — try another answer.");
+          feedback.classList.add("incorrect");
+        }
+        inside.appendChild(feedback);
+        const nav = el("div", "apollo-ui-quiz-nav");
+        if (current > 0) nav.appendChild(button("Previous", () => { current -= 1; remember(); paint(); }));
+        if (finished) nav.appendChild(button(
+          current === questions.length - 1 ? "View results" : "Next question",
+          () => { current += 1; remember(); paint(); }, true
+        ));
+        inside.appendChild(nav);
+      }
+      root.replaceChildren(inside);
+    };
+    load();
+    return root;
+  }
+
+  function renderQuiz(block) {
+    return /^quiz-\d+-\d+-\d+$/.test(block.id)
+      ? renderPersistedQuiz(block)
+      : renderLegacyQuiz(block);
+  }
+
   const chartKindLabel = value => ({
     measured: "Measured", reported: "Reported", retrieved: "Retrieved",
     calculated: "Calculated", estimated: "Estimated",
@@ -1415,6 +1600,39 @@
     const formatted = new Intl.NumberFormat(undefined, {maximumFractionDigits: 2}).format(value);
     return unit === "%" ? `${formatted}%` : `${formatted}${unit ? ` ${unit}` : ""}`;
   };
+  function renderCategoricalBars(block, root) {
+    const all = block.series.flatMap(series => series.items);
+    if (!all.length || all.some(item => item.value < 0)) return false;
+    const maximum = Math.max(1, ...all.map(item => item.value));
+    const rank = /(?:rank|position|place)/i.test(`${block.y_label || ""} ${block.unit || ""}`);
+    const rows = el("div", "apollo-ui-chart-rows");
+    rows.setAttribute("role", "img");
+    rows.setAttribute("aria-label", `${block.title || "Chart"}. ${block.y_label || "Value"} by ${block.x_label || "category"}.`);
+    block.series.forEach(series => {
+      series.items.forEach(item => {
+        const row = el("div", "apollo-ui-chart-row");
+        const label = el("span", "apollo-ui-chart-row-label", item.label);
+        const measure = el("div", "apollo-ui-chart-row-measure");
+        if (rank) {
+          measure.appendChild(el("strong", "apollo-ui-chart-rank", numberLabel(item.value, block.unit)));
+        } else {
+          const track = el("span", "apollo-ui-chart-track");
+          const fill = el("span", "apollo-ui-chart-fill");
+          fill.style.width = `${Math.max(2, item.value / maximum * 100)}%`;
+          track.appendChild(fill);
+          measure.appendChild(track);
+          measure.appendChild(el("strong", "apollo-ui-chart-value", numberLabel(item.value, block.unit)));
+        }
+        if (block.series.length > 1) label.appendChild(
+          el("small", "apollo-ui-chart-series-label", series.label)
+        );
+        row.append(label, measure);
+        rows.appendChild(row);
+      });
+    });
+    root.appendChild(rows);
+    return true;
+  }
   function renderChart(block) {
     const root = el("section", "apollo-ui-block apollo-ui-chart");
     const chartHead = el("div", "apollo-ui-chart-head");
@@ -1425,6 +1643,10 @@
     root.appendChild(chartHead);
     const series = block.series;
     const values = series.flatMap(value => value.items.map(item => item.value));
+    if (block.kind === "bar" && renderCategoricalBars(block, root)) {
+      if (block.note) root.appendChild(el("div", "apollo-ui-chart-note", block.note));
+      return root;
+    }
     const width = 640, height = 270;
     const padding = {left: 64, right: 22, top: 18, bottom: 54};
     const plotWidth = width - padding.left - padding.right;
@@ -2041,14 +2263,6 @@
       link.appendChild(el("span", "apollo-ui-source-title", title));
       if (item.publisher && item.publisher !== title) link.appendChild(el("span", "apollo-ui-source-publisher", item.publisher));
       row.appendChild(link);
-      const preview = el("button", "apollo-ui-source-preview", "Details");
-      preview.type = "button";
-      preview.setAttribute("aria-label", `View source details for ${title}`);
-      preview.addEventListener("click", () => openDetail({
-        title, provider: item.publisher || fallback, description: item.note || "Verified source reference",
-        source_url: item.url, source_title: title,
-      }, preview));
-      row.appendChild(preview);
       if (item.note) row.appendChild(el("div", "apollo-ui-source-note", item.note));
       listNode.appendChild(row);
     });

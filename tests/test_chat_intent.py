@@ -21,6 +21,15 @@ def load_function(name, namespace):
 
 
 class ChatIntentPlannerTests(unittest.TestCase):
+    def test_rich_component_schema_is_selected_only_for_relevant_turns(self):
+        namespace = {"re": re, "apollo_story_visual_candidate": lambda text: "history of" in text.lower()}
+        needed = load_function("apollo_rich_ui_prompt_needed", namespace)
+        self.assertFalse(needed("Hi, how are you?", {}))
+        self.assertFalse(needed("When did Mike Dean start working with The Weeknd and why?", {}))
+        self.assertTrue(needed("Explain the history of the album", {}))
+        self.assertTrue(needed("Show me a chart", {}))
+        self.assertTrue(needed("Give me a quiz", {"quiz": True}))
+
     def test_full_historical_story_uses_smart_model_without_upgrading_casual_chat(self):
         namespace = {}
         namespace["_apollo_router_text"] = load_function("_apollo_router_text", {})
@@ -32,7 +41,8 @@ class ChatIntentPlannerTests(unittest.TestCase):
         self.assertEqual(choose([{"role": "user", "content": "Hey, how's it going?"}])["tier"], "FAST")
 
     def test_public_history_enables_read_only_research_without_searching_personal_history(self):
-        namespace = {"re": re}
+        from apollo_media import generation_request
+        namespace = {"re": re, "generation_request": generation_request}
         namespace["_apollo_router_text"] = load_function("_apollo_router_text", namespace)
         namespace["_apollo_latest_user_text"] = load_function("_apollo_latest_user_text", namespace)
         namespace["_apollo_turn_has_image"] = load_function("_apollo_turn_has_image", namespace)

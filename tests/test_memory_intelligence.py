@@ -189,6 +189,43 @@ class MemoryTests(unittest.TestCase):
         self.store.save('Dairy milk',memory_key='milk',source_message_id=imported,source_quote='dairy milk')
         self.assertEqual(self.store.list_memories()[0]['content'],'Oat milk')
 
+    def test_home_city_is_recalled_without_confusing_travel(self):
+        home = self.message('My home city is Zurich.')
+        visit = self.message('I am visiting Mexico City this week.')
+        self.store.save('Home city is Zurich', category='background', memory_key='home_city',
+                        source_message_id=home, source_quote='My home city is Zurich')
+        self.store.save('Currently visiting Mexico City', category='background', memory_key='travel_location',
+                        source_message_id=visit, source_quote='visiting Mexico City')
+        matches = self.store.search_memories('Where do I live?')
+        self.assertEqual(matches[0]['content'], 'Home city is Zurich')
+        self.assertFalse(any('Mexico City' in row['content'] for row in matches))
+        self.assertEqual(matches[0]['provenance'], 'user_statement')
+
+    def test_assistant_claims_are_not_personal_fact_evidence(self):
+        self.message('I live in Zurich.')
+        self.message('You live in Mexico and your family has a private secret.',
+                     role='assistant')
+        result = self.store.search('family private', user_only=True)
+        self.assertEqual(result['status'], 'not_found')
+        self.assertEqual(self.store.search('family private')['results'][0]['reliability'],
+                         'assistant_generated')
+
+    def test_restricted_secret_is_not_saved_or_retrieved(self):
+        with self.assertRaises(ValueError):
+            self.store.save('My password is abc', memory_key='password')
+        mid = self.message('My recovery code is abc.')
+        with self.db() as conn:
+            conn.execute("""INSERT INTO personal_memories(
+                owner,memory_key,content,category,confidence,source_message_id,
+                source_quote,created_at,updated_at,sensitivity)
+                VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                ('alice','old_secret','Recovery code abc','background',1,mid,
+                 'My recovery code is abc','2026-10-20','2026-10-20','restricted'))
+        row = self.store.list_memories()[0]
+        self.assertIn('Restricted secret', row['content'])
+        self.assertEqual(row['source_quote'], '')
+        self.assertEqual(self.store.search_memories('recovery code'), [])
+
     def test_long_messages_index_all_chunks_and_excerpt_matched_region(self):
         self.message(('Software code. '*1000)+'The restaurant in Paris was Le Comptoir.')
         self.store.process_pending(lambda *_:[])

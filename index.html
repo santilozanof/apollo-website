@@ -4371,15 +4371,6 @@ html[data-reduce-motion="true"]
 </style>
 
 
-<style id="apollo-hide-generate-image-option">
-/* Hide the Generate image option from the + menu */
-#apolloGenerateImageAction,
-.apollo-tools-menu .apollo-tools-divider {
-    display: none !important;
-}
-</style>
-
-
 <style>
 /* =========================================================
    APOLLO HOME COMPOSER — COMPACT FINAL
@@ -14148,6 +14139,8 @@ html[data-theme="light"]
             "aria-hidden",
             "true"
         );
+        window.apolloSecurityHistoryClosed?.();
+        window.apolloHistoryInvalidate?.();
 
 
         const searchInput =
@@ -14168,12 +14161,6 @@ html[data-theme="light"]
                 window.apolloHistorySearchTimer
             );
 
-            if (
-                typeof apolloRefreshHistory
-                === "function"
-            ) {
-                apolloRefreshHistory();
-            }
         }
     }
 
@@ -15997,6 +15984,17 @@ html[data-theme="light"]
 (() => {
 
     let apolloHomeRecentSignature = null;
+    window.apolloClearHomeRecent = () => {
+        apolloHomeRecentSignature = null;
+        const container = document.getElementById("apolloHomeRecent");
+        if (container) {
+            container.replaceChildren();
+            const locked = document.createElement("div");
+            locked.className = "apollo-home-recent-empty";
+            locked.textContent = "History is locked";
+            container.append(locked);
+        }
+    };
 
 
     async function apolloLoadHomeRecent() {
@@ -16021,6 +16019,10 @@ html[data-theme="light"]
                 );
 
             if (!response.ok) {
+                if (response.status === 423) {
+                    window.apolloClearHomeRecent();
+                    return;
+                }
                 throw new Error(
                     "Recent chats request failed"
                 );
@@ -22529,17 +22531,32 @@ function apolloDetachGenerationView(nextChatId) {
     apolloSetGenerationActive(false);
 }
 
-async function apolloGenerationResponse(chatId, payload, signal, existingId = null) {
+async function apolloGenerationResponse(chatId, payload, signal, existingId = null, pendingId = null) {
     let generationId = existingId;
     if (!generationId) {
         sessionStorage.setItem("apolloPendingGenerationChat", String(chatId));
         const start = await fetch(`/api/chats/${chatId}/generations`, {
             method: "POST",
             headers: {"Content-Type": "application/json", "X-Apollo-Request": "chat-generation"},
-            body: JSON.stringify({...payload, request_id: apolloGenerationRequestId()}),
+            body: JSON.stringify({...payload, request_id: apolloGenerationRequestId(),
+                ...(pendingId ? {pending_id: pendingId} : {})}),
             signal
         });
         const started = await start.json();
+        if (start.status === 423 && started.resource === "private"
+            && typeof window.apolloSecurityUnlockInline === "function") {
+            const pending = document.querySelector("#apolloTyping, #apolloImageGenerating");
+            const mount = pending?.querySelector(".apollo-message-body")
+                || document.querySelector("#apolloMessages");
+            mount.replaceChildren();
+            await window.apolloSecurityUnlockInline("private", mount, signal);
+            if (pending?.isConnected && pending.id === "apolloTyping") {
+                mount.innerHTML = '<div class="apollo-typing"><div class="apollo-typing-dots" aria-label="Apollo is responding"><span></span><span></span><span></span></div><div class="apollo-typing-status visible" aria-live="polite">Preparing response…</div></div>';
+            } else if (pending?.isConnected && pending.id === "apolloImageGenerating") {
+                apolloShowImageGenerating();
+            }
+            return apolloGenerationResponse(chatId, payload, signal, null, started.pending_id);
+        }
         if (!start.ok) throw new Error(started.error || `Request failed (${start.status})`);
         generationId = started.id;
     }
@@ -22841,6 +22858,18 @@ let apolloPulseDismissed = false;
 let apolloPulseLastRefresh = 0;
 let apolloPulseSignature = "";
 let apolloPulseRefreshGeneration = 0;
+window.apolloPulseClearPrivate = () => {
+    if (!apolloPulse) return;
+    apolloPulseRefreshGeneration += 1;
+    apolloPulseLastRefresh = 0;
+    apolloPulseSignature = "";
+    apolloPulse.replaceChildren();
+    apolloPulseRefresh(true).catch(() => {});
+};
+window.apolloPulseUnlockRefresh = () => {
+    apolloPulseLastRefresh = 0;
+    apolloPulseRefresh(true).catch(() => {});
+};
 const apolloPulseFeedbackKey = "apolloPulseFeedbackV2";
 const apolloPulseIconPaths = {
     tasks: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="m8 10 1.5 1.5L12 9M14 10h4M8 16h10"/>',
@@ -22954,7 +22983,17 @@ async function apolloPulseRefresh(force = false) {
     const get = async path => { const response = await fetch(path, {cache: "no-store", signal: AbortSignal.timeout(5000)});
         if (!response.ok) throw new Error(`Pulse source unavailable (${response.status})`);
         return response.json(); };
-    const [tasksResult, connectionsResult] = await Promise.allSettled([get("/api/tasks"), get("/api/connections")]);
+    let security;
+    try { security = await get("/api/security/state"); }
+    catch {
+        apolloPulse.replaceChildren();
+        apolloPulseSignature = "";
+        return;
+    }
+    const privateLocked = security.protect_sensitive_chat && !security.unlocked?.private;
+    const [tasksResult, connectionsResult] = privateLocked
+        ? [{status:"fulfilled", value:{tasks:[]}}, {status:"fulfilled", value:{integrations:[]}}]
+        : await Promise.allSettled([get("/api/tasks"), get("/api/connections")]);
     if (generation !== apolloPulseRefreshGeneration) return;
     const tasks = tasksResult.status === "fulfilled"
         && Array.isArray(tasksResult.value.tasks) ? tasksResult.value.tasks : [];
@@ -22963,7 +23002,8 @@ async function apolloPulseRefresh(force = false) {
         ? connectionsResult.value.integrations : [];
     const connected = id => integrations.some(item => item.id === id && item.connected);
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    const reads = await Promise.allSettled([
+    const reads = privateLocked ? [null, null, null].map(() => ({status:"fulfilled", value:null}))
+        : await Promise.allSettled([
         connected("google_calendar") ? get(`/api/calendar/events?days=7&time_zone=${encodeURIComponent(zone)}`) : Promise.resolve(null),
         connected("spotify") ? get(`/api/music/analytics?period=weekly&timezone=${encodeURIComponent(zone)}`) : Promise.resolve(null),
         connected("whoop") ? get("/api/whoop/summary") : Promise.resolve(null)
@@ -24866,6 +24906,12 @@ async function apolloRetryMessage(message) {
         console.error("Apollo retry: could not find user message.");
         return;
     }
+    const privateUnsubmitted = message.dataset.apolloPrivateUnsubmitted === "true";
+    const requestContent = message.dataset.apolloRequestContent || userMessage;
+    let retainedAttachmentIds = [];
+    try {
+        retainedAttachmentIds = JSON.parse(message.dataset.apolloAttachmentIds || "[]");
+    } catch (_) {}
 
     // Rewind the visible conversation:
     // remove this assistant response and everything after it.
@@ -24894,8 +24940,9 @@ async function apolloRetryMessage(message) {
         const response = await apolloGenerationResponse(
             requestChatId,
                 {
-                    content: userMessage,
-                    retry: true,
+                    content: requestContent,
+                    retry: !privateUnsubmitted,
+                    attachment_ids: retainedAttachmentIds,
                     client_context:
                         apolloGetClientContext()
                 },
@@ -25078,6 +25125,20 @@ async function apolloRetryMessage(message) {
     } catch (error) {
 
         if (isRequestChatVisible()) apolloHideTyping();
+        if (error.name === "SecurityVerificationCanceled") {
+            if (isRequestChatVisible()) {
+                const lockedText = apolloAddMessage("assistant", "Private response remains locked.", [], false);
+                const locked = lockedText.closest(".apollo-message");
+                locked.dataset.apolloPrivateUnsubmitted = String(privateUnsubmitted);
+                locked.dataset.apolloRequestContent = requestContent;
+                locked.dataset.apolloAttachmentIds = JSON.stringify(retainedAttachmentIds);
+                window.apolloSecurityLockedInline?.(
+                    lockedText,
+                    () => apolloRetryMessage(locked)
+                );
+            }
+            return;
+        }
         apolloFinalizeInterruptedStream(
             apolloStreamRenderer,
             apolloStreamingMessage,
@@ -25130,6 +25191,22 @@ function apolloGetClientContext() {
                 .resolvedOptions()
                 .timeZone;
     } catch (_) {}
+    const view = document.querySelector(".nav-button.active .nav-label")
+        ?.textContent?.trim()?.toLowerCase();
+    const knownViews = new Set(["home", "apollo", "music", "calendar", "tasks", "studio", "settings"]);
+    const uiState = {};
+    if (knownViews.has(view)) uiState.view = view;
+    if (document.getElementById("apolloHistoryStrip")?.classList.contains("open"))
+        uiState.panel = "history";
+    if (view === "music" && typeof window.apolloMusicInsightsContext === "function") {
+        const musicState = window.apolloMusicInsightsContext();
+        if (["player", "insights", "recaps"].includes(musicState?.section))
+            uiState.music_section = musicState.section;
+        if (["daily", "weekly", "monthly", "yearly", "lifetime"].includes(musicState?.period))
+            uiState.music_period = musicState.period;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(String(musicState?.anchor || "")))
+            uiState.music_anchor = musicState.anchor;
+    }
 
     return {
         local_time: now.toLocaleString(
@@ -25142,6 +25219,7 @@ function apolloGetClientContext() {
         time_zone: timeZone,
         utc_offset_minutes:
             -now.getTimezoneOffset(),
+        ui_state: uiState,
 
         calendar_duration_minutes:
             (
@@ -25161,6 +25239,28 @@ function apolloGetClientContext() {
             window.apolloPendingWhoopContext
             || null
     };
+}
+
+function apolloTryLocalInterfaceAction(text) {
+    const request = String(text || "").trim().toLowerCase()
+        .replace(/[.!?]+$/, "").replace(/\s+/g, " ");
+    if (/^(?:please )?close (?:this |the )?history(?: panel)?$/.test(request)) {
+        if (!document.getElementById("apolloHistoryStrip")?.classList.contains("open")) return false;
+        window.apolloCloseHistory?.();
+        return true;
+    }
+    const match = request.match(/^(?:please )?(?:open|go to|switch to|show)(?: me)? (?:the )?(home|apollo|chat|music|calendar|tasks|studio|settings|history|music insights)(?: tab| panel)?$/);
+    if (!match) return false;
+    const routes = {
+        home: "openHome", apollo: "openApollo", chat: "openApollo",
+        music: "openMusic", calendar: "openCalendar", tasks: "openTasks",
+        studio: "openStudio", settings: "openSettings",
+        history: "apolloOpenHistory", "music insights": "apolloOpenMusicInsights",
+    };
+    const target = match[1];
+    if (typeof window[routes[target]] !== "function") return false;
+    window[routes[target]]();
+    return true;
 }
 
 async function apolloReportDeviceLocation() {
@@ -25959,11 +26059,17 @@ async function apolloSendMessage() {
 
     const content =
         apolloInput.value.trim();
+    if (content && apolloTryLocalInterfaceAction(content)) {
+        apolloInput.value = "";
+        apolloInput.style.height = "auto";
+        return;
+    }
     let apolloStreamRenderer = null;
     let apolloStreamingMessage = null;
     let assistantContent = "";
     let requestIsVisible = () => false;
     let userMessageAdded = false;
+    let uploadedAttachments = [];
 
 
     /* =====================================================
@@ -26144,8 +26250,9 @@ async function apolloSendMessage() {
 
 
     const isImageGeneration =
-        /\b(generate|create|make|draw)\b[\s\S]{0,40}\b(image|picture|photo|artwork)\b/i
-            .test(content);
+        apolloImageGenerationMode
+        || /\b(generate|create|make|draw|paint|edit)\b[\s\S]{0,90}\b(image|picture|photo|artwork|portrait)\b/i.test(content)
+        || /\b(genera|crea|haz|dibuja|pinta|edita)\b[\s\S]{0,90}\b(imagen|foto|ilustraci[oó]n|retrato)\b/i.test(content);
 
 
     const hasAttachments =
@@ -26153,6 +26260,9 @@ async function apolloSendMessage() {
             apolloPendingAttachments
             && apolloPendingAttachments.length
         );
+    const requestContent = apolloImageGenerationMode
+        ? `${hasAttachments ? "Edit the attached image according to this request" : "Generate an image based on this description"}: ${content}`
+        : content;
 
 
     if (
@@ -26169,6 +26279,7 @@ async function apolloSendMessage() {
 
     apolloInput.value = "";
     apolloInput.style.height = "auto";
+    if (apolloImageGenerationMode) apolloSetImageGenerationMode(false);
 
 
     try {
@@ -26205,8 +26316,7 @@ if (apolloChatIsStale()) {
         requestIsVisible = isRequestChatVisible;
 
 
-        const uploadedAttachments =
-            await apolloUploadPendingAttachments();
+        uploadedAttachments = await apolloUploadPendingAttachments();
 
 
         apolloAddMessage(
@@ -26233,7 +26343,7 @@ if (apolloChatIsStale()) {
             requestChatId,
                 {
                     content:
-                        content
+                        requestContent
                         || "Please inspect the attached file.",
 
                     attachment_ids:
@@ -26461,6 +26571,20 @@ if (!response.ok) {
     } catch (error) {
 
         if (requestIsVisible()) apolloHideTyping();
+        if (error.name === "SecurityVerificationCanceled") {
+            if (requestIsVisible()) {
+                const lockedText = apolloAddMessage("assistant", "Private response remains locked.", [], false);
+                const locked = lockedText.closest(".apollo-message");
+                locked.dataset.apolloPrivateUnsubmitted = "true";
+                locked.dataset.apolloRequestContent = requestContent;
+                locked.dataset.apolloAttachmentIds = JSON.stringify(uploadedAttachments.map(item => item.id));
+                window.apolloSecurityLockedInline?.(
+                    lockedText,
+                    () => apolloRetryMessage(locked)
+                );
+            }
+            return;
+        }
         if (!userMessageAdded && content) {
             apolloInput.value = content;
             apolloInput.dispatchEvent(new Event("input", {bubbles: true}));
@@ -26583,6 +26707,7 @@ apolloInput.addEventListener(
 
 let apolloHistorySearchTimer = null;
 let apolloHistoryRequestNumber = 0;
+window.apolloHistoryInvalidate = () => { apolloHistoryRequestNumber += 1; };
 
 
 function apolloHistoryBindSearch() {
@@ -26661,6 +26786,12 @@ async function apolloRefreshHistory() {
                 cache: "no-store"
             });
 
+        if (response.status === 423 && typeof window.apolloSecurityUnlockInline === "function") {
+            track.querySelectorAll(".apollo-history-card, .apollo-history-group").forEach(node => node.remove());
+            await window.apolloSecurityUnlockInline("history", track);
+            if (requestNumber === apolloHistoryRequestNumber) await apolloRefreshHistory();
+            return;
+        }
         if (!response.ok) {
             throw new Error(
                 "History request failed: " +
@@ -27173,6 +27304,14 @@ async function apolloRefreshHistory() {
 
     } catch (error) {
 
+        if (error.name === "SecurityVerificationCanceled") {
+            track.replaceChildren();
+            const message = document.createElement("p");
+            message.className = "apollo-history-locked";
+            message.textContent = "Private history remains locked.";
+            track.append(message);
+            return;
+        }
         console.error(
             "Apollo history:",
             error
@@ -37222,9 +37361,9 @@ html.apollo-reduce-motion *::after {
                 APOLLO
             </div>
 
-            <div class="apollo-settings-title">
+            <h1 class="apollo-settings-title">
                 Settings
-            </div>
+            </h1>
 
             <div class="apollo-settings-subtitle">
                 Make Apollo work and feel the way you want.
@@ -66250,6 +66389,11 @@ html.apollo-reduce-motion.apollo-jarvis-mode
             }
         );
     }
+    window.apolloClearJarvisHistory = () => {
+        state.chats = [];
+        state.ok.chats = false;
+        renderHistory();
+    };
 
 
     async function refreshHistory() {
@@ -66288,6 +66432,7 @@ html.apollo-reduce-motion.apollo-jarvis-mode
 
             state.ok.chats =
                 false;
+            state.chats = [];
         }
 
 
@@ -79158,4 +79303,5 @@ html.apollo-jarvis-mode
 <script src="/apollo_security.js?v=20261029-2"></script>
 <link rel="stylesheet" href="/apollo_settings_polish.css?v=20261029-1">
 <script src="/apollo_settings_polish.js?v=20261029-1"></script>
+<link rel="stylesheet" href="/apollo_design_system.css?v=20261030-1">
 <style>.apollo-shortcut-target { outline: 2px solid currentColor; outline-offset: 3px; }</style>

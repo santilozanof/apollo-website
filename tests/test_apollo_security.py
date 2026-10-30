@@ -83,6 +83,31 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(self.call('POST', '/api/security/authenticate',
             {'resource': 'chat', 'passphrase': 'this is a long test passphrase'}, origin=False)[0], 403)
 
+    def test_history_lock_also_protects_memory_quotes_and_search(self):
+        self.enroll()
+        status, body = self.call('POST', '/api/security/policy', {
+            'tabs': {}, 'privacy': 'standard', 'protect_spotify': False,
+            'protect_history': True,
+        })
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.call('GET', '/api/memory')[0], 423)
+        self.assertEqual(self.call('GET', '/api/memory/search?q=private')[0], 423)
+        status, _ = self.call('POST', '/api/security/authenticate', {
+            'resource': 'history', 'method': 'passphrase',
+            'passphrase': 'this is a long test passphrase',
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(self.call('GET', '/api/memory')[0], 200)
+
+    def test_developer_diagnostics_require_recent_settings_verification(self):
+        self.assertEqual(self.call('GET', '/api/developer/diagnostics')[0], 423)
+        self.enroll()
+        status, data = self.call('GET', '/api/developer/diagnostics')
+        self.assertEqual(status, 200)
+        self.assertEqual(data['diagnostics'], 'read_only')
+        self.assertTrue(data['database_healthy'])
+        self.assertTrue(any(item['id'] == 'chat' for item in data['capabilities']))
+
     def test_separate_tab_grants_revoke_and_expiry(self):
         self.enroll()
         self.policy({'chat': '5m', 'music': '15m'})

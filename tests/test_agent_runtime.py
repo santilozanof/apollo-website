@@ -72,6 +72,19 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(queries, ['dining','Paris'])
         self.assertEqual(result['status'], 'completed')
 
+    def test_tool_status_distinguishes_empty_failure_and_unchecked(self):
+        for payload, expected in (
+            ({'results': []}, 'empty'),
+            ({'status': 'no_results', 'results': []}, 'no_results'),
+            ({'status': 'authentication_failure'}, 'authentication_failure'),
+            ({'status': 'connected', 'tracks': []}, 'succeeded'),
+        ):
+            with self.subTest(payload=payload):
+                runtime = AgentRuntime([Tool('lookup', '', {}, lambda: payload)], lambda *_: {'done': True})
+                self.assertEqual(runtime.call('lookup', {})['status'], expected)
+        runtime = AgentRuntime([], lambda *_: {'done': True})
+        self.assertEqual(runtime.call('missing', {})['status'], 'unknown_tool')
+
     def test_invalid_planner_preserves_partial_evidence(self):
         agent = AgentRuntime([Tool('tasks','',{},lambda: ['Essay'])], lambda *_: 'not json')
         result = agent.run([], [('tasks',{})])

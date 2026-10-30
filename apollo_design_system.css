@@ -1,0 +1,83 @@
+/* Shared visual rules. Component-specific artwork and layouts stay with their owners. */
+
+:root {
+    --apollo-content-measure: 68ch;
+}
+
+/* Keep the page grid aligned once the desktop navigation is fully expanded. */
+@media (min-width: 761px) {
+    #musicView .apollo-music-inner,
+    #tasksView .apollo-tasks-shell {
+        width: 100% !important;
+        max-width: none !important;
+        margin-inline: 0 !important;
+        padding-inline: var(--apollo-page-gutter) !important;
+    }
+}
+
+/* The home greeting is intentionally a display title; the other views share H1 scale. */
+.apollo-music-title,
+.apollo-tasks-title,
+#calendarView .apollo-week-title,
+#routinesView .routine-title,
+#studioView .studio5-brandcopy h1,
+#settingsView .apollo-settings-title,
+.apollo-music-data .music-heading-copy h1 {
+    font-size: var(--apollo-type-h1) !important;
+    line-height: var(--apollo-leading-heading) !important;
+    letter-spacing: -.04em !important;
+    font-weight: 600 !important;
+}
+
+#settingsView .apollo-settings-title {
+    margin: 0;
+}
+
+.apollo-music-data .music-heading-copy h1 {
+    margin: 0;
+}
+
+.apollo-music-subtitle,
+.apollo-tasks-subtitle,
+#calendarView .apollo-week-subtitle,
+#routinesView .routine-subtitle,
+#settingsView .apollo-settings-subtitle,
+#studioView .studio5-brandcopy p {
+    font-size: var(--apollo-type-small) !important;
+    line-height: var(--apollo-leading-body) !important;
+    color: var(--apollo-color-muted) !important;
+}
+
+/* Give controls and text the same focus treatment in both themes. */
+.main :is(button, a, input, textarea, select):focus-visible {
+    outline: 2px solid var(--apollo-color-focus);
+    outline-offset: 2px;
+}
+
+.main :is(button, input, select, textarea) {
+    transition-duration: var(--apollo-motion-normal);
+    transition-timing-function: var(--apollo-motion-ease);
+}
+
+#settingsView .apollo-settings-disclosure-label,
+#settingsView .apollo-settings-row-title {
+    line-height: 1.35;
+}
+
+@media (max-width: 760px) {
+    .apollo-music-title,
+    .apollo-tasks-title,
+    #calendarView .apollo-week-title,
+    #routinesView .routine-title,
+    #studioView .studio5-brandcopy h1,
+    #settingsView .apollo-settings-title,
+    .apollo-music-data .music-heading-copy h1 {
+        font-size: clamp(30px, 8.6vw, 38px) !important;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .main :is(button, input, select, textarea) {
+        transition-duration: 0ms !important;
+    }
+}
