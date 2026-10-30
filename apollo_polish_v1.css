@@ -174,16 +174,6 @@
     margin-top: var(--apollo-space-2) !important;
 }
 
-.apollo-home-recent {
-    gap: 0 !important;
-    margin-top: var(--apollo-space-2) !important;
-}
-
-.apollo-home-recent-row {
-    gap: var(--apollo-space-3) !important;
-    padding: 7px var(--apollo-space-1) !important;
-}
-
 /* Chat */
 .apollo-view {
     padding: var(--apollo-space-6) var(--apollo-space-8) !important;

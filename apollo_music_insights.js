@@ -40,7 +40,7 @@
     if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
     return data;
   }
-  function safeArt(url) { return typeof url === 'string' && /^https:\/\/i\.scdn\.co\/image\//.test(url); }
+  function safeArt(url) { return typeof url === 'string' && /^https:\/\/(?:i\.scdn\.co|image-cdn-[a-z]{2}\.spotifycdn\.com)\/image\/[A-Za-z0-9]+$/.test(url); }
   function safeSpotify(url) { return typeof url === 'string' && /^https:\/\/open\.spotify\.com\/(track|album|artist)\/[A-Za-z0-9]+$/.test(url); }
   function spotifyAttribution() {
     const anchor = document.createElement('a');
@@ -102,9 +102,9 @@
     return wrapper;
   }
   function timeLabel(row) {
-    if (row.verified_events && row.estimated_ms) return `${duration(row.listening_ms)} measured · ${duration(row.verified_ms)} verified + ${duration(row.estimated_ms)} estimated`;
+    if (row.verified_events && row.estimated_ms) return `${duration(row.verified_ms)} verified · ${duration(row.estimated_ms)} observed estimate`;
     if (row.verified_events) return `${duration(row.verified_ms)} verified`;
-    if (row.estimated_ms) return `${duration(row.estimated_ms)} estimated`;
+    if (row.estimated_ms) return `Verified time unavailable · ${duration(row.estimated_ms)} observed estimate`;
     return 'Time unavailable';
   }
   function spotifyLink(row, label = 'Open on Spotify') {
@@ -211,7 +211,7 @@
     const bars = text('div', '', 'music-chart'); bars.setAttribute('role', 'img');
     const measured = summary.chart.some(item => item.listening_ms > 0);
     const value = item => measured ? item.listening_ms || 0 : item.plays;
-    const describe = item => measured ? `${duration(item.listening_ms || 0)} measured` : `${item.plays} recorded plays (minutes unavailable)`;
+    const describe = item => measured ? `${duration(item.listening_ms || 0)} verified` : `${item.plays} recorded plays (verified minutes unavailable)`;
     bars.setAttribute('aria-label', summary.chart.map(item => `${item.label}: ${describe(item)}`).join(', '));
     const peak = Math.max(1, ...summary.chart.map(value));
     summary.chart.forEach((item, index) => { const amount = value(item); const bar = text('span', '', amount === peak && amount ? 'peak' : ''); bar.style.height = `${Math.max(2, amount / peak * 100)}%`; bar.title = `${item.label}: ${describe(item)}`; if (index % Math.max(1, Math.ceil(summary.chart.length / 7)) === 0) bar.dataset.label = item.label; bars.append(bar); });
@@ -236,9 +236,9 @@
       const menu = text('details', '', 'music-sync-menu'); const summaryButton = text('summary', '···'); summaryButton.setAttribute('aria-label', 'Music history options'); menu.append(summaryButton);
       const sync = text('button', 'Sync now'); sync.type = 'button'; sync.onclick = async () => { sync.disabled = true; try { await request('/api/music/history/sync', {method: 'POST', headers: {'X-Apollo-Request': 'music'}}); status.append(text('span', 'Sync started')); } catch (error) { status.append(text('span', error.message)); } finally { sync.disabled = false; menu.open = false; } }; menu.append(sync); status.append(menu); pane.append(status);
       const stats = text('div', '', 'stats');
-      const timeValue = summary.verified_ms || summary.estimated_ms ? duration(summary.verified_ms + summary.estimated_ms) : 'Unavailable';
-      const timeNote = `${duration(summary.verified_ms)} verified · ${duration(summary.estimated_ms)} estimated · ${summary.duration_unknown_events} plays without verified duration`;
-      stats.append(stat('Measured listening', timeValue, timeNote), stat('Recorded plays', summary.events.toLocaleString(), 'Events in available history'), stat('Artists', summary.unique_artists.toLocaleString(), 'Credited in recorded plays'));
+      const timeValue = summary.verified_events ? duration(summary.verified_ms) : 'Unavailable';
+      const timeNote = `${duration(summary.estimated_ms)} observed estimate, shown separately · ${summary.duration_unknown_events} plays without verified duration`;
+      stats.append(stat('Verified listening', timeValue, timeNote), stat('Recorded events', summary.events.toLocaleString(), 'Includes short plays and recent events with unknown duration'), stat('Artists', summary.unique_artists.toLocaleString(), 'Credited in recorded events'));
       pane.append(stats);
       if (!summary.events) pane.append(text('p', 'No recorded plays in this period. Choose another period or import your Spotify history below.', 'empty'));
       else { const grid = text('div', '', 'grid'); grid.append(rankPanel('Top artists', 'artists', summary.top.artists), rankPanel('Top songs', 'tracks', summary.top.tracks), rankPanel('Top albums', 'albums', summary.top.albums), chart(summary)); pane.append(grid); }
@@ -268,7 +268,7 @@
     const controls = text('div', '', 'music-explorer-controls');
     const search = document.createElement('input'); search.type = 'search'; search.value = state.search; search.placeholder = 'Search your history'; search.setAttribute('aria-label', 'Search recorded music');
     let timer; search.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { state.search = search.value; state.offset = 0; loadExpanded().then(() => pane.querySelector('input[type=search]')?.focus()); }, 350); }; controls.append(search);
-    if (entity !== 'history') { const metric = document.createElement('select'); metric.setAttribute('aria-label', 'Ranking metric'); [['listening','Listening minutes'],['plays','Recorded plays'],['verified','Verified time'],['estimated','Estimated time']].forEach(([value,label]) => { const option = new Option(label, value); metric.append(option); }); metric.value = state.metric; metric.onchange = () => { state.metric = metric.value; state.offset = 0; loadExpanded(); }; controls.append(metric); } pane.append(controls);
+    if (entity !== 'history') { const metric = document.createElement('select'); metric.setAttribute('aria-label', 'Ranking metric'); [['listening','Verified minutes'],['plays','Recorded events'],['estimated','Observed estimate']].forEach(([value,label]) => { const option = new Option(label, value); metric.append(option); }); metric.value = state.metric; metric.onchange = () => { state.metric = metric.value; state.offset = 0; loadExpanded(); }; controls.append(metric); } pane.append(controls);
     try { const data = await request(query); if (state.expanded !== entity || state.offset !== offset) return;
       const status = text('p', `${data.total} ${entity === 'history' ? 'recorded events' : `ranked ${entity}`} · ${data.period.label}`, 'muted method'); pane.append(status);
       if (entity !== 'history' && !data.metric_available) pane.append(text('p', `No ${state.metric} listening measurements are available in this period. Entries remain ordered by recorded plays.`, 'muted method'));
@@ -518,11 +518,11 @@
         if (isTrack) recapFitText(ctx, item.artist_name || 'Artist unavailable', left, y + (h === 1080 ? 115 : compact ? 129 : 170), width, compact ? 20 : 27, 2, {color: theme === 'editorial' ? '#55534f' : '#c5c0c9'});
       });
       if (!rows.length) recapText(ctx, 'No recorded listening in this period.', 68, start + 130, 900, 35, {color: ink});
-      const listened = summary.verified_ms || summary.estimated_ms ? duration(summary.verified_ms + summary.estimated_ms) : 'Time unavailable';
+      const listened = summary.verified_events ? duration(summary.verified_ms) : 'Time unavailable';
       if (h > 1350) {
         const footerY = h - 230;
-        recapMetric(ctx, 'Recorded streams', summary.events.toLocaleString(), 68, footerY, 410, theme, compact);
-        recapMetric(ctx, 'Listening time', listened, 545, footerY, 455, theme, compact);
+        recapMetric(ctx, 'Recorded events', summary.events.toLocaleString(), 68, footerY, 410, theme, compact);
+        recapMetric(ctx, 'Verified listening', listened, 545, footerY, 455, theme, compact);
       }
     }
     recapFrame(ctx, summary, theme, slide, h, brand);

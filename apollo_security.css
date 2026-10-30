@@ -78,58 +78,37 @@ body.apollo-security-conceal.apollo-security-transition #apolloSecurityLock { di
     .apollo-security-card .apollo-security-methods[open] button { animation: apollo-security-reveal .2s ease-out both; }
     @keyframes apollo-security-reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 }
-.apollo-security-inline {
-    display: grid;
-    gap: 9px;
-    max-width: 440px;
-    margin: 16px auto;
-    padding: 16px;
-    border: 1px solid var(--apollo-border, rgba(128, 128, 128, .25));
-    border-radius: var(--apollo-radius-lg, 18px);
-    background: var(--surface, var(--bg, #fff));
-    color: var(--text, #171717);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, .12);
-}
-.apollo-security-inline h3,
-.apollo-security-inline p { margin: 0; }
-.apollo-security-inline > svg {
-    width: 18px;
-    height: 18px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.7;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-}
-.apollo-security-inline h3 { font-size: 1rem; }
-.apollo-security-inline p { line-height: 1.45; }
-.apollo-security-inline input {
-    width: 100%;
-    min-height: 44px;
-    padding: 9px 12px;
-    border-radius: 10px;
-    border: 1px solid var(--apollo-border, rgba(128, 128, 128, .3));
-    background: var(--bg, #fff);
-    color: inherit;
-}
-.apollo-security-inline-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.apollo-security-inline-actions button {
-    min-height: 40px;
-    padding: 8px 12px;
-    border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
-    border-radius: 9px;
-    background: var(--surface, var(--bg, #fff));
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-}
-.apollo-security-inline-actions button.is-primary {
-    background: var(--text, #171717);
-    color: var(--bg, #fff);
-}
-.apollo-security-inline-actions button:focus-visible,
-.apollo-security-inline input:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+/* Shared compact verification surface for private replies and History. */
+.apollo-security-inline { box-sizing: border-box; position: relative; width: min(100%, 340px); margin: 8px 0 12px; padding: 10px 0 8px; color: var(--text, #171717); overflow-anchor: none; transition: opacity 200ms ease, transform 200ms ease; }
+#apolloHistoryTrack .apollo-security-inline { width: min(100%, 320px); margin: 4px 0; padding: 8px 10px 6px; }
+.apollo-security-inline.is-unlocking { opacity: 0; transform: translateY(-3px); pointer-events: none; }
+.apollo-security-inline-heading { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 9px; align-items: start; padding-right: 38px; }
+.apollo-security-inline-heading svg { width: 16px; height: 16px; margin-top: 1px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+.apollo-security-inline h3, .apollo-security-inline p { margin: 0; }
+.apollo-security-inline h3 { font-size: 13px; font-weight: 600; letter-spacing: -.015em; line-height: 1.35; }
+.apollo-security-inline-heading p { margin-top: 2px; color: color-mix(in srgb, var(--text, #171717) 68%, transparent); font-size: 11.5px; line-height: 1.4; }
+.apollo-security-inline-stage { margin-top: 12px; }
+.apollo-security-inline-default, .apollo-security-inline-secret { overflow: hidden; transition: max-height 220ms ease, opacity 200ms ease; }
+.apollo-security-inline-default { display: grid; justify-items: start; gap: 2px; max-height: 110px; opacity: 1; }
+.apollo-security-inline-secret { display: grid; gap: 8px; max-height: 0; opacity: 0; visibility: hidden; pointer-events: none; }
+.apollo-security-inline[data-mode="passphrase"] .apollo-security-inline-default, .apollo-security-inline[data-mode="recovery"] .apollo-security-inline-default { max-height: 0; opacity: 0; visibility: hidden; pointer-events: none; }
+.apollo-security-inline[data-mode="passphrase"] .apollo-security-inline-secret, .apollo-security-inline[data-mode="recovery"] .apollo-security-inline-secret { max-height: 190px; opacity: 1; visibility: visible; pointer-events: auto; }
+.apollo-security-inline-secret label { display: grid; gap: 5px; color: color-mix(in srgb, var(--text, #171717) 68%, transparent); font-size: 11.5px; line-height: 1.35; }
+.apollo-security-inline input { box-sizing: border-box; width: 100%; min-height: 42px; padding: 9px 11px; border-radius: 9px; border: 1px solid color-mix(in srgb, currentColor 19%, transparent); background: var(--surface, var(--bg, #fff)); color: var(--text, #171717); font: inherit; font-size: 13px; }
+.apollo-security-inline button { cursor: pointer; }
+.apollo-security-inline button[hidden] { display: none !important; }
+.apollo-security-inline-primary { width: 100%; min-height: 42px; padding: 9px 13px; border: 0; border-radius: 9px; background: var(--text, #171717); color: var(--bg, #fff); font: inherit; font-size: 12.5px; font-weight: 600; }
+.apollo-security-inline-text { min-height: 38px; padding: 6px 2px; border: 0; background: transparent; color: color-mix(in srgb, var(--text, #171717) 68%, transparent); font: inherit; font-size: 11.5px; text-align: left; }
+.apollo-security-inline-text:hover { color: var(--text, #171717); }
+.apollo-security-inline-links { display: flex; justify-content: space-between; gap: 8px; }
+.apollo-security-inline-cancel { position: absolute; top: 2px; right: 0; display: grid; place-items: center; width: 40px; height: 40px; padding: 10px; border: 0; border-radius: 8px; background: transparent; color: color-mix(in srgb, var(--text, #171717) 68%, transparent); }
+#apolloHistoryTrack .apollo-security-inline-cancel { right: 5px; top: 0; }
+.apollo-security-inline-cancel:hover { color: var(--text, #171717); }
+.apollo-security-inline-cancel svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+.apollo-security-inline-feedback { margin-top: 6px !important; color: var(--text, #171717); font-size: 11.5px; line-height: 1.4; }
 .apollo-security-inline-feedback:empty { display: none; }
-@media (max-width: 600px) {
-    .apollo-security-inline { margin: 12px; padding: 16px; }
-}
+.apollo-security-inline button:disabled { opacity: .5; cursor: default; }
+.apollo-security-inline :is(button, input):focus-visible { outline: 2px solid var(--apollo-color-focus, currentColor); outline-offset: 2px; }
+.apollo-security-inline.is-locked > .apollo-security-inline-primary { margin-top: 12px; }
+@media (max-width: 600px) { .apollo-security-inline { width: min(100%, 320px); margin: 7px 0 10px; } }
+@media (prefers-reduced-motion: reduce) { .apollo-security-inline, .apollo-security-inline-default, .apollo-security-inline-secret { transition: none !important; } }

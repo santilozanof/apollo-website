@@ -26,6 +26,7 @@ import debrief_personalization
 import music_curator
 import music_history
 import music_analytics
+import apollo_media_ranking
 import apollo_entity
 import apollo_live_research
 import apollo_security
@@ -873,6 +874,7 @@ def init_db():
     apollo_intelligence.initialize(conn)
     music_history.init_schema(conn)
     apollo_security.init_schema(conn)
+    apollo_security.backfill_public_pairs(conn)
     apollo_interactions.init_schema(conn)
 
     conn.commit()
@@ -1514,6 +1516,13 @@ external information, asks for research or verification, asks you to inspect a
 file, or requests an actual external action. Do not browse or research merely to
 polish a normal conversational answer. For short follow-ups, use the existing
 conversation context and respond directly.
+
+Treat a brief statement after your answer as a response to that answer unless
+the user clearly changes topics. Slang, sarcasm, disbelief, jokes and blunt
+corrections are often reactions, not new task requests. Check the previous
+answer's subject before interpreting an ambiguous phrase literally. Respond
+to the user's point, disagree when the inference is wrong, and ask a question
+only when the missing detail prevents a useful answer.
 
 When a request needs current external facts, use the available web tools before
 answering. Never claim that live web access is unavailable merely because a
@@ -3729,7 +3738,6 @@ def _apollo_choose_model(messages):
             "reason": "manual",
         }
 
-
     # --------------------------------------------------------
     # MAX — Sol
     # Only genuinely difficult work.
@@ -4327,8 +4335,10 @@ def ask_hermes(messages, timeout=90, enabled_toolsets=()):
         data=payload,
         headers={
             "Content-Type": "application/json",
-            "Authorization": "Bearer " + get_api_key(),
-            "X-Hermes-Session-Id": "apollo-" + uuid.uuid4().hex
+            # Hermes treats this header as session continuation and replaces
+            # the submitted history with its stored history. Internal calls
+            # are stateless and provide the exact authorized context below.
+            "Authorization": "Bearer " + get_api_key()
         },
         method="POST"
     )
@@ -17261,7 +17271,8 @@ def calendar_handle_pending(
 def apollo_save_assistant_message(
     chat_id,
     assistant_message,
-    evidence=None
+    evidence=None,
+    public_user_id=None,
 ):
     conn = db()
 
@@ -17282,6 +17293,8 @@ def apollo_save_assistant_message(
     )
     conn.execute("UPDATE messages SET content=? WHERE id=?", (assistant_message, cursor.lastrowid))
     apollo_intelligence.save_response_context(conn, cursor.lastrowid, evidence)
+    if public_user_id is not None:
+        apollo_security.mark_public_pair(conn, chat_id, public_user_id, cursor.lastrowid)
 
     conn.execute("""
         UPDATE chats
@@ -17380,9 +17393,11 @@ def apollo_finish_direct_sse(
         return
 
     if evidence:
-        apollo_save_assistant_message(chat_id, assistant_message, evidence=evidence)
+        apollo_save_assistant_message(chat_id, assistant_message, evidence=evidence,
+                                     public_user_id=getattr(handler, '_apollo_public_user_id', None))
     else:
-        apollo_save_assistant_message(chat_id, assistant_message)
+        apollo_save_assistant_message(chat_id, assistant_message,
+                                     public_user_id=getattr(handler, '_apollo_public_user_id', None))
 
     done_event = json.dumps({
         "type": "done",
@@ -21146,14 +21161,21 @@ def music_history_enrich_artwork():
         if not music_provider_ready(conn, "spotify_tracks"):
             return
         cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-        ids = [row[0] for row in conn.execute("""
-            SELECT DISTINCT l.track_id FROM music_listens l
+        eligible = """FROM music_listens l
+            LEFT JOIN music_tracks t ON t.track_key = l.track_key
             LEFT JOIN music_metadata_attempts m ON m.track_id = l.track_id
             WHERE LENGTH(l.track_id) = 22
               AND (m.track_id IS NULL OR m.last_attempt_at < ?)
-              AND (l.artwork_url IS NULL OR m.track_id IS NULL)
-            LIMIT 20
-        """, (cutoff,)).fetchall()]
+              AND l.artwork_url IS NULL AND t.artwork_url IS NULL
+            GROUP BY l.track_id"""
+        ids = []
+        # Recent art serves current Insights; frequent historical tracks serve
+        # older rankings and recaps. Never guess art from a matching name.
+        for order, limit in (("MAX(l.event_at) DESC", 4),
+                             ("COUNT(*) DESC, MAX(l.event_at) DESC", 8)):
+            ids.extend(row[0] for row in conn.execute(
+                f"SELECT l.track_id {eligible} ORDER BY {order} LIMIT ?", (cutoff, limit)).fetchall())
+        ids = list(dict.fromkeys(ids))[:8]
         if not ids:
             return
         runner = SPOTIFY_PYTHON if Path(SPOTIFY_PYTHON).exists() else sys.executable
@@ -21169,8 +21191,7 @@ def music_history_enrich_artwork():
         for item in records:
             if item.get("id") not in ids:
                 continue
-            art = item.get("artwork_url")
-            art = art if isinstance(art, str) and art.startswith("https://i.scdn.co/image/") else None
+            art = music_history._safe_art(item.get("artwork_url"))
             conn.execute("""
                 UPDATE music_listens SET album_id = COALESCE(album_id, ?),
                   album_name = COALESCE(album_name, ?), artist_id = COALESCE(artist_id, ?),
@@ -21181,6 +21202,9 @@ def music_history_enrich_artwork():
                   item["id"]))
             conn.execute("UPDATE music_tracks SET artwork_url=COALESCE(artwork_url, ?) WHERE spotify_id=?",
                          (art, item["id"]))
+            if music_history._valid_id(item.get("album_id")):
+                conn.execute("UPDATE music_albums SET artwork_url=COALESCE(artwork_url, ?) WHERE spotify_id=?",
+                             (art, item["album_id"]))
             credits = [(artist.get("name"), artist.get("id")) for artist in item.get("artists") or []
                        if isinstance(artist, dict) and artist.get("name")]
             if credits:
@@ -21283,7 +21307,7 @@ def music_history_worker():
             next_history = now + 600
         if now >= next_tracks:
             music_history_enrich_artwork()
-            next_tracks = now + 3600
+            next_tracks = now + 900
         if now >= next_artists:
             music_history_enrich_artists()
             next_artists = now + 900
@@ -25188,14 +25212,16 @@ class ApolloHandler(BaseHTTPRequestHandler):
 
             conn.commit()
             if getattr(self, '_apollo_public_only', False):
+                public_context = apollo_security.public_conversation(conn, chat_id, user_message_id)
                 conn.close()
                 try:
                     public_answer = apollo_security.public_answer_text(
-                        sys.modules[__name__], user_message
+                        sys.modules[__name__], user_message, public_context
                     )
                 except Exception as error:
                     print("[Apollo Public Answer] " + type(error).__name__)
                     public_answer = "Public answers are temporarily unavailable. Unlock private Chat or retry."
+                self._apollo_public_user_id = user_message_id
                 apollo_send_direct_sse(self, chat_id, public_answer)
                 return
             apollo_intelligence.store(sys.modules[__name__]).enforce_retention()
@@ -25655,6 +25681,29 @@ class ApolloHandler(BaseHTTPRequestHandler):
                 )
                 else ""
             )
+
+            # Recorded music rankings are rendered from the same aggregate as
+            # Music Insights. The model cannot invent rows or detach artwork.
+            ranking_request = apollo_media_ranking.intent(user_message, messages)
+            if ranking_request:
+                ranking_conn = db()
+                try:
+                    policy = apollo_security.policy(ranking_conn)
+                    if apollo_security._requires(policy, 'music') and not apollo_security._grant(ranking_conn, self, 'music'):
+                        ranking_reply = 'Unlock Music in Apollo to view your protected listening rankings.'
+                    else:
+                        ranking_reply = apollo_media_ranking.response(
+                            ranking_conn, ranking_request, messages,
+                            str(client_context.get('time_zone') or 'UTC')
+                            if isinstance(client_context, dict) else 'UTC',
+                        )
+                except (ValueError, LookupError, sqlite3.Error) as error:
+                    print(f'[Apollo Music Ranking] {type(error).__name__}')
+                    ranking_reply = 'I could not read your recorded music rankings right now. Please try again.'
+                finally:
+                    ranking_conn.close()
+                apollo_send_direct_sse(self, chat_id, ranking_reply)
+                return
 
             # Gmail is read through Apollo's own bounded API adapter. Mail
             # contents never enter the general tool runtime as instructions;

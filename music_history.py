@@ -178,7 +178,18 @@ def _valid_id(value):
 
 
 def _safe_art(value):
-    return value if isinstance(value, str) and value.startswith("https://i.scdn.co/image/") else None
+    if not isinstance(value, str):
+        return None
+    from urllib.parse import urlsplit
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+    official_host = parsed.hostname == "i.scdn.co" or bool(re.fullmatch(
+        r"image-cdn-[a-z]{2}\.spotifycdn\.com", parsed.hostname or ""))
+    return value if (parsed.scheme == "https" and official_host and parsed.netloc == parsed.hostname
+                     and re.fullmatch(r"/image/[A-Za-z0-9]+", parsed.path) and not
+                     (parsed.query or parsed.fragment or parsed.username or parsed.password)) else None
 
 
 def normalize_record(item):
@@ -247,7 +258,7 @@ def normalize_record(item):
         "source_timestamp": basis, "event_at": ended.isoformat(timespec="milliseconds"),
         "track_key": track_key, "track_id": spotify_id, "track_name": name,
         "artist_name": artist, "artist_id": artist_id, "album_name": album_name,
-        "album_id": album_id, "artwork_url": artwork if isinstance(artwork, str) and artwork.startswith("https://i.scdn.co/") else None,
+        "album_id": album_id, "artwork_url": _safe_art(artwork),
         "ms_played": ms_played, "duration_ms": duration,
         "artist_credits": credits,
     }

@@ -74,7 +74,7 @@ html[data-theme="dark"] {
 /* LIGHT */
 
 html[data-theme="light"] {
-    --apollo-boot-bg: #f7f7f5;
+    --apollo-boot-bg: #f7f7f7;
     --apollo-boot-fg: #111111;
     --apollo-boot-track: rgba(0,0,0,.08);
     --apollo-boot-bar: rgba(0,0,0,.78);
@@ -188,25 +188,26 @@ html[data-theme="light"] {
 
 </style>
 <link rel="stylesheet" href="/vendor/katex/katex.min.css?v=0.19.0">
-<link rel="stylesheet" href="/apollo_genui.css?v=20261027-4">
+<link rel="stylesheet" href="/apollo_genui.css?v=20261030-1">
 <link rel="stylesheet" href="/apollo_capacitor.css?v=20261015-2">
 <script src="/apollo_date_nav.js?v=20261015-2"></script>
 <script src="/vendor/katex/katex.min.js?v=0.19.0"></script>
 <script src="/vendor/chat/markdown-it.min.js?v=15.0.2"></script>
 <script src="/vendor/chat/purify.min.js?v=3.4.17"></script>
 <script src="/vendor/chat/highlight.min.js?v=11.12.0"></script>
-<script src="/apollo_genui.js?v=20261027-4"></script>
+<script src="/apollo_genui.js?v=20261030-1"></script>
 
 <style>
 :root {
     --bg: #000000;
-    --surface: #0b0b0d;
-    --surface-hover: #151518;
-    --border: rgba(255,255,255,.07);
-    --border-hover: rgba(255,255,255,.13);
+    --surface: #0d0d0d;
+    --surface-hover: #222222;
+    --border: #292929;
+    --border-hover: #3a3a3a;
 
     --text: #f5f5f5;
     --muted: #858585;
+    --secondary: #b3b3b3;
     --dim: #4b4b4b;
 
     --accent: #f2f2f2;
@@ -745,82 +746,6 @@ stroke-width: 1.35;
         background var(--normal) ease,
         border-color var(--normal) ease;
 }
-
-/* ─────────────────────────────
-   HOME — RECENT CONVERSATIONS
-───────────────────────────── */
-
-.apollo-home-recent {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    margin-top: 9px;
-}
-
-.apollo-home-recent-row {
-    width: 100%;
-    min-width: 0;
-
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 14px;
-
-    padding: 8px 5px;
-
-    border: 0;
-    border-radius: 9px;
-
-    background: transparent;
-    color: inherit;
-
-    text-align: left;
-    cursor: pointer;
-
-    transition:
-        background var(--fast) ease,
-        transform var(--fast) var(--ease);
-}
-
-.apollo-home-recent-row:hover {
-    background: rgba(255,255,255,.035);
-    transform: translateX(2px);
-}
-
-.apollo-home-recent-row:active {
-    transform: scale(.985);
-}
-
-.apollo-home-recent-title {
-    min-width: 0;
-
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-
-    font-size: 13px;
-    font-weight: 550;
-
-    color: var(--text);
-}
-
-.apollo-home-recent-date {
-    flex: 0 0 auto;
-
-    font-size: 10px;
-    color: var(--dim);
-
-    white-space: nowrap;
-}
-
-.apollo-home-recent-empty,
-.apollo-home-recent-loading {
-    padding: 9px 5px;
-
-    font-size: 13px;
-    color: var(--muted);
-}
-
 
 .card:hover {
     transform: translateY(-4px);
@@ -4199,7 +4124,7 @@ html[data-theme="light"]
 #calendarView
 [data-event-id] {
     background:
-        #f1f1ef
+        #f1f1f1
         !important;
 
     border:
@@ -4221,7 +4146,7 @@ html[data-theme="light"]
 #calendarView
 [data-event-id]:hover {
     background:
-        #ebebe8
+        #ebebeb
         !important;
 
     border-color:
@@ -7082,20 +7007,17 @@ html[data-theme="light"]
 
                 </article>
 
-                <article class="card home-card" data-section="recent">
+                <article class="card home-card" data-section="quick-access">
 
                     <div class="card-top">
-                        <div class="card-name home-section-title">Recent</div>
-                        <div class="card-arrow">↗</div>
+                        <div class="card-name home-section-title">Quick Access</div>
                     </div>
 
-                    <div
-                        class="card-content apollo-home-recent"
-                        id="apolloHomeRecent"
-                    >
-                        <div class="apollo-home-recent-loading">
-                            Loading conversations…
-                        </div>
+                    <div class="card-content apollo-home-quick" aria-label="Quick Access">
+                        <button type="button" data-apollo-quick="new-chat">New Chat</button>
+                        <button type="button" data-apollo-quick="history">Protected History</button>
+                        <button type="button" data-apollo-quick="university">University</button>
+                        <button type="button" data-apollo-quick="music-insights">Music Insights</button>
                     </div>
 
                 </article>
@@ -13920,13 +13842,6 @@ html[data-theme="light"]
             transparent
         ) !important;
 
-    border-color:
-        color-mix(
-            in srgb,
-            var(--text) 12%,
-            transparent
-        ) !important;
-
     -webkit-backdrop-filter:
         blur(22px)
         saturate(1.3);
@@ -13944,6 +13859,10 @@ html[data-theme="light"]
         ),
         0 12px 40px
         rgba(0,0,0,.08);
+}
+
+#apolloView .apollo-composer:not(:focus-within) {
+    border-color: color-mix(in srgb, var(--text) 12%, transparent);
 }
 
 
@@ -15977,293 +15896,25 @@ html[data-theme="light"]
 
 
 <script>
-/* =========================================================
-   APOLLO HOME RECENT CONVERSATIONS V1
-   ========================================================= */
-
+/* Home shortcuts use Apollo's registered navigation and the existing History gate. */
 (() => {
-
-    let apolloHomeRecentSignature = null;
-    window.apolloClearHomeRecent = () => {
-        apolloHomeRecentSignature = null;
-        const container = document.getElementById("apolloHomeRecent");
-        if (container) {
-            container.replaceChildren();
-            const locked = document.createElement("div");
-            locked.className = "apollo-home-recent-empty";
-            locked.textContent = "History is locked";
-            container.append(locked);
-        }
-    };
-
-
-    async function apolloLoadHomeRecent() {
-
-        const container =
-            document.getElementById(
-                "apolloHomeRecent"
-            );
-
-        if (!container) {
+    const quick = document.querySelector('.apollo-home-quick');
+    if (!quick) return;
+    quick.addEventListener('click', async event => {
+        const button = event.target.closest('button[data-apollo-quick]');
+        if (!button || !quick.contains(button)) return;
+        event.stopPropagation();
+        const action = button.dataset.apolloQuick;
+        if (action === 'music-insights') {
+            window.apolloOpenMusicInsights?.();
             return;
         }
-
-        try {
-
-            const response =
-                await fetch(
-                    "/api/chats",
-                    {
-                        cache: "no-store"
-                    }
-                );
-
-            if (!response.ok) {
-                if (response.status === 423) {
-                    window.apolloClearHomeRecent();
-                    return;
-                }
-                throw new Error(
-                    "Recent chats request failed"
-                );
-            }
-
-            const data =
-                await response.json();
-
-            const chats =
-                Array.isArray(data.chats)
-                    ? data.chats.slice(0, 3)
-                    : [];
-
-            const signature =
-                JSON.stringify(
-                    chats.map(
-                        chat => ({
-                            id:
-                                chat.id,
-
-                            title:
-                                chat.title || "",
-
-                            created_at:
-                                chat.created_at || "",
-
-                            updated_at:
-                                chat.updated_at || ""
-                        })
-                    )
-                );
-
-            if (
-                apolloHomeRecentSignature
-                === signature
-            ) {
-                return;
-            }
-
-            apolloHomeRecentSignature =
-                signature;
-
-            container.innerHTML = "";
-
-            if (!chats.length) {
-
-                const empty =
-                    document.createElement(
-                        "div"
-                    );
-
-                empty.className =
-                    "apollo-home-recent-empty";
-
-                empty.textContent =
-                    "No conversations yet";
-
-                container.appendChild(
-                    empty
-                );
-
-                return;
-            }
-
-            chats.forEach(chat => {
-
-                const row =
-                    document.createElement(
-                        "button"
-                    );
-
-                row.type = "button";
-
-                row.className =
-                    "apollo-home-recent-row";
-
-
-                const title =
-                    document.createElement(
-                        "span"
-                    );
-
-                title.className =
-                    "apollo-home-recent-title";
-
-                title.textContent =
-                    chat.title
-                    || "Conversation";
-
-
-                const date =
-                    document.createElement(
-                        "span"
-                    );
-
-                date.className =
-                    "apollo-home-recent-date";
-
-                const rawDate =
-                    chat.updated_at
-                    || chat.created_at;
-
-                if (
-                    typeof apolloHistoryFormatDate
-                    === "function"
-                ) {
-                    date.textContent =
-                        apolloHistoryFormatDate(
-                            rawDate
-                        );
-                } else {
-                    date.textContent = "";
-                }
-
-
-                row.appendChild(title);
-                row.appendChild(date);
-
-
-                row.addEventListener(
-                    "click",
-                    event => {
-
-                        event.preventDefault();
-                        event.stopPropagation();
-
-                        if (
-                            typeof openApollo
-                            === "function"
-                        ) {
-                            openApollo();
-                        }
-
-                        if (
-                            typeof apolloHistoryOpenChat
-                            === "function"
-                        ) {
-                            apolloHistoryOpenChat(
-                                chat.id
-                            );
-                        }
-
-                    }
-                );
-
-
-                container.appendChild(
-                    row
-                );
-
-            });
-
-        }
-
-        catch (error) {
-
-            console.error(
-                "[Apollo Home Recent]",
-                error
-            );
-
-            container.innerHTML =
-                "<div class=\"apollo-home-recent-empty\">Couldn't load conversations</div>";
-
-        }
-
-    }
-
-
-    requestAnimationFrame(() => {
-
-        setTimeout(
-            apolloLoadHomeRecent,
-            500
-        );
-
+        const route = action === 'university' ? 'tasks' : 'apollo';
+        await window.apolloNavigate?.(route);
+        if (document.body.dataset.apolloRoute !== route) return;
+        if (action === 'new-chat') window.apolloHistoryNewChat?.();
+        if (action === 'history') window.apolloOpenHistory?.();
     });
-
-
-    setInterval(
-        () => {
-
-            if (
-                document.visibilityState
-                !== "visible"
-            ) {
-                return;
-            }
-
-            const home =
-                document.querySelector(
-                    ".home"
-                );
-
-            if (
-                !home
-                || home.classList.contains(
-                    "hidden"
-                )
-            ) {
-                return;
-            }
-
-            apolloLoadHomeRecent();
-
-        },
-        15000
-    );
-
-
-    document.addEventListener(
-        "visibilitychange",
-        () => {
-
-            if (
-                document.visibilityState
-                !== "visible"
-            ) {
-                return;
-            }
-
-            const home =
-                document.querySelector(
-                    ".home"
-                );
-
-            if (
-                home
-                && !home.classList.contains(
-                    "hidden"
-                )
-            ) {
-                apolloLoadHomeRecent();
-            }
-        }
-    );
-
-
-    window.apolloLoadHomeRecent =
-        apolloLoadHomeRecent;
-
 })();
 </script>
 
@@ -36543,21 +36194,22 @@ html[data-theme="dark"] {
     color-scheme: dark;
 
     --bg: #000000;
-    --surface: #0b0b0d;
-    --surface-hover: #151518;
+    --surface: #0d0d0d;
+    --surface-hover: #222222;
 
-    --border: rgba(255,255,255,.07);
-    --border-hover: rgba(255,255,255,.13);
+    --border: #292929;
+    --border-hover: #3a3a3a;
 
     --text: #f5f5f5;
     --muted: #858585;
+    --secondary: #b3b3b3;
     --dim: #4b4b4b;
 
     --accent: #f2f2f2;
 
     --sidebar-bg: rgba(0,0,0,.82);
-    --input-bg: #0b0b0d;
-    --control-bg: #151518;
+    --input-bg: #0d0d0d;
+    --control-bg: #171717;
     --control-selected: #f2f2f2;
     --control-selected-text: #000000;
 }
@@ -36566,22 +36218,23 @@ html[data-theme="dark"] {
 html[data-theme="light"] {
     color-scheme: light;
 
-    --bg: #f7f7f5;
+    --bg: #f7f7f7;
     --surface: #ffffff;
-    --surface-hover: #f1f1ef;
+    --surface-hover: #f1f1f1;
 
     --border: rgba(0,0,0,.075);
     --border-hover: rgba(0,0,0,.14);
 
     --text: #151515;
     --muted: #707070;
+    --secondary: #555555;
     --dim: #a0a0a0;
 
     --accent: #171717;
 
-    --sidebar-bg: rgba(248,248,246,.86);
+    --sidebar-bg: rgba(248,248,248,.86);
     --input-bg: #ffffff;
-    --control-bg: #f1f1ef;
+    --control-bg: #f1f1f1;
     --control-selected: #171717;
     --control-selected-text: #ffffff;
 }
@@ -38318,7 +37971,7 @@ html.apollo-reduce-motion *::after {
    --------------------------------------------------------- */
 
 html[data-theme="light"] #calendarView [data-event-id] {
-    background: #f1f1ef !important;
+    background: #f1f1f1 !important;
 
     border: 1px solid rgba(0,0,0,.075) !important;
 
@@ -38329,7 +37982,7 @@ html[data-theme="light"] #calendarView [data-event-id] {
 }
 
 html[data-theme="light"] #calendarView [data-event-id]:hover {
-    background: #ebebe8 !important;
+    background: #ebebeb !important;
     border-color: rgba(0,0,0,.12) !important;
 }
 
@@ -79276,7 +78929,7 @@ html.apollo-jarvis-mode
 <link
     id="apollo-polish-v1-css"
     rel="stylesheet"
-    href="/apollo_polish_v1.css?v=20261015-7"
+    href="/apollo_polish_v1.css?v=20261030-1"
 >
 
 <!-- Loaded last so the shared mobile layout contract wins over legacy inline page rules. -->
@@ -79286,7 +78939,7 @@ html.apollo-jarvis-mode
     href="/apollo_mobile_v1.css?v=20261027-2"
 >
 <link rel="stylesheet" href="/apollo_date_nav.css?v=20261015-1">
-<link rel="stylesheet" href="/apollo_oled.css?v=20261015-1">
+<link rel="stylesheet" href="/apollo_oled.css?v=20261030-1">
 
 <script src="/apollo_notifications.js?v=20260904-3"></script>
 <script src="/apollo_capacitor.js?v=20261015-3"></script>
@@ -79295,13 +78948,13 @@ html.apollo-jarvis-mode
 <script src="/apollo_health.js?v=20261019-1"></script>
 <link rel="stylesheet" href="/apollo_memory_controls.css?v=20261021-1">
 <script src="/apollo_memory_controls.js?v=20261021-1"></script>
-<link rel="stylesheet" href="/apollo_music_insights.css?v=20261027-3">
-<script src="/apollo_music_insights.js?v=20261027-3"></script>
+<link rel="stylesheet" href="/apollo_music_insights.css?v=20261030-1">
+<script src="/apollo_music_insights.js?v=20261030-1"></script>
 <script src="/apollo_brand.js?v=20261027-1"></script>
 <script src="/apollo_shortcuts.js?v=20261027-1"></script>
-<link rel="stylesheet" href="/apollo_security.css?v=20261029-1">
-<script src="/apollo_security.js?v=20261029-2"></script>
+<link rel="stylesheet" href="/apollo_security.css?v=20261030-1">
+<script src="/apollo_security.js?v=20261030-1"></script>
 <link rel="stylesheet" href="/apollo_settings_polish.css?v=20261029-1">
 <script src="/apollo_settings_polish.js?v=20261029-1"></script>
-<link rel="stylesheet" href="/apollo_design_system.css?v=20261030-1">
+<link rel="stylesheet" href="/apollo_design_system.css?v=20261030-2">
 <style>.apollo-shortcut-target { outline: 2px solid currentColor; outline-offset: 3px; }</style>

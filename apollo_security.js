@@ -136,7 +136,6 @@
             window.apolloPulseUnlockRefresh?.();
         }
         if (state.protect_history && !state.unlocked?.history) {
-            window.apolloClearHomeRecent?.();
             window.apolloClearJarvisHistory?.();
             document.querySelector('#apolloHistoryTrack')
                 ?.querySelectorAll('.apollo-history-card, .apollo-history-group')
@@ -259,123 +258,158 @@
                     signature: encode(credential.response.signature),
                     userHandle: credential.response.userHandle ? encode(credential.response.userHandle) : null}}});
     }
+    let inlineId = 0;
+    function inlineFrame(resource, mount) {
+        mount.querySelector('.apollo-security-inline')?.remove();
+        const card = document.createElement('section');
+        card.className = 'apollo-security-inline apollo-security-inline-' + resource;
+        card.setAttribute('role', 'group');
+        const titleId = 'apolloSecurityInlineTitle' + (++inlineId);
+        card.setAttribute('aria-labelledby', titleId);
+        card.innerHTML = `<div class="apollo-security-inline-heading">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            <div><h3 id="${titleId}"></h3><p></p></div>
+        </div>`;
+        card.querySelector('h3').textContent = resource === 'history' ? 'Private history' : 'Private response';
+        card.querySelector('p').textContent = resource === 'history'
+            ? 'Verify to view conversations.' : 'Verify to view this response.';
+        mount.append(card);
+        return card;
+    }
     window.apolloSecurityUnlockInline = (resource, mount, signal) => new Promise((resolve, reject) => {
         if (!['private', 'history'].includes(resource) || !mount) {
             reject(new Error('Inline verification is unavailable'));
             return;
         }
-        const old = mount.querySelector('.apollo-security-inline');
-        old?.remove();
-        const card = document.createElement('section');
-        card.className = 'apollo-security-inline';
-        card.setAttribute('role', 'group');
-        card.setAttribute('aria-label', resource === 'history' ? 'Unlock History' : 'Verify private Chat access');
-        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        icon.setAttribute('viewBox', '0 0 24 24');
-        icon.setAttribute('aria-hidden', 'true');
-        icon.innerHTML = '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>';
-        const title = document.createElement('h3');
-        title.textContent = resource === 'history' ? 'Private history' : 'Private response';
-        const description = document.createElement('p');
-        description.textContent = resource === 'history'
-            ? "Verify it's you to view your conversations."
-            : "Verify it's you to reveal this information.";
-        const passphrase = document.createElement('input');
-        passphrase.type = 'password';
-        passphrase.autocomplete = 'current-password';
-        passphrase.placeholder = 'Passphrase';
-        passphrase.setAttribute('aria-label', 'Security passphrase');
+        const card = inlineFrame(resource, mount);
+        card.dataset.mode = 'default';
+        const stage = document.createElement('div');
+        stage.className = 'apollo-security-inline-stage';
+        stage.innerHTML = `<div class="apollo-security-inline-default">
+            <button type="button" class="apollo-security-inline-primary" data-action="passkey">Continue with passkey</button>
+            <button type="button" class="apollo-security-inline-text" data-action="passphrase">Use passphrase instead</button>
+        </div>
+        <form class="apollo-security-inline-secret" aria-hidden="true">
+            <label>Passphrase<input type="password" autocomplete="current-password" aria-label="Security passphrase" placeholder="Passphrase"></label>
+            <button type="submit" class="apollo-security-inline-primary">Unlock</button>
+            <div class="apollo-security-inline-links">
+                <button type="button" class="apollo-security-inline-text" data-action="back">Back</button>
+                <button type="button" class="apollo-security-inline-text" data-action="recovery">Use recovery code</button>
+            </div>
+        </form>`;
         const message = document.createElement('p');
         message.className = 'apollo-security-inline-feedback';
         message.setAttribute('role', 'status');
-        const buttons = document.createElement('div');
-        buttons.className = 'apollo-security-inline-actions';
-        const confirm = document.createElement('button');
-        confirm.type = 'button';
-        confirm.textContent = 'Unlock with passphrase';
-        const deviceButton = document.createElement('button');
-        deviceButton.type = 'button';
-        deviceButton.textContent = 'Unlock with passkey';
-        deviceButton.hidden = !(state?.passkeys > 0 && window.PublicKeyCredential && window.isSecureContext);
-        (deviceButton.hidden ? confirm : deviceButton).classList.add('is-primary');
-        const recovery = document.createElement('button');
-        recovery.type = 'button';
-        recovery.textContent = 'Use recovery code';
+        message.setAttribute('aria-live', 'polite');
         const cancel = document.createElement('button');
         cancel.type = 'button';
-        cancel.textContent = 'Cancel';
-        buttons.append(deviceButton, confirm, recovery, cancel);
-        card.append(icon, title, description, passphrase, buttons, message);
-        mount.append(card);
-        let done = false, recoveryMode = false;
-        const finish = (error) => {
+        cancel.className = 'apollo-security-inline-cancel';
+        cancel.setAttribute('aria-label', 'Cancel verification');
+        cancel.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+        card.append(stage, message, cancel);
+        const defaultActions = stage.querySelector('.apollo-security-inline-default');
+        const secretForm = stage.querySelector('form');
+        const input = secretForm.querySelector('input');
+        const label = secretForm.querySelector('label');
+        const deviceButton = stage.querySelector('[data-action="passkey"]');
+        const passphraseButton = stage.querySelector('[data-action="passphrase"]');
+        const recoveryButton = stage.querySelector('[data-action="recovery"]');
+        const passkeyAvailable = !!(state?.passkeys > 0 && window.PublicKeyCredential && window.isSecureContext);
+        deviceButton.hidden = !passkeyAvailable;
+        if (!passkeyAvailable) {
+            passphraseButton.classList.add('apollo-security-inline-primary');
+            passphraseButton.textContent = 'Continue with passphrase';
+        }
+        secretForm.inert = true;
+        let done = false, busy = false, focusTimer;
+        const motion = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const setMode = next => {
+            if (done) return;
+            clearTimeout(focusTimer);
+            card.dataset.mode = next;
+            const open = next !== 'default';
+            defaultActions.inert = open;
+            secretForm.inert = !open;
+            defaultActions.setAttribute('aria-hidden', String(open));
+            secretForm.setAttribute('aria-hidden', String(!open));
+            input.value = '';
+            message.textContent = '';
+            if (open) {
+                label.firstChild.textContent = next === 'recovery' ? 'Recovery code' : 'Passphrase';
+                input.placeholder = next === 'recovery' ? 'Recovery code' : 'Passphrase';
+                input.autocomplete = next === 'recovery' ? 'one-time-code' : 'current-password';
+                input.setAttribute('aria-label', next === 'recovery' ? 'One-time recovery code' : 'Security passphrase');
+                recoveryButton.textContent = next === 'recovery' ? 'Use passphrase instead' : 'Use recovery code';
+            }
+            focusTimer = setTimeout(() => {
+                if (card.isConnected && !done) (open ? input : (passkeyAvailable ? deviceButton : passphraseButton))
+                    .focus({preventScroll: true});
+            }, motion ? 220 : 0);
+        };
+        const finish = error => {
             if (done) return;
             done = true;
-            card.remove();
+            clearTimeout(focusTimer);
             signal?.removeEventListener('abort', onAbort);
-            if (error) reject(error); else resolve();
+            if (error) {
+                card.remove();
+                reject(error);
+            } else {
+                card.classList.add('is-unlocking');
+                setTimeout(() => { card.remove(); resolve(); }, motion ? 190 : 0);
+            }
         };
         const onAbort = () => finish(new DOMException('Verification interrupted', 'AbortError'));
         signal?.addEventListener('abort', onAbort, {once: true});
         const verify = async method => {
-            if (done) return;
-            for (const button of buttons.querySelectorAll('button')) button.disabled = true;
+            if (done || busy) return;
+            busy = true;
+            for (const button of card.querySelectorAll('button')) button.disabled = true;
+            input.disabled = true;
             message.textContent = '';
             try {
                 if (method === 'passkey') await passkey(resource);
                 else await request('authenticate', method === 'recovery'
-                    ? {resource, method, code: passphrase.value}
-                    : {resource, method, passphrase: passphrase.value});
-                passphrase.value = '';
+                    ? {resource, method, code: input.value}
+                    : {resource, method, passphrase: input.value});
+                input.value = '';
                 await refresh();
                 if (!state.unlocked?.[resource]) throw new Error('Verification did not create an access grant');
                 finish();
             } catch (error) {
-                message.textContent = method === 'passkey' ? passkeyFailure(error, 'verification')
+                if (!done) message.textContent = method === 'passkey' ? passkeyFailure(error, 'verification')
                     : error.message || 'Verification failed';
             } finally {
-                for (const button of buttons.querySelectorAll('button')) button.disabled = false;
+                busy = false;
+                for (const button of card.querySelectorAll('button')) button.disabled = false;
+                input.disabled = false;
             }
         };
-        confirm.onclick = () => verify(recoveryMode ? 'recovery' : 'passphrase');
-        passphrase.onkeydown = event => { if (event.key === 'Enter') verify(recoveryMode ? 'recovery' : 'passphrase'); };
-        deviceButton.onclick = () => verify('passkey');
-        recovery.onclick = () => {
-            recoveryMode = !recoveryMode;
-            passphrase.value = '';
-            passphrase.placeholder = recoveryMode ? 'Recovery code' : 'Passphrase';
-            passphrase.setAttribute('aria-label', passphrase.placeholder);
-            recovery.textContent = recoveryMode ? 'Use passphrase' : 'Use recovery code';
-            passphrase.focus();
-        };
-        cancel.onclick = () => {
+        deviceButton.addEventListener('click', () => verify('passkey'));
+        passphraseButton.addEventListener('click', () => setMode('passphrase'));
+        recoveryButton.addEventListener('click', () => setMode(card.dataset.mode === 'recovery' ? 'passphrase' : 'recovery'));
+        stage.querySelector('[data-action="back"]').addEventListener('click', () => setMode('default'));
+        secretForm.addEventListener('submit', event => {
+            event.preventDefault();
+            verify(card.dataset.mode === 'recovery' ? 'recovery' : 'passphrase');
+        });
+        cancel.addEventListener('click', () => {
             const error = new Error('Verification canceled');
             error.name = 'SecurityVerificationCanceled';
             finish(error);
-        };
-        passphrase.focus({preventScroll: true});
+        });
     });
     window.apolloSecurityLockedInline = (mount, retry) => {
         if (!mount) return;
         mount.replaceChildren();
-        const card = document.createElement('section');
-        card.className = 'apollo-security-inline';
-        card.setAttribute('role', 'group');
-        card.setAttribute('aria-label', 'Private response remains locked');
-        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        icon.setAttribute('viewBox', '0 0 24 24');
-        icon.setAttribute('aria-hidden', 'true');
-        icon.innerHTML = '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>';
-        const title = document.createElement('h3');
-        title.textContent = 'Private response';
-        const description = document.createElement('p');
-        description.textContent = "This response remains locked. Verify when you're ready.";
+        const card = inlineFrame('private', mount);
+        card.classList.add('is-locked');
         const button = document.createElement('button');
         button.type = 'button';
+        button.className = 'apollo-security-inline-primary';
         button.textContent = 'Verify to continue';
         button.addEventListener('click', () => retry?.());
-        card.append(icon, title, description, button);
-        mount.append(card);
+        card.append(button);
     };
     window.apolloSecurityHistoryClosed = () => {
         const track = document.querySelector('#apolloHistoryTrack');

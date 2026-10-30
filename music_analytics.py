@@ -142,7 +142,9 @@ def _source(conn, p, only=None):
             row["image_kind"] = "artist" if entity == "artists" and row["image_url"] else "album" if row["image_url"] else None
             row["verified_ms"] = row["verified_ms"] or 0
             row["verified_events"] = row["verified_events"] or 0
-            row["listening_ms"] = row["verified_ms"] + row["estimated_ms"]
+            # A recent-play event has no playback duration. Keep observed
+            # progress separate; the default listening metric is verified time.
+            row["listening_ms"] = row["verified_ms"]
     # Extended-history exports carry artist names but not IDs. If Spotify's
     # observed data supplies exactly one ID for the same normalized name,
     # coalesce the two identities without guessing across homonymous artists.
@@ -171,7 +173,7 @@ def _source(conn, p, only=None):
                     if artist_key == row["entity_key"]:
                         per_track[track_id] = max(per_track.get(track_id, 0), amount)
             primary["estimated_ms"] = sum(per_track.values())
-            primary["listening_ms"] = primary["verified_ms"] + primary["estimated_ms"]
+            primary["listening_ms"] = primary["verified_ms"]
             merged.append(primary)
         rows["artists"] = merged
     return rows
@@ -242,34 +244,31 @@ def summary(conn, kind, anchor=None, tz_name="UTC"):
     zone = ZoneInfo(tz_name)
     bins = Counter()
     minute_bins = Counter()
+    observed_bins = Counter()
     hours = Counter()
-    present_track_ids = set()
     def chart_label(instant):
         return (f"{instant.hour:02d}:00" if kind == "daily" else
-                instant.strftime("%a") if kind == "weekly" else
-                instant.strftime("%d") if kind == "monthly" else
-                instant.strftime("%b") if kind == "yearly" else instant.strftime("%Y-%m"))
+                ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[instant.weekday()] if kind == "weekly" else
+                f"{instant.day:02d}" if kind == "monthly" else
+                calendar.month_abbr[instant.month] if kind == "yearly" else
+                f"{instant.year:04d}-{instant.month:02d}")
     for row in conn.execute(f"SELECT l.event_at, l.ms_played, l.track_id FROM music_listens l {where}", values):
         instant = datetime.fromisoformat(row[0]).astimezone(zone)
         hours[instant.hour] += 1
         label = chart_label(instant)
         bins[label] += 1
         minute_bins[label] += row[1] or 0
-        if row[2]:
-            present_track_ids.add(row[2])
     # Allocate each observed interval to its actual local-hour bins. This
     # handles midnight and daylight-saving boundaries without treating a
     # catalog track duration as listening time.
     for track_id, left, right in music_history.estimated_segments(
             conn, p["start"] or "0001-01-01T00:00:00+00:00",
             p["end"] or "9999-12-31T00:00:00+00:00"):
-        if track_id not in present_track_ids:
-            continue
         current = left
         while current < right:
             next_hour = current.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
             boundary = min(right, next_hour)
-            minute_bins[chart_label(current.astimezone(zone))] += int((boundary - current).total_seconds() * 1000)
+            observed_bins[chart_label(current.astimezone(zone))] += int((boundary - current).total_seconds() * 1000)
             current = boundary
     if kind == "daily":
         labels = [f"{h:02d}:00" for h in range(24)]
@@ -288,7 +287,7 @@ def summary(conn, kind, anchor=None, tz_name="UTC"):
     if basic["events"]:
         if top_artist := _rank(entities["artists"], "listening")[:1]:
             if top_artist[0]["listening_ms"]:
-                insights.append(f"{top_artist[0]['name']} leads measured listening time this period.")
+                insights.append(f"{top_artist[0]['name']} leads verified listening time in the available history this period.")
         if hours:
             insights.append(f"Most active hour: {hours.most_common(1)[0][0]:02d}:00 ({hours.most_common(1)[0][1]} plays).")
         new_artist_count = conn.execute(f"""
@@ -315,13 +314,16 @@ def summary(conn, kind, anchor=None, tz_name="UTC"):
         for rank, row in enumerate(records, 1):
             row["rank"] = rank
     return {"period": p, "events": basic["events"], "verified_ms": basic["verified_ms"],
-            "estimated_ms": sum(row["estimated_ms"] for row in entities["tracks"]),
+            "estimated_ms": sum(music_history.estimated_by_track(
+                conn, p["start"] or "0001-01-01T00:00:00+00:00",
+                p["end"] or "9999-12-31T00:00:00+00:00").values()),
             "verified_events": basic["verified_events"] or 0,
             "duration_unknown_events": basic["events"] - (basic["verified_events"] or 0),
             "unique_artists": len(entities["artists"]), "top": top,
             "insights": insights, "newly_recorded_artists": new_artist_count,
             "previous_events": previous_events,
-            "chart": [{"label": label, "plays": bins[label], "listening_ms": minute_bins[label]} for label in labels],
+            "chart": [{"label": label, "plays": bins[label], "listening_ms": minute_bins[label],
+                       "estimated_ms": observed_bins[label]} for label in labels],
             "favorite_hour": hours.most_common(1)[0][0] if hours else None,
             "first_at": basic["first_at"], "last_at": basic["last_at"],
             "coverage": {"earliest_event": coverage[0], "latest_event": coverage[1],
@@ -332,7 +334,7 @@ def summary(conn, kind, anchor=None, tz_name="UTC"):
                          "syncing": bool(state and state["sync_started_at"] and
                                          datetime.now(timezone.utc) - datetime.fromisoformat(state["sync_started_at"]) < timedelta(minutes=3)),
                          "import_files": imports[0], "import_first": imports[1], "import_last": imports[2]},
-            "methodology": "Plays are recorded events. Verified time comes from official history exports. Estimated time is observed playback progress after overlap with verified time is removed. Missing coverage and unknown duration are excluded."}
+            "methodology": "Verified minutes and default time rankings use actual milliseconds from official Spotify history exports. Recorded events include short plays; stats.fm may exclude streams under 30 seconds or marked skipped. Recent-play API events have no listening duration. Observed playback progress is shown separately as an incomplete estimate, with overlap against verified time removed. Missing coverage and unknown duration are excluded."}
 
 
 def recap_art(conn, report):

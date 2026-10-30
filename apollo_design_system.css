@@ -49,10 +49,42 @@
 }
 
 /* Give controls and text the same focus treatment in both themes. */
-.main :is(button, a, input, textarea, select):focus-visible {
+.main :is(button, a, select):focus-visible,
+.main :is(input, textarea):focus-visible:not(.ask-input):not(.apollo-input):not(#apolloHistorySearch):not(#apolloPresenceInput) {
     outline: 2px solid var(--apollo-color-focus);
     outline-offset: 2px;
 }
+
+/* The text field is transparent inside these rounded controls. Focus belongs to its container. */
+.main :is(.ask-box, .apollo-composer, .apollo-history-search, .apollo-presence-composer):focus-within {
+    outline: none;
+    border-color: color-mix(in srgb, var(--text) 52%, var(--border));
+}
+
+.apollo-home-quick {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--apollo-space-2);
+    padding: 0 var(--apollo-card-pad) var(--apollo-card-pad);
+}
+.card[data-section="quick-access"] { cursor: default; }
+.apollo-home-quick button {
+    min-width: 0;
+    min-height: 42px;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: var(--apollo-radius-control);
+    background: var(--surface-hover);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--apollo-type-small);
+    font-weight: 550;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--apollo-motion-normal) var(--apollo-motion-ease), border-color var(--apollo-motion-normal) var(--apollo-motion-ease);
+}
+.apollo-home-quick button:hover { background: var(--control-bg, var(--surface-hover)); border-color: var(--border-hover); }
+.apollo-home-quick button:focus-visible { outline: 2px solid var(--apollo-color-focus); outline-offset: 2px; }
 
 .main :is(button, input, select, textarea) {
     transition-duration: var(--apollo-motion-normal);

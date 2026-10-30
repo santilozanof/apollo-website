@@ -7,7 +7,7 @@
     "checklist", "chart", "table", "diagram", "progress", "form", "button_group",
     "date_picker", "slider", "media", "location", "code", "expandable",
     "status", "timeline", "calculator", "selector", "function_explorer",
-    "metric_trend", "sources"
+    "metric_trend", "media_ranking", "sources"
   ]);
   const ACTIONS = new Set([
     "submit_message", "task_toggle", "routine_action", "open_url", "copy",
@@ -228,6 +228,45 @@
 
   function validate(raw, index) {
     if (!raw || typeof raw !== "object" || !TYPES.has(raw.type)) return null;
+    if (raw.type === "media_ranking") {
+      if (raw.data_source !== "apollo.music.rankings"
+          || !["albums", "tracks", "artists"].includes(raw.entity)
+          || !["listening", "verified", "estimated", "plays"].includes(raw.metric)
+          || !["ready", "empty", "unavailable", "loading", "error"].includes(raw.state)
+          || !Array.isArray(raw.items) || raw.items.length > 20) return null;
+      const spotifyKind = {albums:"album", tracks:"track", artists:"artist"}[raw.entity];
+      const items = raw.items.map(item => {
+        if (!item || typeof item !== "object" || !Number.isInteger(item.rank) || item.rank < 1
+            || !str(item.title, 160).trim() || !Number.isInteger(item.metric_value) || item.metric_value < 0
+            || !Number.isInteger(item.verified_ms) || item.verified_ms < 0
+            || !Number.isInteger(item.estimated_ms) || item.estimated_ms < 0
+            || !Number.isInteger(item.plays) || item.plays < 0
+            || !["count", "verified", "estimated", "mixed", "unavailable"].includes(item.measurement)) return null;
+        let spotifyUrl = "";
+        try {
+          const url = new URL(item.spotify_url);
+          if (url.protocol === "https:" && url.hostname === "open.spotify.com"
+              && new RegExp(`^/${spotifyKind}/[A-Za-z0-9]{22}$`).test(url.pathname)) spotifyUrl = url.href;
+        } catch (_) {}
+        let artworkUrl = "";
+        try {
+          const origin = typeof location === "undefined" ? "https://apollo.invalid" : location.origin;
+          const url = new URL(item.artwork_url, origin);
+          if (url.protocol === "https:" || url.origin === origin) artworkUrl = url.href;
+        } catch (_) {}
+        return {id:str(item.id, 100), rank:item.rank, title:str(item.title, 160),
+          secondary:str(item.secondary, 160), album:str(item.album, 160),
+          artwork_url:artworkUrl, artwork_kind:["album", "artist"].includes(item.artwork_kind) ? item.artwork_kind : "",
+          spotify_url:spotifyUrl, metric_value:item.metric_value, verified_ms:item.verified_ms,
+          estimated_ms:item.estimated_ms, plays:item.plays, measurement:item.measurement};
+      });
+      if (items.some(item => !item || !item.id)
+          || !unique(items.map(item => item.id)) || !unique(items.map(item => item.rank))) return null;
+      items.sort((a, b) => a.rank - b.rank);
+      return {type:"media_ranking", id:str(raw.id, 100), title:str(raw.title, 180),
+        subtitle:str(raw.subtitle, 500), data_source:raw.data_source, state:raw.state,
+        entity:raw.entity, metric:raw.metric, items};
+    }
     if (raw.type === "entity") {
       const kind = str(raw.kind, 30).toLowerCase();
       const name = str(raw.name, 120).trim();
@@ -1122,9 +1161,11 @@
   }
 
   function renderEntity(block) {
-    const card = el("button", "apollo-entity-card");
-    card.type = "button";
-    card.setAttribute("aria-label", `Open ${block.kind} details for ${block.name}`);
+    const music = ["artist", "album", "song"].includes(block.kind);
+    const card = el(music ? "a" : "button", "apollo-entity-card");
+    if (!music) card.type = "button";
+    card.setAttribute("aria-label", music ? `Checking Spotify destination for ${block.name}`
+      : `Open ${block.kind} details for ${block.name}`);
     const artwork = el("span", "apollo-entity-art", block.name.slice(0, 1).toUpperCase());
     const copy = el("span", "apollo-entity-copy");
     copy.append(el("span", "apollo-entity-kind", block.kind), el("span", "apollo-entity-name", block.name));
@@ -1135,7 +1176,27 @@
     const showEntity = entity => {
       details = entity;
       card.classList.remove("is-unavailable");
-      hint.textContent = entity.description || entity.provider || "Verified details";
+      if (music) {
+        const spotifyKind = block.kind === "song" ? "track" : block.kind;
+        let verified = "";
+        try {
+          const url = new URL(entity.source_url);
+          if (url.protocol === "https:" && url.hostname === "open.spotify.com"
+              && new RegExp(`^/${spotifyKind}/[A-Za-z0-9]{22}$`).test(url.pathname)) verified = url.href;
+        } catch (_) {}
+        if (verified) {
+          card.href = verified;
+          card.target = "_blank";
+          card.rel = "noopener noreferrer";
+          card.setAttribute("aria-label", `Open ${block.name} on Spotify`);
+          hint.textContent = "Open on Spotify";
+        } else {
+          card.removeAttribute("href");
+          card.classList.add("is-unavailable");
+          card.setAttribute("aria-label", `${block.name}; Spotify destination unavailable`);
+          hint.textContent = "Spotify destination unavailable";
+        }
+      } else hint.textContent = entity.description || entity.provider || "Verified details";
       if (entity.image_url && safeUrl(entity.image_url, true)) {
         const image = el("img");
         image.src = safeUrl(entity.image_url, true);
@@ -1145,8 +1206,11 @@
         artwork.replaceChildren(image);
       }
     };
-    entityLookup(block).then(showEntity).catch(() => { hint.textContent = "Details unavailable · tap to retry"; card.classList.add("is-unavailable"); });
-    card.addEventListener("click", () => {
+    entityLookup(block).then(showEntity).catch(() => {
+      hint.textContent = music ? "Spotify destination unavailable" : "Details unavailable · tap to retry";
+      card.classList.add("is-unavailable");
+    });
+    if (!music) card.addEventListener("click", () => {
       if (details) { openDetail(details, card); return; }
       openDetail({title: block.name, kind: block.kind,
         description: "Checking a verified source…"}, card);
@@ -2282,8 +2346,71 @@
     });
   }
 
+  function renderMediaRanking(block) {
+    const root = el("section", "apollo-ui-media-ranking");
+    root.dataset.componentId = block.id;
+    root.setAttribute("aria-label", block.title || "Music ranking");
+    const heading = el("div", "apollo-ui-media-ranking-head");
+    heading.append(el("h3", null, block.title || "Music ranking"),
+      el("p", null, block.subtitle));
+    root.appendChild(heading);
+    if (block.state !== "ready" || !block.items.length) {
+      const status = {loading:"Loading recorded ranking…", error:"This ranking could not be loaded.",
+        unavailable:block.metric === "estimated" ? "No playback progress was observed in this period." :
+          "Verified listening duration is unavailable for this period. Recent Spotify API plays have no time-listened value.",
+        empty:"No recorded plays for this period."}[block.state] || "No recorded plays for this period.";
+      root.appendChild(el("p", "apollo-ui-media-ranking-empty", status));
+      return root;
+    }
+    const rows = el("ol", "apollo-ui-media-ranking-list");
+    const number = new Intl.NumberFormat(undefined, {maximumFractionDigits:0});
+    block.items.forEach(item => {
+      const row = el(item.spotify_url ? "a" : "div", "apollo-ui-media-ranking-row");
+      if (item.spotify_url) {
+        row.href = item.spotify_url;
+        row.target = "_blank";
+        row.rel = "noopener noreferrer";
+        row.setAttribute("aria-label", `${item.rank}. ${item.title}. Open verified Spotify page`);
+      }
+      row.appendChild(el("span", "apollo-ui-media-ranking-rank", String(item.rank).padStart(2, "0")));
+      const artwork = el("span", "apollo-ui-media-ranking-art");
+      artwork.appendChild(el("span", "apollo-ui-media-ranking-art-fallback", item.title.slice(0, 1).toUpperCase()));
+      if (item.artwork_url) {
+        const image = el("img");
+        image.src = item.artwork_url;
+        image.alt = item.artwork_kind === "artist" ? `${item.title} artist portrait` : `${item.title} album artwork`;
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.addEventListener("error", () => image.remove());
+        artwork.appendChild(image);
+      }
+      row.appendChild(artwork);
+      const copy = el("span", "apollo-ui-media-ranking-copy");
+      copy.append(el("span", "apollo-ui-media-ranking-title", item.title),
+        el("span", "apollo-ui-media-ranking-secondary", item.secondary || (block.entity === "artists" ? "Artist" : item.album)));
+      row.appendChild(copy);
+      const metric = el("span", "apollo-ui-media-ranking-metric");
+      const duration = block.metric !== "plays";
+      const value = duration && item.metric_value === 0 ? "—" :
+        number.format(duration ? Math.round(item.metric_value / 60000) : item.metric_value);
+      metric.appendChild(el("span", "apollo-ui-media-ranking-value", value));
+      metric.appendChild(el("span", "apollo-ui-media-ranking-unit", duration ? "min" : "plays"));
+      if (duration) {
+        const qualifier = {verified:"verified", estimated:"estimated", mixed:"incl. est.",
+          unavailable:"unknown"}[item.measurement] || "unknown";
+        metric.appendChild(el("span", "apollo-ui-media-ranking-quality", qualifier));
+      }
+      row.appendChild(metric);
+      const listItem = el("li");
+      listItem.appendChild(row);
+      rows.appendChild(listItem);
+    });
+    root.appendChild(rows);
+    return root;
+  }
+
   const COMPONENT_REGISTRY = Object.freeze({
-    entity: renderEntity, checklist: renderChecklist, quiz: renderQuiz,
+    entity: renderEntity, media_ranking: renderMediaRanking, checklist: renderChecklist, quiz: renderQuiz,
     chart: renderChart, table: renderTable, diagram: renderDiagram, form: renderForm, card: renderCard,
     calculator: renderCalculator, selector: renderSelector,
     function_explorer: renderFunctionExplorer, metric_trend: renderMetricTrend,
@@ -2568,6 +2695,10 @@
 
   function blockCopyText(block) {
     if (block.type === "text") return block.text;
+    if (block.type === "media_ranking") return [block.title, block.subtitle,
+      ...block.items.map(item => `${item.rank}. ${item.title} — ${item.secondary} — ` +
+        (block.metric === "plays" ? `${item.metric_value} plays`
+          : `${Math.round(item.metric_value / 60000)} minutes (${item.measurement})`))].join("\n");
     if (block.type === "quiz") return [
       block.title || "Quiz",
       ...block.questions.flatMap((question, index) => [

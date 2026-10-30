@@ -578,6 +578,35 @@ html.apollo-jarvis-mode #apolloView .apollo-message.assistant .apollo-ui-timelin
 .apollo-entity-hint { overflow: hidden; font-size: 12px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; opacity: .66; }
 .apollo-entity-arrow { opacity: .55; }
 .apollo-entity-card.is-unavailable { opacity: .7; }
+
+/* A server-verified ranking is one coherent component, with no nested cards. */
+.apollo-ui-media-ranking { box-sizing: border-box; width: min(100%, 620px); overflow: hidden; border: 1px solid var(--border, #292929); border-radius: 16px; background: var(--surface, #0d0d0d); color: var(--text, #f5f5f5); }
+.apollo-ui-media-ranking-head { padding: 17px 18px 13px; }
+.apollo-ui-media-ranking-head h3 { margin: 0; font-size: 15px; line-height: 1.25; font-weight: 650; letter-spacing: -.02em; }
+.apollo-ui-media-ranking-head p { margin: 4px 0 0; color: var(--muted, #858585); font-size: 11.5px; line-height: 1.4; }
+.apollo-ui-media-ranking-list { margin: 0; padding: 0; list-style: none; }
+.apollo-ui-media-ranking-list li { margin: 0; padding: 0; border-top: 1px solid var(--border, #292929); }
+.apollo-ui-media-ranking-row { display: grid; grid-template-columns: 24px 50px minmax(0, 1fr) minmax(68px, auto); gap: 12px; align-items: center; min-height: 66px; padding: 8px 16px; color: inherit; text-decoration: none; transition: background 200ms ease; }
+a.apollo-ui-media-ranking-row:hover, a.apollo-ui-media-ranking-row:focus-visible { background: var(--surface-hover, #222222); }
+a.apollo-ui-media-ranking-row:focus-visible { outline: 2px solid var(--apollo-color-focus, currentColor); outline-offset: -3px; }
+.apollo-ui-media-ranking-rank { color: var(--muted, #858585); font-size: 11px; font-variant-numeric: tabular-nums; }
+.apollo-ui-media-ranking-art { position: relative; display: grid; place-items: center; width: 50px; height: 50px; overflow: hidden; border-radius: 7px; background: var(--surface-hover, #222222); }
+.apollo-ui-media-ranking-art-fallback { color: var(--muted, #858585); font-size: 19px; font-weight: 600; }
+.apollo-ui-media-ranking-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.apollo-ui-media-ranking-copy { display: grid; min-width: 0; gap: 3px; }
+.apollo-ui-media-ranking-title { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 13px; font-weight: 600; line-height: 1.3; }
+.apollo-ui-media-ranking-secondary { overflow: hidden; color: var(--muted, #858585); font-size: 11px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.apollo-ui-media-ranking-metric { display: grid; justify-items: end; align-content: center; min-width: 68px; text-align: right; font-variant-numeric: tabular-nums; }
+.apollo-ui-media-ranking-value { font-size: 13px; font-weight: 650; line-height: 1.2; }
+.apollo-ui-media-ranking-unit, .apollo-ui-media-ranking-quality { color: var(--muted, #858585); font-size: 10px; line-height: 1.2; }
+.apollo-ui-media-ranking-empty { margin: 0; padding: 10px 18px 18px; color: var(--muted, #858585); font-size: 12px; }
+@media (max-width: 600px) {
+  .apollo-ui-media-ranking-row { grid-template-columns: 18px 44px minmax(0, 1fr) minmax(60px, auto); gap: 8px; min-height: 60px; padding: 8px 10px; }
+  .apollo-ui-media-ranking-art { width: 44px; height: 44px; }
+  .apollo-ui-media-ranking-head { padding: 14px 12px 11px; }
+  .apollo-ui-media-ranking-title { font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .apollo-ui-media-ranking-row { transition: none; } }
 html.apollo-jarvis-mode #apolloView .apollo-message.assistant .apollo-entity-card,
 html.apollo-jarvis-mode #apolloView .apollo-message.assistant .apollo-entity-card * {
     font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif !important;

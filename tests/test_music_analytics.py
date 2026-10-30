@@ -78,9 +78,29 @@ class MusicAnalyticsTests(unittest.TestCase):
         report = music_analytics.summary(self.conn, "daily", "2026-10-27", "UTC")
         self.assertEqual(report["verified_ms"], 0)
         self.assertEqual(report["estimated_ms"], 60000)
-        self.assertEqual(sum(row["listening_ms"] for row in report["chart"]), 60000)
-        self.assertEqual(next(row for row in report["chart"] if row["label"] == "12:00")["listening_ms"], 60000)
+        self.assertEqual(sum(row["listening_ms"] for row in report["chart"]), 0)
+        self.assertEqual(next(row for row in report["chart"] if row["label"] == "12:00")["estimated_ms"], 60000)
+        self.assertFalse(music_analytics.rankings(self.conn, "daily", "2026-10-27", "UTC", "tracks")["metric_available"])
         self.assertEqual(music_analytics.rankings(self.conn, "daily", "2026-10-27", "UTC", "tracks", "estimated")["items"][0]["estimated_ms"], 60000)
+
+    def test_verified_minutes_and_play_counts_rank_differently(self):
+        music_history.insert_records(self.conn, [
+            play("2026-10-27T12:00:00Z"),
+            play("2026-10-27T13:00:00Z"),
+            play("2026-10-27T14:00:00Z", TRACK_B, "Night Drive"),
+        ])
+        self.conn.execute("UPDATE music_listens SET ms_played=120000 WHERE track_id=?", (TRACK_B,))
+        self.conn.execute("""INSERT INTO music_observed_intervals(track_id,start_at,end_at,estimated_ms)
+            VALUES(?,?,?,?)""", (TRACK_A, "2026-10-27T12:10:00+00:00",
+                              "2026-10-27T12:11:00+00:00", 60000))
+        by_minutes = music_analytics.rankings(self.conn, "daily", "2026-10-27", "UTC", "tracks")
+        by_plays = music_analytics.rankings(self.conn, "daily", "2026-10-27", "UTC", "tracks", "plays")
+        self.assertEqual(by_minutes["items"][0]["name"], "Night Drive")
+        self.assertEqual(by_plays["items"][0]["name"], "Blue Hour")
+        report = music_analytics.summary(self.conn, "daily", "2026-10-27", "UTC")
+        self.assertEqual((report["verified_ms"], report["estimated_ms"]), (120000, 60000))
+        self.assertEqual(sum(row["listening_ms"] for row in report["chart"]), 120000)
+        self.assertEqual(sum(row["estimated_ms"] for row in report["chart"]), 60000)
 
     def test_chart_splits_estimated_minutes_at_period_boundary(self):
         music_history.insert_records(self.conn, [play("2026-10-27T00:01:00Z")])
@@ -90,8 +110,8 @@ class MusicAnalyticsTests(unittest.TestCase):
         self.conn.commit()
         today = music_analytics.summary(self.conn, "daily", "2026-10-27", "UTC")
         self.assertEqual(today["estimated_ms"], 60000)
-        self.assertEqual(sum(row["listening_ms"] for row in today["chart"]), 60000)
-        self.assertEqual(today["chart"][0]["listening_ms"], 60000)
+        self.assertEqual(sum(row["estimated_ms"] for row in today["chart"]), 60000)
+        self.assertEqual(today["chart"][0]["estimated_ms"], 60000)
 
     def test_custom_range_reuses_real_listening_rankings(self):
         music_history.insert_records(self.conn, [

@@ -646,21 +646,45 @@ def listening_context(spotify):
 
 
 def recent_history(spotify, after_ms=None):
-    """Return the provider's bounded recent-play window without a duration guess."""
-    kwargs = {"limit": 50}
-    if after_ms is not None:
-        kwargs["after"] = max(0, int(after_ms) - 1)
-    response = spotify_read(lambda: spotify.current_user_recently_played(**kwargs), attempts=2) or {}
-    items = response.get("items") or []
-    timestamps = []
-    for item in items:
-        try:
-            from datetime import datetime
-            timestamps.append(int(datetime.fromisoformat(item["played_at"].replace("Z", "+00:00")).timestamp() * 1000))
-        except (KeyError, TypeError, ValueError):
-            continue
-    return {"items": items, "cursor_ms": max(timestamps, default=after_ms),
-            "window_full": len(items) >= 50}
+    """Walk newest-to-oldest until the saved cursor; report an unfilled gap."""
+    from datetime import datetime
+    cursor = int(after_ms) if after_ms is not None else None
+    items, newest, before, oldest_seen = [], cursor, None, None
+    reached = False
+    had_full = False
+    for _ in range(8):
+        kwargs = {"limit": 50}
+        if before is not None:
+            kwargs["before"] = before
+        response = spotify_read(lambda: spotify.current_user_recently_played(**kwargs), attempts=2) or {}
+        page = response.get("items") or []
+        stamps = []
+        for item in page:
+            try:
+                stamps.append(int(datetime.fromisoformat(item["played_at"].replace("Z", "+00:00")).timestamp() * 1000))
+            except (KeyError, TypeError, ValueError):
+                continue
+        items.extend(page)
+        if stamps:
+            newest = max(newest or 0, *stamps)
+            oldest = min(stamps)
+            oldest_seen = min(oldest_seen or oldest, oldest)
+            if cursor is not None and oldest <= cursor:
+                reached = True
+                break
+            if before is not None and oldest >= before:
+                break  # The provider stopped advancing; do not loop forever.
+            before = oldest
+        page_full = len(page) >= 50
+        had_full = had_full or page_full
+        if not page_full or not stamps:
+            break
+    # A full final page without reaching the old cursor cannot prove that all
+    # intervening plays were fetched. The initial sync is also a bounded view.
+    gap = had_full and not reached
+    return {"items": items, "cursor_ms": newest, "window_full": gap,
+            "coverage_gap": gap, "initial_window": cursor is None,
+            "oldest_ms": oldest_seen}
 
 
 def select_image(images, minimum=160):
@@ -759,14 +783,23 @@ def playback_observation(spotify):
 
 
 def track_metadata(spotify, ids):
-    """Best-effort catalogue enrichment; endpoint access varies by app."""
-    cleaned = [value for value in ids if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9]{22}", value)][:50]
+    """Resolve exact Spotify IDs through supported single-track requests."""
+    cleaned = list(dict.fromkeys(value for value in ids if isinstance(value, str)
+                                 and re.fullmatch(r"[A-Za-z0-9]{22}", value)))[:8]
     if not cleaned:
         return {"tracks": []}
-    response = spotify_read(lambda: spotify.tracks(cleaned), attempts=2) or {}
     result = []
-    for item in response.get("tracks") or []:
-        if not isinstance(item, dict) or item.get("id") not in cleaned:
+    for track_id in cleaned:
+        try:
+            item = spotify_read(lambda track_id=track_id: spotify.track(track_id), attempts=2)
+        except Exception as error:
+            if getattr(error, "http_status", None) not in (403, 404):
+                raise
+            # Spotify's official public oEmbed response can still supply an
+            # ID-bound thumbnail when catalogue access is restricted.
+            result.append({"id": track_id, "artwork_url": spotify_oembed_artwork(track_id)})
+            continue
+        if not isinstance(item, dict) or item.get("id") != track_id:
             continue
         album = item.get("album") or {}
         artists = item.get("artists") or []
@@ -780,6 +813,32 @@ def track_metadata(spotify, ids):
                         for artist in artists if isinstance(artist, dict)],
         })
     return {"tracks": result}
+
+
+def spotify_oembed_artwork(track_id):
+    """Read only an official Spotify thumbnail for an exact track URL."""
+    from urllib.parse import urlencode, urlsplit
+    from urllib.request import Request, urlopen
+    if not isinstance(track_id, str) or not re.fullmatch(r"[A-Za-z0-9]{22}", track_id):
+        return None
+    url = "https://open.spotify.com/oembed?" + urlencode({
+        "url": "https://open.spotify.com/track/" + track_id})
+    try:
+        with urlopen(Request(url, headers={"User-Agent": "Apollo/1.0"}), timeout=4) as response:
+            payload = json.loads(response.read(32768))
+    except Exception:
+        return None
+    if payload.get("provider_name") != "Spotify" or payload.get("provider_url") != "https://spotify.com":
+        return None
+    thumbnail = payload.get("thumbnail_url")
+    if not isinstance(thumbnail, str):
+        return None
+    parsed = urlsplit(thumbnail)
+    official_host = parsed.hostname == "i.scdn.co" or bool(re.fullmatch(
+        r"image-cdn-[a-z]{2}\.spotifycdn\.com", parsed.hostname or ""))
+    if parsed.scheme != "https" or not official_host or parsed.netloc != parsed.hostname or not re.fullmatch(r"/image/[A-Za-z0-9]+", parsed.path):
+        return None
+    return thumbnail if not (parsed.query or parsed.fragment or parsed.username or parsed.password) else None
 
 
 def run(payload, play=False):

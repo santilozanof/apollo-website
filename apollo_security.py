@@ -63,6 +63,11 @@ def init_schema(conn):
             id INTEGER PRIMARY KEY CHECK(id=1), failures INTEGER NOT NULL,
             window_started INTEGER NOT NULL, blocked_until INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS apollo_public_messages (
+            message_id INTEGER PRIMARY KEY, chat_id INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_apollo_public_messages_chat
+            ON apollo_public_messages(chat_id, message_id);
     ''')
     conn.execute('INSERT OR IGNORE INTO apollo_security_policy(id,policy_json) VALUES(1,?)',
                  (json.dumps({'tabs': {}, 'privacy': 'standard', 'protect_spotify': False,
@@ -204,15 +209,78 @@ def private_access_mode(conn, handler, content, allow_public=False):
     return 'locked', None
 
 
-def public_answer_text(server, question):
-    """Isolated general answer: no account context, history, retrieval, or tools."""
+def public_conversation(conn, chat_id, before_id, limit=8):
+    """Only prior turns explicitly completed in public mode may be read here."""
+    rows = conn.execute('''
+        SELECT m.role, m.content FROM apollo_public_messages p
+        JOIN messages m ON m.id=p.message_id AND m.chat_id=p.chat_id
+        WHERE p.chat_id=? AND m.id<? AND m.role IN ('user','assistant')
+        ORDER BY m.id DESC LIMIT ?
+    ''', (chat_id, before_id, limit)).fetchall()
+    return [{'role': row['role'], 'content': str(row['content'] or '')[:1200]}
+            for row in reversed(rows)]
+
+
+def mark_public_pair(conn, chat_id, user_id, assistant_id):
+    """Tag both sides atomically after a successful public answer."""
+    for message_id, role in ((user_id, 'user'), (assistant_id, 'assistant')):
+        if not conn.execute('SELECT 1 FROM messages WHERE id=? AND chat_id=? AND role=?',
+                            (message_id, chat_id, role)).fetchone():
+            raise ValueError('Public response provenance is invalid')
+        conn.execute('INSERT OR IGNORE INTO apollo_public_messages(message_id,chat_id) VALUES(?,?)',
+                     (message_id, chat_id))
+
+
+def backfill_public_pairs(conn):
+    """Recover old public-only turns only when saved job provenance is exact."""
+    tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('messages','chat_generation_jobs')")}
+    if tables != {'messages', 'chat_generation_jobs'}:
+        return 0
+    if 'public_only' not in {row[1] for row in conn.execute('PRAGMA table_info(chat_generation_jobs)')}:
+        return 0
+    recovered = 0
+    for job in conn.execute('''
+        SELECT chat_id, message_json FROM chat_generation_jobs
+        WHERE public_only=1 AND state='complete' AND message_json IS NOT NULL
+    ''').fetchall():
+        try:
+            saved = json.loads(job['message_json'])
+            answer = saved['content'] if saved['role'] == 'assistant' else None
+        except (TypeError, ValueError, KeyError):
+            continue
+        if not isinstance(answer, str) or not answer:
+            continue
+        # An answer can occur in several chats or be repeated in one chat.
+        # Only a unique exact match with an adjacent user turn is safe to tag.
+        matches = conn.execute('''
+            SELECT id FROM messages WHERE chat_id=? AND role='assistant' AND content=? LIMIT 2
+        ''', (job['chat_id'], answer)).fetchall()
+        if len(matches) != 1:
+            continue
+        assistant_id = matches[0][0]
+        prior = conn.execute('''
+            SELECT id,role FROM messages WHERE chat_id=? AND id<? ORDER BY id DESC LIMIT 1
+        ''', (job['chat_id'], assistant_id)).fetchone()
+        if not prior or prior['role'] != 'user':
+            continue
+        mark_public_pair(conn, job['chat_id'], prior['id'], assistant_id)
+        recovered += 1
+    return recovered
+
+
+def public_answer_text(server, question, conversation=()):
+    """Public answer with only explicitly tagged public turns and no private data."""
     if not isinstance(question, str) or not question.strip() or len(question) > 1200:
         raise ValueError('Enter a short public question')
+    model = 'gpt-5.6-terra' if conversation and 2 <= len(question.split()) <= 18 else 'gpt-5.6-luna'
     request = urllib.request.Request(server.HERMES_URL,
-        data=json.dumps({'provider': 'openai-codex', 'model': 'gpt-5.6-luna',
+        data=json.dumps({'provider': 'openai-codex', 'model': model,
             'model_options': {'reasoning_effort': 'low', 'disable_tools': True},
             'messages': [
-                {'role': 'system', 'content': 'Answer public, general questions only. You have no access to Apollo personal data, saved conversations, accounts or connected services. If asked for personal details, say verification is required. Do not imply you checked sources.'},
+                {'role': 'system', 'content': 'Answer public, general questions only. You have no access to Apollo personal data, private conversations, accounts or connected services. The supplied prior turns were also answered in public mode. Resolve short reactions, jokes, corrections and pronouns from those turns before treating them as a new request. If asked for personal details, say verification is required. Do not imply you checked sources.'},
+                *[{'role': item['role'], 'content': item['content']} for item in conversation[-8:]
+                  if isinstance(item, dict) and item.get('role') in ('user', 'assistant')],
                 {'role': 'user', 'content': question}]}).encode('utf-8'),
         headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + server.get_api_key()},
         method='POST')

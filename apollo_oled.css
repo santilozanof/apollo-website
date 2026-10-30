@@ -2,19 +2,19 @@
 :root,
 html[data-theme="dark"] {
     --bg: #000000;
-    --surface: #0b0b0d;
-    --surface-hover: #151518;
-    --input-bg: #0b0b0d;
-    --control-bg: #151518;
+    --surface: #0d0d0d;
+    --surface-hover: #222222;
+    --input-bg: #0d0d0d;
+    --control-bg: #171717;
     --sidebar-bg: rgba(0, 0, 0, .84);
     --apollo-boot-bg: #000000;
 }
-html[data-theme="light"] { --apollo-boot-bg: #f7f7f5; }
+html[data-theme="light"] { --apollo-boot-bg: #f7f7f7; }
 html[data-theme="dark"] {
     --os-bg: #000000;
     --os-canvas: #000000;
-    --os-paper: #0b0b0d;
-    --os-surface-solid: #111114;
+    --os-paper: #0d0d0d;
+    --os-surface-solid: #171717;
 }
 html[data-theme="dark"] body,
 html[data-theme="dark"] .main,

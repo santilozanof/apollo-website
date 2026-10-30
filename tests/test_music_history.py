@@ -107,10 +107,63 @@ class MusicHistoryTests(unittest.TestCase):
                 return {"items": [api_play()]}
         spotify = Spotify()
         response = spotify_curator_tool.recent_history(spotify, 1000)
-        self.assertEqual(spotify.kwargs, {"limit": 50, "after": 999})
+        self.assertEqual(spotify.kwargs, {"limit": 50})
         self.assertEqual(len(response["items"]), 1)
         self.assertFalse(response["window_full"])
         self.assertIsNone(music_history.normalize_record(response["items"][0])["ms_played"])
+
+    def test_recent_api_pages_back_to_saved_cursor_and_reports_unfilled_gap(self):
+        base = datetime(2026, 3, 12, 12, tzinfo=timezone.utc)
+        def item(second):
+            return api_play((base + timedelta(seconds=second)).isoformat().replace("+00:00", "Z"))
+        first_page = [item(second) for second in range(120, 170)]
+        older_page = [item(119), item(118)]
+        class Spotify:
+            def __init__(self, older):
+                self.calls = []
+                self.older = older
+            def current_user_recently_played(self, **kwargs):
+                self.calls.append(kwargs)
+                return {"items": first_page if "before" not in kwargs else self.older}
+        cursor = int((base + timedelta(seconds=118)).timestamp() * 1000)
+        spotify = Spotify(older_page)
+        response = spotify_curator_tool.recent_history(spotify, cursor)
+        self.assertEqual(len(response["items"]), 52)
+        self.assertEqual(spotify.calls[1], {"limit": 50, "before": int((base + timedelta(seconds=120)).timestamp() * 1000)})
+        self.assertFalse(response["window_full"])
+        missing = spotify_curator_tool.recent_history(Spotify([]), cursor)
+        self.assertTrue(missing["coverage_gap"])
+
+    def test_track_artwork_uses_supported_single_track_endpoint(self):
+        track_id = "A" * 22
+        class Spotify:
+            def tracks(self, ids):
+                raise AssertionError("Removed batch endpoint must not be called")
+            def track(self, requested):
+                self.requested = requested
+                return {"id": requested, "album": {"id": "B" * 22, "name": "Album",
+                        "images": [{"url": "https://i.scdn.co/image/real", "width": 300}]},
+                        "artists": [{"id": "C" * 22, "name": "Artist"}], "duration_ms": 200000}
+        spotify = Spotify()
+        result = spotify_curator_tool.track_metadata(spotify, [track_id, track_id])
+        self.assertEqual(spotify.requested, track_id)
+        self.assertEqual(len(result["tracks"]), 1)
+        self.assertEqual(result["tracks"][0]["artwork_url"], "https://i.scdn.co/image/real")
+
+    def test_restricted_catalogue_can_use_exact_official_oembed_art(self):
+        track_id = "A" * 22
+        class Denied(Exception):
+            http_status = 403
+        class Spotify:
+            def track(self, _):
+                raise Denied()
+        art = "https://image-cdn-ak.spotifycdn.com/image/albumart"
+        with mock.patch.object(spotify_curator_tool, "spotify_oembed_artwork", return_value=art) as fallback:
+            result = spotify_curator_tool.track_metadata(Spotify(), [track_id])
+        fallback.assert_called_once_with(track_id)
+        self.assertEqual(result["tracks"][0]["artwork_url"], art)
+        self.assertEqual(music_history._safe_art(art), art)
+        self.assertIsNone(music_history._safe_art("https://image-cdn-ak.spotifycdn.com.evil.example/image/x"))
 
     def test_official_artist_image_uses_exact_id_and_suitable_resolution(self):
         artist_id = "A" * 22
