@@ -99,6 +99,12 @@ def run(revision):
                 'time_zone': 'Europe/Zurich',
             })[key] for key in ('period', 'anchor')],
         ], [True, 'monthly', '2026-09-01'], old_intelligence, new_intelligence),
+        ('Measured-minutes listening request', lambda m: [
+            m.personal_music_history_request('How many measured Spotify minutes did I listen to in October 2026, and how many were verified?'),
+            *[m.music_history_initial_args('How many measured Spotify minutes did I listen to in October 2026, and how many were verified?', {
+                'local_time': '2026-10-30T12:00:00+01:00', 'time_zone': 'Europe/Zurich',
+            })[key] for key in ('period', 'anchor')],
+        ], [True, 'monthly', '2026-10-01'], old_intelligence, new_intelligence),
     ]
     results = []
     for title, function, expected, old, new in cases:

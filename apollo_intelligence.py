@@ -28,8 +28,21 @@ def personal_music_history_request(message):
     return bool(
         re.search(r'\b(my|mine|me|i|apollo)\b', text)
         and re.search(r'\b(spotify|listening|plays?|artists?|tracks?|albums?)\b', text)
-        and re.search(r'\b(history|listening|most played|top|rank(?:ing)?s?|plays?|months?|years?|coverage|available|data|stats?|statistics|insights?|trends?|recaps?)\b', text)
+        and re.search(r'\b(history|listening|listen(?:ed|ing)?|most played|top|rank(?:ing)?s?|plays?|months?|years?|coverage|available|data|stats?|statistics|insights?|trends?|recaps?|minutes?|hours?|duration|measured|verified|estimated)\b', text)
     )
+
+
+def music_history_request_context(message, messages):
+    if personal_music_history_request(message):
+        return message
+    if not re.search(r'\b(?:minutes?|hours?|duration|listening|listened|measured|verified|estimated|plays?)\b', str(message or ''), re.I):
+        return ''
+    for previous in reversed(messages or []):
+        if previous.get('role') != 'user' or previous.get('content') == message:
+            continue
+        prior_text = str(previous.get('content') or '')
+        return prior_text + ' ' + message if personal_music_history_request(prior_text) else ''
+    return ''
 
 
 def music_history_initial_args(message, client_context):
@@ -299,7 +312,8 @@ def enrich(server, messages, user_message, plan, message_id, client_context, pro
     """
     memory = store(server)
     memory.enforce_retention()
-    history_requested = personal_music_history_request(user_message)
+    history_message = music_history_request_context(user_message, messages)
+    history_requested = bool(history_message)
     recall = bool((not history_requested and RECALL.search(user_message)) or plan.get('history_query'))
     personal_fact_request = bool(PERSONAL_FACT_REQUEST.search(user_message))
     recall = recall or personal_fact_request
@@ -333,7 +347,7 @@ def enrich(server, messages, user_message, plan, message_id, client_context, pro
             continue
         initial.append((name + '_read', {'days': plan.get('calendar_days', 7)} if name == 'calendar' else {}))
     if history_requested:
-        initial.append(('spotify_history_read', music_history_initial_args(user_message, client_context)))
+        initial.append(('spotify_history_read', music_history_initial_args(history_message, client_context)))
     if plan.get('research_query'):
         initial.append(('web_research', {'query': plan['research_query']}))
     trace_token = CURRENT_TRACE.set(runtime.trace)

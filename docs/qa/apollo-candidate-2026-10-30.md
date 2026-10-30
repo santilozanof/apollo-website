@@ -4,12 +4,12 @@
 
 - Worktree: /private/tmp/apollo-overhaul-release-601f671, branch codex/apollo-design-system.
 - Base revision: c231f0c78348923fa208c0a8810323ce5257d9f4. The final candidate SHA is the committed branch HEAD, recorded separately after commit.
-- Production was checked read-only and remains at the base SHA.
+- Production was updated by GitHub Actions run #108 to b2185248d037f0d75512a0ca0f806ad78824587b after exact-SHA gates passed. The subsequent measured-minutes Chat hotfix requires a new SHA and a new release gate.
 - The original /Users/Santi/Documents/apollo-website checkout was not changed by this candidate.
 
 ## Verification
 
-- Python: 433 tests passed, 2 skipped, on isolated local SQLite after the application-awareness, music-scope, prompt-routing, and migration-preservation changes. This macOS Python lacks hashlib.scrypt; the test runner used a test-only PBKDF2 shim. Production hashing was not substituted.
+- Python: 434 tests passed, 2 skipped, on isolated local SQLite after the application-awareness, music-scope, prompt-routing, migration-preservation, and measured-minutes changes. This macOS Python lacks hashlib.scrypt; the test runner used a test-only PBKDF2 shim. Production hashing was not substituted.
 - iOS configuration: 17 passed.
 - JavaScript syntax (modified external modules), Python compilation, and git diff --check passed.
 - iOS production asset build passed.
@@ -21,9 +21,9 @@
 
 ## Release gates
 
-The candidate is staged in an isolated server worktree. A first fresh backup and server-side restore passed for its preceding commit; the first migration rehearsal then detected that the sensitivity-column backfill cleared 148 existing memory embeddings. The migration now replaces the broad update trigger with one limited to content changes, and a regression test confirms existing vectors survive the backfill while content edits still invalidate them. Because this fix changes the release SHA, a fresh exact-SHA backup, independent Mac restore, migration and previous-backend compatibility rehearsals, rollback rehearsal, model fingerprint, and readiness manifest remain mandatory. Do not push main or deploy until they pass.
+The first fresh backup and server-side restore passed for the preceding commit; its migration rehearsal detected that sensitivity backfill cleared 148 stored memory embeddings. The narrower update trigger fixed that regression. For b218524, a new private snapshot, server restore, independent Mac artifact verification and SQLite/config restore, twice-run migration, previous-backend HTTP/rollback compatibility, runtime/ancestry/model checks and root-owned exact-SHA readiness manifest all passed. Run #108 succeeded. The measured-minutes Chat hotfix below must repeat fresh exact-SHA release checks before another push.
 
-Read-only production check: /root/Apollo remains at c231f0c78348923fa208c0a8810323ce5257d9f4. The actual apollo-backend.service and apollo-web.service were active; localhost /api/memory returned HTTP 200. An older /root/apollo-deployment-ready.json exists, but it does not prepare an uncommitted candidate.
+Post-deployment production check: /root/Apollo and /root/apollo-active-release both reported b2185248d037f0d75512a0ca0f806ad78824587b. Apollo backend, web and Hermes were active; SQLite integrity was ok; original 941 chats, 5,638 messages and 148 memory embeddings remained. The private HTTPS Home and critical read-only APIs returned HTTP 200. The protected diagnostics endpoint returned HTTP 423 without verification. The live static index hash matched the candidate.
 
 ## Additional scope
 
@@ -33,4 +33,10 @@ The reproducible deterministic evaluation in scripts/evaluate-intelligence.py co
 
 The prompt audit measured a 16,156-character rich-component schema sent on every Chat turn. The candidate keeps it for visual, narrative and interactive questions and omits it for simple turns. Three controlled public-question calls per variant through the production answer gateway used the same fast model: the current prompt had median first token 1.07 s and total 1.76 s; the shorter candidate-selected prompt had median first token 1.12 s and total 1.49 s. All six produced nonempty answers. This small gateway-only sample does not establish a statistically reliable speed or quality gain and is not an end-to-end candidate deployment test.
 
-The broad intelligence directive is not yet fully verified. In particular, candidate model-level before/after evaluation, live connected cross-feature conversations, image generation through production Chat, and independent real-account privacy QA remain open. Production release gates remain unsatisfied.
+The broad intelligence directive is not yet fully verified. In particular, candidate model-level before/after evaluation, image generation through production Chat, and independent real-account privacy QA remain open. The measured-minutes hotfix release gates remain unsatisfied.
+
+## Post-deployment observations and measured-minutes correction
+
+Live Chrome on the private HTTPS origin showed Home, Calendar events, Canvas tasks, Routines/hydration, WHOOP measurements, Music Insights, Recaps, and connected statuses for Gmail, Google Calendar, Canvas, Spotify and WHOOP. The October monthly recap exported a readable 1080×1920 PNG with artist imagery and 7,712 measured minutes. At 390×844, Home and Chat fit without horizontal overflow and the mobile navigation and composer remained accessible. Studio showed its verification gate; physical native iPhone passkeys were not tested.
+
+A read-only Chat test answered the current screen correctly and opened Music Insights through the registered navigation action. It then failed the cross-feature question “How many measured Spotify minutes did I listen to in October 2026, and how many were verified?” despite the Music Insights panel showing 7,712 measured and 7,429 verified minutes. The intent predicate did not recognize duration terms, so it sent the request down a current-playback path. The hotfix routes measured, verified, estimated, minutes, hours and duration questions to recorded history and keeps the immediately preceding Music Insights question as the scope of a verified-minutes follow-up. The deterministic comparison against deployed b218524 is 6/7 versus 7/7 for this hotfix candidate. End-to-end live Chat must be repeated after hotfix deployment; no answer-quality claim is based solely on this routing test.

@@ -195,6 +195,20 @@ class PipelineTests(unittest.TestCase):
             {'local_time': '2026-10-30T12:00:00+01:00'},
         )['anchor'], '2025-09-01')
 
+    def test_listening_minutes_and_verified_followup_use_recorded_history(self):
+        prompt = 'How many measured Spotify minutes did I listen to in October 2026, and how many were verified?'
+        self.assertTrue(intelligence.personal_music_history_request(prompt))
+        args = intelligence.music_history_initial_args(prompt, {'local_time': '2026-10-30T12:00:00+01:00'})
+        self.assertEqual((args['period'], args['anchor']), ('monthly', '2026-10-01'))
+        chat_id = self.chat()
+        with mock.patch.object(server, 'apollo_context_spotify', side_effect=AssertionError('playback is not history')):
+            captured, _ = self.turn(prompt, plan={'intent':'personal_query','primary_domain':'spotify','spotify':True}, chat_id=chat_id)
+            self.assertIn('spotify_history_read', '\n'.join(m['content'] for m in captured))
+            followup, _ = self.turn('How many of those minutes were verified?', chat_id=chat_id)
+        self.assertIn('spotify_history_read', '\n'.join(m['content'] for m in followup))
+        self.assertEqual(intelligence.music_history_request_context('How many were verified?', [
+            {'role':'user','content':'What is the weather?'}]), '')
+
     def test_spotify_history_coverage_uses_all_recorded_months(self):
         import music_history
         conn = server.db()
